@@ -1,0 +1,31 @@
+static const struct ltq_eth_port_config eth_port_sl5501[] = {
+	/* GMAC0: external Lantiq PEF7071 10/100/1000 PHY for WANoE port */
+	{ 0, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+	
+	/* GMAC1: external Lantiq PEF7071 10/100/1000 PHY for LAN port 3/4 */
+	{ 1, 0x1, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+	
+	/* GMAC2: internal GPHY1 with 10/100 firmware for LAN port 1/2 */
+	{ 2, 0x11, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_MII },
+	
+	/* GMAC3: internal GPHY0 with 10/100 firmware for LAN port 1/2 */
+	{ 3, 0x12, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_MII },
+	
+	/* GMAC4: internal GPHY0 with 10/100/1000 firmware for LAN port 3/4 */
+	{ 4, 0x13, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
+	/* GMAC5: Ralink iNIC */
+	
+	{ 5, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
+};
+
+---------------------------------------------------------------------------------------
+
+0x0 Wan (PEF7071)
+
+0x1  lan 3/4 (PEF7071)
+
+0x11 lan 1/2 (GPHY1)
+
+0x12 lan 3/4 (GPHY0)
+
+0x13 lan 1/2 (GPHY0)

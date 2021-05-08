@@ -1,0 +1,102 @@
+static struct xway_switch_phy xmii0_phy_ge = {
+	.interface = PHY_INTERFACE_MODE_RGMII,
+	.irq = IFX_EIU_IR2,
+	.irq_flags = IRQF_TRIGGER_LOW,
+	.addr = 0x0,
+};
+
+static struct xway_switch_phy xmii1_phy_ge = {
+	.interface = PHY_INTERFACE_MODE_RGMII,
+	.irq = IFX_EIU_IR2,
+	.irq_flags = IRQF_TRIGGER_LOW,
+	.addr = 0x1,
+};
+
+static struct xway_switch_phy gphy0_fe0 = {
+	.interface = PHY_INTERFACE_MODE_MII,
+	.irq = INT_NUM_IM3_IRL18,
+	.addr = 0x11,
+};
+
+static struct xway_switch_phy gphy0_fe1 = {
+	.interface = PHY_INTERFACE_MODE_MII,
+	.irq = INT_NUM_IM3_IRL18,
+	.addr = 0x12,
+};
+
+static struct xway_switch_phy gphy0_ge = {
+	.interface = PHY_INTERFACE_MODE_GMII,
+	.irq = INT_NUM_IM3_IRL18,
+	.addr = 0x11,
+};
+
+static struct xway_switch_phy gphy1_ge = {
+	.interface = PHY_INTERFACE_MODE_GMII,
+	.irq = INT_NUM_IM3_IRL17,
+	.addr = 0x13,
+};
+
+static struct xway_switch_mac xmii2_mac_ge = {
+	.interface = PHY_INTERFACE_MODE_RGMII,
+	.speed = SPEED_1000,
+	.duplex = DUPLEX_FULL,
+};
+static struct xway_switch_xmii switch_xmii_sl550x[] = {
+	{
+		.dev_name = "sw-p0-wanoe",
+		.ppid = 0,
+		.phy = &xmii0_phy_ge,
+	},
+	{
+		.dev_name = "sw-p1-lan4",
+		.ppid = 1,
+		.phy = &xmii1_phy_ge,
+	},
+	{
+		.dev_name = "sw-p5-wifi",
+		.ppid = 5,
+		.rgmii_tx_delay = 3,
+		.mac = &xmii2_mac_ge,
+	},
+};
+static struct xway_switch_gphy switch_gphy_sl550x[] = {
+	{
+		.dev_name = "sw-p2-lan1",
+		.ppid = 2,
+		.phy = &gphy0_fe0,
+	},
+	{
+		.dev_name = "sw-p3-lan2",
+		.ppid = 3,
+		.phy = &gphy0_fe1,
+	},
+	{
+		.dev_name = "sw-p4-lan3",
+		.ppid = 4,
+		.phy = &gphy1_ge,
+	},
+};
+static struct xway_switch_gphy_core switch_gphy_core_sl550x[] = {
+	{
+		.mode = GPHY_22F,
+		.id = 0,
+	},
+	{
+		.mode = GPHY_11G,
+		.id = 1,
+	},
+};
+static const struct ltq_eth_port_config eth_port_sl5501[] = {
+	/* GMAC0: external Lantiq PEF7071 10/100/1000 PHY for WANoE port */
+	{ 0, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+	/* GMAC1: external Lantiq PEF7071 10/100/1000 PHY for LAN port 3/4 */
+	{ 1, 0x1, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+	/* GMAC2: internal GPHY1 with 10/100 firmware for LAN port 1/2 */
+	{ 2, 0x11, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_MII },
+	/* GMAC3: internal GPHY0 with 10/100 firmware for LAN port 1/2 */
+	{ 3, 0x12, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_MII },
+	/* GMAC4: internal GPHY0 with 10/100/1000 firmware for LAN port 3/4 */
+	{ 4, 0x13, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
+	/* GMAC5: Ralink iNIC */
+	{ 5, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
+};

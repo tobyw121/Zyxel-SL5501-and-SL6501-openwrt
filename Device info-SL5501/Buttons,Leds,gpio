@@ -1,0 +1,129 @@
+-----------------------------------        
+USB0 = gpio 41,
+
+USB1 =gpio 33
+-----------------------------------
+Buttons :
+
+WPS =gpio 46
+
+WLAN = gpio 45
+
+RESET = gpio 47
+-------------------------------------
+Flash :
+
+spi flash : gpio 10
+
+nand flash1 = gpio 39
+
+nand flash2 = gpio 22
+--------------------------------------
+Leds:
+green power = gpio 3
+red Power = gpio 19
+green info =gpio 20
+red info = gpio 21
+green wlan =gpio 29
+green wps = gpio 30
+green web = gpio 27
+red web = gpio 28
+green usb =gpio 32
+--------------------------------------
+ifx gpio :
+
+green phone = 7
+red phone = 4
+green lan3 = 6
+green lan2 = 2
+green lan1 = 3
+green usb = 1
+green dsl = 0
+
+----------------------------------------
+
+
+???????????????????????????
+static const struct stg_gpio_config stg_gpios[] = {
+	{
+		.name = "wlan-pwr",
+		.gpio = 37,
+		.active_low = 0,
+		.default_state = STG_GPIO_DEFSTATE_OFF,
+	},
+	{
+		.name = "wlan-rst",
+		.gpio = 15,
+		.active_low = 1,
+		.default_state = STG_GPIO_DEFSTATE_ON,
+	},
+	{
+		.name = "slic-rst",
+		.gpio = 31,
+		.active_low = 1,
+		.default_state = STG_GPIO_DEFSTATE_ON,
+	},
+};
+----------------------------------------------------------------------------------------------------
+static int sl550x_phy_fixup(struct phy_device *phydev)
+{
+	unsigned int led0h = 0, led0l = 0, led1h = 0, led1l = 0;
+
+	pr_info("%s: phydev->addr %0x\n", __func__, phydev->addr);
+
+	switch (phydev->addr) {
+	case 0x00:
+	case 0x01:
+		led0h = 0x70;
+		led0l = 0x03;
+		break;
+	case 0x11:
+	/*
+	 *  case 0x12: both FE PHYs share the same LED interface thus only one
+	 *      	setup is necessary
+	 */
+		/* FE PHY0 works on LED0 */
+		led0h = 0x30;
+		led0l = 0x03;
+		/* FE PHY1 works on LED1 */
+		led1h = 0x30;
+		led1l = 0x03;
+		break;
+	case 0x13:
+		led0h = 0x70;
+		led0l = 0x03;
+		break;
+	default:
+		return 0;
+	}
+
+	/* LED0 */
+	pef7071_mmd_write(phydev, 0x1e2, led0h);
+	pef7071_mmd_write(phydev, 0x1e3, led0l);
+
+	/* LED1 */
+	pef7071_mmd_write(phydev, 0x1e4, led1h);
+	pef7071_mmd_write(phydev, 0x1e5, led1l);
+
+	/* LED2 */
+	pef7071_mmd_write(phydev, 0x1e6, 0x00);
+	pef7071_mmd_write(phydev, 0x1e7, 0x00);
+
+	return 0;
+}
+----------------------------------------------------------------------------------
+static void __init sl550x_phy_init(void)
+{
+	phy_register_fixup_for_uid(0xd565a400, 0xffffff00, sl550x_phy_fixup);
+}
+---------------------------------------------------------------------------------------
+static void __init sl550x_gpio_init(void)
+{
+	/* EXIN1 on GPIO1 for Lantiq IPAC-X PSB 21150 */
+	gpio_set_altfunc(1, 1, 0, 0);
+
+	/* EXIN2 on GPIO2 for Lantiq PEF7071 PHYs */
+	gpio_set_altfunc(2, 0, 1, 0);
+}
+--------------------------------------------------------------------------------
+?????????????????????????????????????????????????????

@@ -1,0 +1,23 @@
+Creating 6 MTD partitions on "spi0.4":
+[    0.339000] 0x000000000000-0x000000080000 : "uboot_fix"
+[    0.346000] 0x000000080000-0x0000000c0000 : "uboot_cfg"
+[    0.352000] 0x0000000c0000-0x000000ac0000 : "data"
+[    0.356000] 0x000000ac0000-0x000002540000 : "images1"
+[    0.361000] 0x000000c7c040-0x000001515040 : "rootfs"
+[    0.366000] 0x000002540000-0x000003fc0000 : "images2"
+
+
+static struct spi_board_info spi_boardinfo_sl550x[] __initdata = {
+	{
+		.modalias = "m25p80",	/* SPI flash */
+		.bus_num = 0,
+		.chip_select = 4,
+		.mode = SPI_MODE_0,
+		.max_speed_hz = 25000000,
+		.controller_data = &spi_cdata_m25p80,
+	},
+
+spi_cdata_m25p80 = {
+	.gpio = 10,
+
+the flash is on gpio 10 and the controller is the m25p80
