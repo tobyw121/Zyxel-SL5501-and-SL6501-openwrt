@@ -1,0 +1,2213 @@
+diff --git a/Makefile b/Makefile
+index 102a1c610068e1b9e166bdc0ef9d9b9152c24dcc..dda7a19815cd8d53bf71449fed67f23173b36e11 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.30
++EXTRAVERSION = -stg-2.0
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+@@ -231,7 +231,6 @@ LIBS-y += lib/libgeneric.o
+ LIBS-y += lib/lzma/liblzma.o
+ LIBS-y += lib/lzo/liblzo.o
+ LIBS-y += lib/zlib/libz.o
+-LIBS-$(CONFIG_LIB_SPHAIRON) += lib/sphairon/libsphairon.o
+ LIBS-$(CONFIG_TIZEN) += lib/tizen/libtizen.o
+ LIBS-$(HAVE_VENDOR_COMMON_LIB) += board/$(VENDOR)/common/lib$(VENDOR).o
+ LIBS-y += $(CPUDIR)/lib$(CPU).o
+@@ -310,6 +309,7 @@ LIBS-y += lib/libfdt/libfdt.o
+ LIBS-y += api/libapi.o
+ LIBS-y += post/libpost.o
+ LIBS-y += test/libtest.o
++LIBS-$(CONFIG_LIB_SPHAIRON) += lib/sphairon/libsphairon.o
+ 
+ ifneq ($(CONFIG_AM33XX)$(CONFIG_OMAP34XX)$(CONFIG_OMAP44XX)$(CONFIG_OMAP54XX),)
+ LIBS-y += $(CPUDIR)/omap-common/libomap-common.o
+diff --git a/arch/mips/cpu/mips32/cache.S b/arch/mips/cpu/mips32/cache.S
+index 2b81fb2c3fca36072e7912e55b9d9c32e03bc99a..0582b4129b5690bc6b824eae1856dff7ee571640 100644
+--- a/arch/mips/cpu/mips32/cache.S
++++ b/arch/mips/cpu/mips32/cache.S
+@@ -96,7 +96,6 @@ LEAF(mips_init_icache)
+ 1:	cache_op	Index_Store_Tag_I t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
+-#ifndef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	/* fill once, so data field parity is correct */
+ 	PTR_LI		t0, INDEX_BASE
+ 2:	cache_op	Fill t0
+@@ -107,7 +106,6 @@ LEAF(mips_init_icache)
+ 1:	cache_op	Index_Store_Tag_I t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
+-#endif
+ 9:	jr		ra
+ 	END(mips_init_icache)
+ 
+@@ -127,7 +125,6 @@ LEAF(mips_init_dcache)
+ 1:	cache_op	Index_Store_Tag_D t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
+-#ifndef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	/* load from each line (in cached space) */
+ 	PTR_LI		t0, INDEX_BASE
+ 2:	LONG_L		zero, 0(t0)
+@@ -138,7 +135,6 @@ LEAF(mips_init_dcache)
+ 1:	cache_op	Index_Store_Tag_D t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
+-#endif
+ 9:	jr		ra
+ 	END(mips_init_dcache)
+ 
+@@ -163,7 +159,6 @@ NESTED(mips_cache_reset, 0, ra)
+ 	li	t4, CONFIG_SYS_CACHELINE_SIZE
+ 	move	t5, t4
+ 
+-#ifndef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	li	v0, MIPS_MAX_CACHE_SIZE
+ 
+ 	/*
+@@ -174,7 +169,7 @@ NESTED(mips_cache_reset, 0, ra)
+ 2:	PTR_ADDIU	a0, 64
+ 	f_fill64	a0, -64, zero
+ 	bne		a0, a1, 2b
+-#endif
++
+ 	/*
+ 	 * The caches are probably in an indeterminate state,
+ 	 * so we force good parity into them by doing an
+diff --git a/arch/mips/cpu/mips32/vrx200/mem_init.S b/arch/mips/cpu/mips32/vrx200/mem_init.S
+index b30e5bbbc6e040b575bc92856612c0d57d4a8944..9d81900bdddf3b4d4706ef1de2c668d128fe3593 100644
+--- a/arch/mips/cpu/mips32/vrx200/mem_init.S
++++ b/arch/mips/cpu/mips32/vrx200/mem_init.S
+@@ -18,6 +18,10 @@
+ #define LTQ_MC_DDR_START		(1 << 8)
+ #define LTQ_MC_DDR_DLL_LOCK_IND	1
+ 
++#define CCS_ALWAYS_LAST			0x0430
++#define CCS_AHBM_CR_BURST_EN		(1 << 2)
++#define CCS_FPIM_CR_BURST_EN		(1 << 1)
++
+ 	/* Store given value in MC DDR CCRx register */
+ 	.macro ccr_sw num, val
+ 	li	t1, \val
+@@ -96,6 +100,11 @@ LEAF(ltq_mem_init)
+ 	ccr_sw	60, MC_CCR60_VALUE
+ 	ccr_sw	61, MC_CCR61_VALUE
+ 
++	/* Disable bursts between FPI Master bus and XBAR bus */
++	li	t4, (LTQ_MC_GLOBAL_BASE | KSEG1)
++	li	t5, CCS_AHBM_CR_BURST_EN
++	sw	t5, CCS_ALWAYS_LAST(t4)
++
+ 	/*
+ 	 * Put memory controller in active mode and start initialitation
+ 	 * sequence for connected DDR-SDRAM device
+diff --git a/arch/mips/include/asm/arch-danube/config.h b/arch/mips/include/asm/arch-danube/config.h
+index bf7e838b337935a4b14b75785b8a18b68c77271a..90f27f441e10ccd76c77f0d57c8fdfb8d6cd4553 100644
+--- a/arch/mips/include/asm/arch-danube/config.h
++++ b/arch/mips/include/asm/arch-danube/config.h
+@@ -32,9 +32,9 @@
+ #define CONFIG_SOC_XWAY_DANUBE
+ 
+ /* Cache configuration */
+-#define CONFIG_SYS_MIPS_CACHE_MODE	(CONF_CM_CACHABLE_NO_WA)
+-#define CONFIG_SYS_DCACHE_SIZE		16384
+-#define CONFIG_SYS_ICACHE_SIZE		16384
++#define CONFIG_SYS_MIPS_CACHE_MODE	CONF_CM_CACHABLE_NONCOHERENT
++#define CONFIG_SYS_DCACHE_SIZE		(16 * 1024)
++#define CONFIG_SYS_ICACHE_SIZE		(16 * 1024)
+ #define CONFIG_SYS_CACHELINE_SIZE	32
+ #define CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 
+diff --git a/arch/mips/include/asm/lantiq/dma.h b/arch/mips/include/asm/lantiq/dma.h
+index 159a892b4345d1113af87af098f7e4c1cfe89c73..9f53de8a54fb909e012738a5c760767c107cf42a 100644
+--- a/arch/mips/include/asm/lantiq/dma.h
++++ b/arch/mips/include/asm/lantiq/dma.h
+@@ -49,46 +49,47 @@ struct ltq_dma_device {
+ /**
+  * Initialize DMA hardware and driver
+  */
+-extern void ltq_dma_init(void);
++void ltq_dma_init(void);
+ 
+ /**
+  * Register given DMA client context
+  *
+  * @returns 0 on success, negative value otherwise
+  */
+-extern int ltq_dma_register(struct ltq_dma_device *dev);
++int ltq_dma_register(struct ltq_dma_device *dev);
+ 
+ /**
+  * Reset and halt all channels related to given DMA client
+  */
+-extern void ltq_dma_reset(struct ltq_dma_device *dev);
+-extern void ltq_dma_enable(struct ltq_dma_device *dev);
+-extern void ltq_dma_disable(struct ltq_dma_device *dev);
++void ltq_dma_reset(struct ltq_dma_device *dev);
++void ltq_dma_enable(struct ltq_dma_device *dev);
++void ltq_dma_disable(struct ltq_dma_device *dev);
+ 
+ /**
+  * Map RX DMA descriptor to memory region
+  *
+  * @returns 0 on success, negative value otherwise
+  */
+-extern int ltq_dma_read(struct ltq_dma_device *dev, int index,
+-				void *data, int len);
++int ltq_dma_rx_map(struct ltq_dma_device *dev, int index, void *data, int len);
+ 
+ /**
+  * Check if new data is available.
+  *
+  * @returns length of received data, 0 otherwise
+  */
+-extern int ltq_dma_read_poll(struct ltq_dma_device *dev, int index);
++int ltq_dma_rx_poll(struct ltq_dma_device *dev, int index);
++
++int ltq_dma_rx_length(struct ltq_dma_device *dev, int index);
+ 
+ /**
+  * Map TX DMA descriptor to memory region
+  *
+  * @returns 0 on success, negative value otherwise
+  */
+-extern int ltq_dma_write(struct ltq_dma_device *dev, int index,
+-			   void *data, int len, unsigned long timeout);
++int ltq_dma_tx_map(struct ltq_dma_device *dev, int index, void *data, int len,
++			unsigned long timeout);
+ 
+-extern int ltq_dma_write_wait(struct ltq_dma_device *dev, int index,
+-				unsigned long timeout);
++int ltq_dma_tx_wait(struct ltq_dma_device *dev, int index,
++			unsigned long timeout);
+ 
+ #endif /* __LANTIQ_DMA_H__ */
+diff --git a/arch/mips/lib/board.c b/arch/mips/lib/board.c
+index bae8f41fb0923b25898fab08b9df37aaaa0a5b4d..36473b41fd9f2370cadea2120a7eabb4e9cbb745 100644
+--- a/arch/mips/lib/board.c
++++ b/arch/mips/lib/board.c
+@@ -32,16 +32,19 @@
+ #include <onenand_uboot.h>
+ #include <spi.h>
+ #include <spi_flash.h>
+-#include <sas/init.h>
+ 
+ #ifdef CONFIG_BITBANGMII
+ #include <miiphy.h>
+ #endif
+ 
++#include <sas/init.h>
++
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+ ulong monitor_flash_len;
+ 
++static char *failed = "*** failed ***\n";
++
+ /*
+  * mips_io_port_base is the begin of the address space to which x86 style
+  * I/O ports are mapped.
+@@ -82,7 +85,7 @@ static int init_func_ram(void)
+ 		print_size(gd->ram_size, "\n");
+ 		return 0;
+ 	}
+-	puts("failed\n");
++	puts(failed);
+ 	return 1;
+ }
+ 
+@@ -144,7 +147,9 @@ init_fnc_t *init_sequence[] = {
+ 	display_banner,		/* say that we are here */
+ 	checkboard,
+ 	init_func_ram,
++#ifdef CONFIG_LIB_SPHAIRON
+ 	sas_init_f,
++#endif
+ 	NULL,
+ };
+ 
+@@ -327,7 +332,9 @@ void board_init_r(gd_t *id, ulong dest_addr)
+ 	puts("ready\n");
+ #endif
+ 
+-	spi_flash_init();	/* go init the SPI flash MTD */
++#if defined(CONFIG_SPI_FLASH)
++	spi_flash_init();
++#endif
+ 
+ 	/* relocate environment function pointers etc. */
+ 	env_relocate();
+diff --git a/arch/powerpc/lib/board.c b/arch/powerpc/lib/board.c
+index 07feaf55fc2290f56fa628e48a6a791eed22894f..a97b176ca00a52bbc800501e3643bcb0eb1849dd 100644
+--- a/arch/powerpc/lib/board.c
++++ b/arch/powerpc/lib/board.c
+@@ -87,6 +87,8 @@
+ #include <miiphy.h>
+ #endif
+ 
++#include <sas/init.h>
++
+ #ifdef CONFIG_SYS_UPDATE_FLASH_SIZE
+ extern int update_flash_size(int flash_size);
+ #endif
+@@ -330,6 +332,9 @@ init_fnc_t *init_sequence[] = {
+ #if defined(CONFIG_SYS_DRAM_TEST)
+ 	testdram,
+ #endif /* CONFIG_SYS_DRAM_TEST */
++#ifdef CONFIG_LIB_SPHAIRON
++	sas_init_f,
++#endif
+ 	INIT_FUNC_WATCHDOG_RESET
+ 	NULL,	/* Terminate this list */
+ };
+@@ -1051,6 +1056,8 @@ void board_init_r(gd_t *id, ulong dest_addr)
+ 	}
+ #endif
+ 
++	sas_init_r();
++
+ 	/* Initialization complete - start the monitor */
+ 
+ 	/* main_loop() can return to retry autoboot, if so just run it again. */
+diff --git a/common/cmd_mtd.c b/common/cmd_mtd.c
+index fa46f63b3b31e7c94520e7b30302a147a7197c33..3114c92b7b1e0f787e506b822217048a1a56fc7d 100644
+--- a/common/cmd_mtd.c
++++ b/common/cmd_mtd.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * (C) Copyright 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * Command for read/write/erase via MTD layer
+  *
+diff --git a/drivers/dma/lantiq_dma.c b/drivers/dma/lantiq_dma.c
+index 6a40a175c21cf6d62c962bbedf9d0b8f92367c9e..72e3d84a890a832310fcd6043736ea0853b0bcbb 100644
+--- a/drivers/dma/lantiq_dma.c
++++ b/drivers/dma/lantiq_dma.c
+@@ -16,12 +16,12 @@
+ #include <asm/arch/soc.h>
+ #include <asm/processor.h>
+ 
+-#define DNA_CTRL_PKTARB			(1 << 31)
+-#define DNA_CTRL_MBRSTARB		(1 << 30)
+-#define DNA_CTRL_MBRSTCNT_SHIFT		16
+-#define DNA_CTRL_MBRSTCNT_MASK		(0x3ff << DNA_CTRL_MBRSTCNT_SHIFT)
+-#define DNA_CTRL_DRB			(1 << 8)
+-#define DNA_CTRL_RESET			(1 << 0)
++#define DMA_CTRL_PKTARB			(1 << 31)
++#define DMA_CTRL_MBRSTARB		(1 << 30)
++#define DMA_CTRL_MBRSTCNT_SHIFT		16
++#define DMA_CTRL_MBRSTCNT_MASK		(0x3ff << DMA_CTRL_MBRSTCNT_SHIFT)
++#define DMA_CTRL_DRB			(1 << 8)
++#define DMA_CTRL_RESET			(1 << 0)
+ 
+ #define DMA_CPOLL_EN			(1 << 31)
+ #define DMA_CPOLL_CNT_SHIFT		4
+@@ -47,10 +47,6 @@
+ #define DMA_PCTRL_RXENDI_SHIFT		8
+ #define DMA_PCTRL_RXENDI_MASK		(0x3 << DMA_PCTRL_RXENDI_SHIFT)
+ 
+-#define DMA_DESCRIPTOR_SIZE		8	/* bytes */
+-#define DMA_DESCRIPTOR_ALIGN		8	/* bytes */
+-#define DMA_DESC_POOL_SIZE		32
+-
+ #define DMA_DESC_OWN			(1 << 31)
+ #define DMA_DESC_C			(1 << 30)
+ #define DMA_DESC_SOP			(1 << 29)
+@@ -59,6 +55,8 @@
+ #define DMA_DESC_RX_OFFSET(x)		((x & 0x3) << 23)
+ #define DMA_DESC_LENGTH(x)		(x & 0xffff)
+ 
++#define PTR_ALIGN(p, a)		((typeof(p))ALIGN((unsigned long)(p), (a)))
++
+ struct ltq_dma_regs {
+ 	u32	clc;		/* Clock control */
+ 	u32	rsvd0;
+@@ -128,7 +126,6 @@ static inline void ltq_dma_dcache_inv(const void *ptr, size_t size)
+ 	unsigned long addr = (unsigned long) ptr;
+ 
+ 	invalidate_dcache_range(addr, addr + size);
+-	ltq_dma_sync();
+ }
+ 
+ void ltq_dma_init(void)
+@@ -137,7 +134,7 @@ void ltq_dma_init(void)
+ 	ltq_pm_enable(LTQ_PM_DMA);
+ 
+ 	/* Reset DMA */
+-	ltq_setbits(&ltq_dma_regs->ctrl, DNA_CTRL_RESET);
++	ltq_setbits(&ltq_dma_regs->ctrl, DMA_CTRL_RESET);
+ 
+ 	/* Disable and clear all interrupts */
+ 	ltq_writel(&ltq_dma_regs->irnen, 0);
+@@ -145,12 +142,12 @@ void ltq_dma_init(void)
+ 
+ #if 0
+ 	/* Enable packet arbitration */
+-	ltq_setbits(&ltq_dma_regs->ctrl, DNA_CTRL_PKTARB);
++	ltq_setbits(&ltq_dma_regs->ctrl, DMA_CTRL_PKTARB);
+ #endif
+ 
+ #if 0
+ 	/* Enable descriptor read back */
+-	ltq_setbits(&ltq_dma_regs->ctrl, DNA_CTRL_DRB);
++	ltq_setbits(&ltq_dma_regs->ctrl, DMA_CTRL_DRB);
+ #endif
+ 
+ 	/* Enable polling for descriptor fetching for all channels */
+@@ -162,10 +159,6 @@ static void ltq_dma_channel_reset(struct ltq_dma_channel *chan)
+ {
+ 	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
+ 	ltq_setbits(&ltq_dma_regs->cctrl, DMA_CCTRL_RST);
+-	wmb();
+-
+-	while (ltq_readl(&ltq_dma_regs->cctrl) & DMA_CCTRL_RST)
+-		cpu_relax();
+ }
+ 
+ static void ltq_dma_channel_enable(struct ltq_dma_channel *chan)
+@@ -178,10 +171,6 @@ static void ltq_dma_channel_disable(struct ltq_dma_channel *chan)
+ {
+ 	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
+ 	ltq_clrbits(&ltq_dma_regs->cctrl, DMA_CCTRL_ONOFF);
+-	wmb();
+-
+-	while (ltq_readl(&ltq_dma_regs->cctrl) & DMA_CCTRL_ONOFF)
+-		cpu_relax();
+ }
+ 
+ static void ltq_dma_port_init(struct ltq_dma_device *dev)
+@@ -200,31 +189,37 @@ static void ltq_dma_port_init(struct ltq_dma_device *dev)
+ static int ltq_dma_alloc_descriptors(struct ltq_dma_device *dev,
+ 					struct ltq_dma_channel *chan)
+ {
+-	size_t size = DMA_DESCRIPTOR_SIZE * chan->num_desc;
++	size_t size;
++	void *desc_base;
++
++	size = ALIGN(sizeof(struct ltq_dma_desc) * chan->num_desc +
++			ARCH_DMA_MINALIGN, ARCH_DMA_MINALIGN);
+ 
+-	chan->mem_base = memalign(DMA_DESCRIPTOR_ALIGN, size);
++	chan->mem_base = malloc(size);
+ 	if (!chan->mem_base)
+ 		return 1;
+ 
+ 	memset(chan->mem_base, 0, size);
+ 	ltq_dma_dcache_wb_inv(chan->mem_base, size);
+ 
++	desc_base = PTR_ALIGN(chan->mem_base, ARCH_DMA_MINALIGN);
++
++	debug("DMA: mem %p, desc %p\n", chan->mem_base, desc_base);
++
+ 	/* Align descriptor base to 8 bytes */
+-	chan->desc_base = (void *) CKSEG1ADDR(chan->mem_base);
+-	chan->dma_addr = CPHYSADDR(chan->mem_base);
++	chan->desc_base = (void *) CKSEG1ADDR(desc_base);
++	chan->dma_addr = CPHYSADDR(desc_base);
+ 	chan->dev = dev;
+ 
+ 	debug("DMA: desc_base %p, size %u\n", chan->desc_base, size);
+ 
+ 	/* Configure hardware with location of descriptor list */
+ 	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
+-
+-	ltq_writel(&ltq_dma_regs->cctrl, DMA_CCTRL_RST);
+-	wmb();
+ 	ltq_writel(&ltq_dma_regs->cdba, chan->dma_addr);
+ 	ltq_writel(&ltq_dma_regs->cdlen, chan->num_desc);
+ 	ltq_writel(&ltq_dma_regs->cctrl, (3 << DMA_CCTRL_TXWGT_SHIFT) |
+ 		(chan->class << DMA_CCTRL_CLASS_SHIFT));
++	ltq_writel(&ltq_dma_regs->cctrl, DMA_CCTRL_RST);
+ 
+ 	return 0;
+ }
+@@ -277,7 +272,7 @@ void ltq_dma_disable(struct ltq_dma_device *dev)
+ 	ltq_dma_channel_disable(&dev->tx_chan);
+ }
+ 
+-int ltq_dma_read(struct ltq_dma_device *dev, int index, void *data, int len)
++int ltq_dma_rx_map(struct ltq_dma_device *dev, int index, void *data, int len)
+ {
+ 	struct ltq_dma_channel *chan = &dev->rx_chan;
+ 	struct ltq_dma_desc *desc = &chan->desc_base[index];
+@@ -297,7 +292,6 @@ int ltq_dma_read(struct ltq_dma_device *dev, int index, void *data, int len)
+ 	desc->addr = dma_addr - offset;
+ 	desc->ctl = DMA_DESC_OWN | DMA_DESC_RX_OFFSET(offset) |
+ 			DMA_DESC_LENGTH(len);
+-	wmb();
+ 
+ #if 0
+ 	printf("%s: index %d, desc %p, desc->ctl %08x\n",
+@@ -307,31 +301,34 @@ int ltq_dma_read(struct ltq_dma_device *dev, int index, void *data, int len)
+ 	return 0;
+ }
+ 
+-int ltq_dma_read_poll(struct ltq_dma_device *dev, int index)
++int ltq_dma_rx_poll(struct ltq_dma_device *dev, int index)
+ {
+ 	struct ltq_dma_channel *chan = &dev->rx_chan;
+ 	struct ltq_dma_desc *desc = &chan->desc_base[index];
+-	int len;
+ 
+ #if 0
+ 	printf("%s: index %d, desc %p, desc->ctl %08x\n",
+ 		__func__, index, desc, desc->ctl);
+ #endif
+ 
+-	if ((desc->ctl & (DMA_DESC_OWN | DMA_DESC_C)) != DMA_DESC_C)
+-		return -1;
++	if (desc->ctl & DMA_DESC_OWN)
++		return 0;
+ 
+-	rmb();
+-	len = DMA_DESC_LENGTH(desc->ctl);
++	if (desc->ctl & DMA_DESC_C)
++		return 1;
+ 
+-#if 0
+-	printf("%s: index %d, len %d\n", __func__, index, len);
+-#endif
++	return 0;
++}
+ 
+-	return len;
++int ltq_dma_rx_length(struct ltq_dma_device *dev, int index)
++{
++	struct ltq_dma_channel *chan = &dev->rx_chan;
++	struct ltq_dma_desc *desc = &chan->desc_base[index];
++
++	return DMA_DESC_LENGTH(desc->ctl);
+ }
+ 
+-int ltq_dma_write(struct ltq_dma_device *dev, int index, void *data, int len,
++int ltq_dma_tx_map(struct ltq_dma_device *dev, int index, void *data, int len,
+ 			unsigned long timeout)
+ {
+ 	struct ltq_dma_channel *chan = &dev->tx_chan;
+@@ -364,7 +361,7 @@ int ltq_dma_write(struct ltq_dma_device *dev, int index, void *data, int len,
+ 	desc->addr = dma_addr - offset;
+ 	desc->ctl = DMA_DESC_OWN | DMA_DESC_SOP | DMA_DESC_EOP |
+ 			DMA_DESC_TX_OFFSET(offset) | DMA_DESC_LENGTH(len);
+-	wmb();
++
+ #if 0
+ 	printf("%s: index %d, desc %p, desc->ctl %08x\n",
+ 		__func__, index, desc, desc->ctl);
+@@ -373,7 +370,7 @@ int ltq_dma_write(struct ltq_dma_device *dev, int index, void *data, int len,
+ 	return 0;
+ }
+ 
+-int ltq_dma_write_wait(struct ltq_dma_device *dev, int index,
++int ltq_dma_tx_wait(struct ltq_dma_device *dev, int index,
+ 			unsigned long timeout)
+ {
+ 	struct ltq_dma_channel *chan = &dev->tx_chan;
+diff --git a/drivers/mtd/spi/eon.c b/drivers/mtd/spi/eon.c
+index 01076cf48e49ffc04c112affb94a4017c34452ef..ba42c4f0f423a7239afed3d835f061747eeaf4a1 100644
+--- a/drivers/mtd/spi/eon.c
++++ b/drivers/mtd/spi/eon.c
+@@ -10,8 +10,7 @@
+ 
+ #include "spi_flash_internal.h"
+ 
+-#define CMD_EN25XX_EN4B		0xb7	/* Enter 4-byte mode */
+-#define CMD_EN25XX_EX4B		0xe9	/* Exit 4-byte mode */
++#define EN25XX_EN4B		0xb7	/* Enter 4-byte mode */
+ 
+ struct eon_spi_flash_params {
+ 	u16 idcode;
+@@ -37,12 +36,11 @@ static const struct eon_spi_flash_params eon_spi_flash_table[] = {
+ 	},
+ };
+ 
+-static __maybe_unused int eon_set_4byte_mode(struct spi_flash *flash, int on)
++static __maybe_unused int eon_set_4byte_mode(struct spi_flash *flash)
+ {
+ 	struct spi_slave *spi = flash->spi;
+-	u8 cmd = on ? CMD_EN25XX_EN4B : CMD_EN25XX_EX4B;
+ 
+-	return spi_flash_cmd(spi, cmd, NULL, 0);
++	return spi_flash_cmd(spi, EN25XX_EN4B, NULL, 0);
+ }
+ 
+ int spi_flash_probe_eon(struct spi_flash *flash, u8 *idcode)
+@@ -74,7 +72,6 @@ int spi_flash_probe_eon(struct spi_flash *flash, u8 *idcode)
+ 	    * params->nr_sectors;
+ 
+ #ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-	/* 3 address bytes allows maximum addressable memory size of 2^24 */
+ 	if (flash->size > (1 << 24))
+ 		flash->set_4byte_mode = eon_set_4byte_mode;
+ #endif
+diff --git a/drivers/mtd/spi/macronix.c b/drivers/mtd/spi/macronix.c
+index 884f49073de6e5530cd09335f9a520dd85136fe8..a6cfdbfe8b4fee5f0e60a466482d3def954bbd14 100644
+--- a/drivers/mtd/spi/macronix.c
++++ b/drivers/mtd/spi/macronix.c
+@@ -35,8 +35,7 @@
+ 
+ #include "spi_flash_internal.h"
+ 
+-#define CMD_MX25XX_EN4B		0xb7	/* Enter 4-byte mode */
+-#define CMD_MX25XX_EX4B		0xe9	/* Exit 4-byte mode */
++#define MX25XX_EN4B		0xb7	/* Enter 4-byte mode */
+ 
+ struct macronix_spi_flash_params {
+ 	u16 idcode;
+@@ -92,13 +91,11 @@ static const struct macronix_spi_flash_params macronix_spi_flash_table[] = {
+ 	},
+ };
+ 
+-static __maybe_unused int macronix_set_4byte_mode(struct spi_flash *flash,
+-							int on)
++static __maybe_unused int macronix_set_4byte_mode(struct spi_flash *flash)
+ {
+ 	struct spi_slave *spi = flash->spi;
+-	u8 cmd = on ? CMD_MX25XX_EN4B : CMD_MX25XX_EX4B;
+ 
+-	return spi_flash_cmd(spi, cmd, NULL, 0);
++	return spi_flash_cmd(spi, MX25XX_EN4B, NULL, 0);
+ }
+ 
+ int spi_flash_probe_macronix(struct spi_flash *flash, u8 *idcode)
+@@ -129,7 +126,6 @@ int spi_flash_probe_macronix(struct spi_flash *flash, u8 *idcode)
+ 	flash->size = flash->sector_size * params->nr_blocks;
+ 
+ #ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-	/* 3 address bytes allows maximum addressable memory size of 2^24 */
+ 	if (flash->size > (1 << 24))
+ 		flash->set_4byte_mode = macronix_set_4byte_mode;
+ #endif
+diff --git a/drivers/mtd/spi/spansion.c b/drivers/mtd/spi/spansion.c
+index 6fce2b98423c294d02b5fe8e560ec7b682cc52fe..f98784c27b5611a79d59cf477be7513dc4f24832 100644
+--- a/drivers/mtd/spi/spansion.c
++++ b/drivers/mtd/spi/spansion.c
+@@ -31,9 +31,8 @@
+ 
+ #include "spi_flash_internal.h"
+ 
+-#define CMD_S25FLXX_BRRD	0x16	/* Read Bank Register */
+-#define CMD_S25FLXX_BRWR	0x17	/* Write Bank Register */
+-
++#define S25FLXX_BRRD		0x16		/* Read Bank Register */
++#define S25FLXX_BRWR		0x17		/* Write Bank Register */
+ #define S25FLXX_BAR_EXTADD	(1 << 7)	/* Extended address enable */
+ 
+ struct spansion_spi_flash_params {
+@@ -117,31 +116,26 @@ static const struct spansion_spi_flash_params spansion_spi_flash_table[] = {
+ 	},
+ 	{
+ 		.idcode1 = 0x0220,
+-		.idcode2 = 0x4d00,
++		.idcode2 = 0,
+ 		.pages_per_sector = 1024,
+ 		.nr_sectors = 256,
+ 		.name = "S25FL512S_256K",
+ 	},
+ };
+ 
+-static __maybe_unused int spansion_set_4byte_mode(struct spi_flash *flash,
+-							int on)
++static __maybe_unused int spansion_set_4byte_mode(struct spi_flash *flash)
+ {
+ 	struct spi_slave *spi = flash->spi;
+ 	u8 bar, cmd;
+ 	int err;
+ 
+-	cmd = CMD_S25FLXX_BRRD;
++	cmd = S25FLXX_BRRD;
+ 	err = spi_flash_cmd(spi, cmd, &bar, 1);
+ 	if (err)
+ 		return err;
+ 
+-	if (on)
+-		bar |= S25FLXX_BAR_EXTADD;
+-	else
+-		bar &= ~S25FLXX_BAR_EXTADD;
+-
+-	cmd = CMD_S25FLXX_BRWR;
++	bar |= S25FLXX_BAR_EXTADD;
++	cmd = S25FLXX_BRWR;
+ 
+ 	return spi_flash_cmd_write(spi, &cmd, 1, &bar, 1);
+ }
+@@ -179,7 +173,6 @@ int spi_flash_probe_spansion(struct spi_flash *flash, u8 *idcode)
+ 	flash->size = flash->sector_size * params->nr_sectors;
+ 
+ #ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-	/* 3 address bytes allows maximum addressable memory size of 2^24 */
+ 	if (flash->size > (1 << 24))
+ 		flash->set_4byte_mode = spansion_set_4byte_mode;
+ #endif
+diff --git a/drivers/mtd/spi/spi_flash.c b/drivers/mtd/spi/spi_flash.c
+index 2090f7583f86e0eaaac5f55c163f029cc7f8aad8..b927890f17b57425b3d14b08a744d68c29ef9b97 100644
+--- a/drivers/mtd/spi/spi_flash.c
++++ b/drivers/mtd/spi/spi_flash.c
+@@ -153,9 +153,7 @@ int spi_flash_read_common(struct spi_flash *flash, const u8 *cmd,
+ 	int ret;
+ 
+ 	spi_claim_bus(spi);
+-
+ 	ret = spi_flash_cmd_read(spi, cmd, cmd_len, data, data_len);
+-
+ 	spi_release_bus(spi);
+ 
+ 	return ret;
+@@ -361,6 +359,10 @@ static struct {
+ };
+ #define IDCODE_LEN (IDCODE_CONT_LEN + IDCODE_PART_LEN)
+ 
++#ifdef CONFIG_NEEDS_MANUAL_RELOC
++DECLARE_GLOBAL_DATA_PTR;
++#endif
++
+ int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
+ 			unsigned int cs, unsigned int max_hz,
+ 			unsigned int spi_mode)
+@@ -368,6 +370,16 @@ int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
+ 	struct spi_slave *spi;
+ 	int ret, i, shift;
+ 	u8 idcode[IDCODE_LEN], *idp;
++#ifdef CONFIG_NEEDS_MANUAL_RELOC
++	static int relocated;
++
++	if (!relocated) {
++		for (i = 0; i < ARRAY_SIZE(flashes); i++)
++			flashes[i].probe += gd->reloc_off;
++
++		relocated = 1;
++	}
++#endif
+ 
+ 	spi = spi_setup_slave(bus, cs, max_hz, spi_mode);
+ 	if (!spi) {
+@@ -381,8 +393,6 @@ int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
+ 		goto err_claim_bus;
+ 	}
+ 
+-	flash->spi = spi;
+-
+ 	/* Read the ID codes */
+ 	ret = spi_flash_cmd(spi, CMD_READ_ID, idcode, sizeof(idcode));
+ 	if (ret)
+@@ -393,6 +403,8 @@ int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
+ 	print_buffer(0, idcode, 1, sizeof(idcode), 0);
+ #endif
+ 
++	flash->spi = spi;
++
+ 	/* count the number of continuation bytes */
+ 	for (shift = 0, idp = idcode;
+ 	     shift < IDCODE_CONT_LEN && *idp == 0x7f;
+@@ -413,7 +425,12 @@ int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
+ 		goto err_manufacturer_probe;
+ 	}
+ 
+-	spi_flash_enable_4byte_mode(flash);
++	ret = spi_flash_set_4byte_mode(flash);
++	if (ret) {
++		debug("SF: Failed to enable 4 byte mode: %d\n", ret);
++		goto err_manufacturer_probe;
++	}
++
+ 	spi_release_bus(spi);
+ 
+ 	return 0;
+@@ -466,37 +483,35 @@ void spi_flash_free(struct spi_flash *flash)
+ 	free(flash);
+ }
+ 
+-#if defined(CONFIG_NEEDS_MANUAL_RELOC)
+-DECLARE_GLOBAL_DATA_PTR;
+-
+-static void spi_flash_fixup(void)
++#ifdef CONFIG_SPI_FLASH_MTD
++static int spi_flash_mtd_register(void)
+ {
+-	int i;
++	struct spi_flash *flash;
++	int err;
+ 
+-	for (i = 0; i < ARRAY_SIZE(flashes); ++i)
+-		flashes[i].probe += gd->reloc_off;
++	flash = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
++			CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
++	if (!flash)
++		return -1;
++
++	err = spi_flash_mtd_init(flash);
++	if (err)
++		spi_flash_free(flash);
++
++	return err;
+ }
+ #else
+-static inline void spi_flash_fixup(void)
++static int spi_flash_mtd_register(void)
+ {
++	return 0;
+ }
+ #endif
+ 
+ int spi_flash_init(void)
+ {
+-	struct spi_flash *sf;
+ 	int err;
+ 
+-	spi_flash_fixup();
+-
+-	sf = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
+-			CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
+-	if (!sf)
+-		return -1;
+-
+-	err = spi_flash_mtd_init(sf);
+-	if (err)
+-		spi_flash_free(sf);
++	err = spi_flash_mtd_register();
+ 
+ 	return err;
+ }
+diff --git a/drivers/mtd/spi/spi_flash_internal.h b/drivers/mtd/spi/spi_flash_internal.h
+index c3116b0dfb755e03061eec38b87f4f1f55530d5b..f30161808e69516e0af5295d5f02b315a801af91 100644
+--- a/drivers/mtd/spi/spi_flash_internal.h
++++ b/drivers/mtd/spi/spi_flash_internal.h
+@@ -98,33 +98,33 @@ int spi_flash_cmd_wait_ready(struct spi_flash *flash, unsigned long timeout);
+ int spi_flash_cmd_erase(struct spi_flash *flash, u32 offset, size_t len);
+ 
+ #ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-static inline int spi_flash_enable_4byte_mode(struct spi_flash *flash)
++static inline int spi_flash_use_4byte_mode(struct spi_flash *flash)
+ {
+-	if (spi_flash_use_4byte_mode(flash))
+-		return flash->set_4byte_mode(flash, 1);
+-
+-	return 0;
++	return NULL != flash->set_4byte_mode;
+ }
+ 
+-static inline int spi_flash_disable_4byte_mode(struct spi_flash *flash)
++static inline int spi_flash_set_4byte_mode(struct spi_flash *flash)
+ {
+ 	if (spi_flash_use_4byte_mode(flash))
+-		return flash->set_4byte_mode(flash, 0);
++		return flash->set_4byte_mode(flash);
+ 
+ 	return 0;
+ }
+ #else
+-static inline int spi_flash_enable_4byte_mode(struct spi_flash *flash)
++static inline int spi_flash_use_4byte_mode(struct spi_flash *flash)
+ {
+ 	return 0;
+ }
+ 
+-static inline int spi_flash_disable_4byte_mode(struct spi_flash *flash)
++static inline int spi_flash_set_4byte_mode(struct spi_flash *flash)
+ {
+ 	return 0;
+ }
+ #endif
+ 
++/* SPI flash MTD adapter init */
++int spi_flash_mtd_init(struct spi_flash *flash);
++
+ /* Manufacturer-specific probe functions */
+ int spi_flash_probe_spansion(struct spi_flash *flash, u8 *idcode);
+ int spi_flash_probe_atmel(struct spi_flash *flash, u8 *idcode);
+diff --git a/drivers/mtd/spi/spi_flash_mtd.c b/drivers/mtd/spi/spi_flash_mtd.c
+index 9829a6aaa6f4398aa8096293e5ebadde5c70ac9a..5fac97401d16a7e829ca43d458f5ceaf8972aa58 100644
+--- a/drivers/mtd/spi/spi_flash_mtd.c
++++ b/drivers/mtd/spi/spi_flash_mtd.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * MTD layer driver for SPI flash devices
+  *
+@@ -18,12 +18,12 @@ static char sf_mtd_name[8];
+ 
+ static int spi_flash_mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
+ {
+-	struct spi_flash *sf = mtd->priv;
++	struct spi_flash *flash = mtd->priv;
+ 	int err;
+ 
+ 	instr->state = MTD_ERASING;
+ 
+-	err = spi_flash_erase(sf, instr->addr, instr->len);
++	err = spi_flash_erase(flash, instr->addr, instr->len);
+ 	if (err) {
+ 		instr->state = MTD_ERASE_FAILED;
+ 		instr->fail_addr = MTD_FAIL_ADDR_UNKNOWN;
+@@ -39,10 +39,10 @@ static int spi_flash_mtd_erase(struct mtd_info *mtd, struct erase_info *instr)
+ static int spi_flash_mtd_read(struct mtd_info *mtd, loff_t from, size_t len,
+ 	size_t *retlen, u_char *buf)
+ {
+-	struct spi_flash *sf = mtd->priv;
++	struct spi_flash *flash = mtd->priv;
+ 	int err;
+ 
+-	err = spi_flash_read(sf, from, len, buf);
++	err = spi_flash_read(flash, from, len, buf);
+ 	if (!err)
+ 		*retlen = len;
+ 
+@@ -52,10 +52,10 @@ static int spi_flash_mtd_read(struct mtd_info *mtd, loff_t from, size_t len,
+ static int spi_flash_mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
+ 	size_t *retlen, const u_char *buf)
+ {
+-	struct spi_flash *sf = mtd->priv;
++	struct spi_flash *flash = mtd->priv;
+ 	int err;
+ 
+-	err = spi_flash_write(sf, to, len, buf);
++	err = spi_flash_write(flash, to, len, buf);
+ 	if (!err)
+ 		*retlen = len;
+ 
+@@ -64,14 +64,9 @@ static int spi_flash_mtd_write(struct mtd_info *mtd, loff_t to, size_t len,
+ 
+ static void spi_flash_mtd_sync(struct mtd_info *mtd)
+ {
+-	/*
+-	 * This function should wait until all pending operations
+-	 * finish. However this driver is fully synchronous, so
+-	 * this function returns immediately
+-	 */
+ }
+ 
+-static inline int spi_flash_mtd_number(void)
++static int spi_flash_mtd_number(void)
+ {
+ #ifdef CONFIG_SYS_MAX_FLASH_BANKS
+ 	return CONFIG_SYS_MAX_FLASH_BANKS;
+@@ -80,7 +75,7 @@ static inline int spi_flash_mtd_number(void)
+ #endif
+ }
+ 
+-int spi_flash_mtd_init(struct spi_flash *sf)
++int spi_flash_mtd_init(struct spi_flash *flash)
+ {
+ 	memset(&sf_mtd_info, 0, sizeof(sf_mtd_info));
+ 	sprintf(sf_mtd_name, "nor%d", spi_flash_mtd_number());
+@@ -95,15 +90,12 @@ int spi_flash_mtd_init(struct spi_flash *sf)
+ 	sf_mtd_info.write = spi_flash_mtd_write;
+ 	sf_mtd_info.sync = spi_flash_mtd_sync;
+ 
+-	sf_mtd_info.size = sf->size;
+-	sf_mtd_info.priv = sf;
++	sf_mtd_info.size = flash->size;
++	sf_mtd_info.priv = flash;
+ 
+-	/*
+-	 * Uniform flash with either page size or block size
+-	 * assigned to sf->sector_size
+-	 */
++	/* Only uniform flash devices for now */
+ 	sf_mtd_info.numeraseregions = 0;
+-	sf_mtd_info.erasesize = sf->sector_size;
++	sf_mtd_info.erasesize = flash->sector_size;
+ 
+ 	return add_mtd_device(&sf_mtd_info);
+ }
+diff --git a/drivers/net/lantiq_danube_etop.c b/drivers/net/lantiq_danube_etop.c
+index a2e989d66805bc4102f97049d78a93e80f464131..e934f92542dff7b5334f2fae308213f79db26807 100644
+--- a/drivers/net/lantiq_danube_etop.c
++++ b/drivers/net/lantiq_danube_etop.c
+@@ -210,10 +210,8 @@ static int ltq_eth_init(struct eth_device *dev, bd_t *bis)
+ 
+ 	ltq_eth_write_hwaddr(dev);
+ 
+-	ltq_dma_reset(dma_dev);
+-
+ 	for (i = 0; i < LTQ_ETH_RX_BUFFER_CNT; i++)
+-		ltq_dma_read(dma_dev, i, ltq_eth_rx_packet_align(i),
++		ltq_dma_rx_map(dma_dev, i, ltq_eth_rx_packet_align(i),
+ 			LTQ_ETH_RX_DATA_SIZE);
+ 
+ 	ltq_dma_enable(dma_dev);
+@@ -242,7 +240,7 @@ static int ltq_eth_send(struct eth_device *dev, void *packet, int length)
+ 	if (length < 60)
+ 		length = 60;
+ 
+-	err = ltq_dma_write(dma_dev, priv->tx_num, packet, length, 10);
++	err = ltq_dma_tx_map(dma_dev, priv->tx_num, packet, length, 10);
+ 	if (err) {
+ 		puts("NET: timeout on waiting for TX descriptor\n");
+ 		return -1;
+@@ -260,29 +258,28 @@ static int ltq_eth_recv(struct eth_device *dev)
+ 	u8 *packet;
+ 	int len;
+ 
+-	for (;;) {
++	if (!ltq_dma_rx_poll(dma_dev, priv->rx_num))
++		return 0;
++
+ #if 0
+-		printf("%s: rx_num %d\n", __func__, priv->rx_num);
++	printf("%s: rx_num %d\n", __func__, priv->rx_num);
+ #endif
+-		len = ltq_dma_read_poll(dma_dev, priv->rx_num);
+-		if (len < 0)
+-			return 0;
+ 
+-		packet = ltq_eth_rx_packet_align(priv->rx_num);
++	len = ltq_dma_rx_length(dma_dev, priv->rx_num);
++	packet = ltq_eth_rx_packet_align(priv->rx_num);
+ 
+ #if 0
+-		printf("%s: received: packet %p, len %u, rx_num %d\n",
+-			__func__, packet, len, priv->rx_num);
++	printf("%s: received: packet %p, len %u, rx_num %d\n",
++		__func__, packet, len, priv->rx_num);
+ #endif
+ 
+-		if (len)
+-			NetReceive(packet, len);
++	if (len)
++		NetReceive(packet, len);
+ 
+-		ltq_dma_read(dma_dev, priv->rx_num, packet,
+-			LTQ_ETH_RX_DATA_SIZE);
++	ltq_dma_rx_map(dma_dev, priv->rx_num, packet,
++		LTQ_ETH_RX_DATA_SIZE);
+ 
+-		priv->rx_num = (priv->rx_num + 1) % LTQ_ETH_RX_BUFFER_CNT;
+-	};
++	priv->rx_num = (priv->rx_num + 1) % LTQ_ETH_RX_BUFFER_CNT;
+ 
+ 	return 0;
+ }
+@@ -372,10 +369,12 @@ int ltq_eth_initialize(const struct ltq_eth_board_config *board_config)
+ 	dma_dev->rx_chan.class = 3;
+ 	dma_dev->rx_chan.num_desc = LTQ_ETH_RX_BUFFER_CNT;
+ 	dma_dev->rx_endian_swap = LTQ_DMA_ENDIANESS_B3_B2_B1_B0;
++	dma_dev->rx_burst_len = LTQ_DMA_BURST_2WORDS;
+ 	dma_dev->tx_chan.chan_no = 7;
+ 	dma_dev->tx_chan.class = 3;
+-	dma_dev->tx_chan.num_desc = 1;
++	dma_dev->tx_chan.num_desc = LTQ_ETH_TX_BUFFER_CNT;
+ 	dma_dev->tx_endian_swap = LTQ_DMA_ENDIANESS_B3_B2_B1_B0;
++	dma_dev->tx_burst_len = LTQ_DMA_BURST_2WORDS;
+ 
+ 	priv->bus = bus;
+ 	priv->dev = dev;
+diff --git a/drivers/net/lantiq_vrx200_switch.c b/drivers/net/lantiq_vrx200_switch.c
+index 5a212341fcbd848b82e0b9e0e87941c9f415a57e..784f830189b086325175d360a456c635136d0fb9 100644
+--- a/drivers/net/lantiq_vrx200_switch.c
++++ b/drivers/net/lantiq_vrx200_switch.c
+@@ -264,10 +264,8 @@ static int ltq_eth_init(struct eth_device *dev, bd_t * bis)
+ 		ltq_eth_gmac_update(phydev, i);
+ 	}
+ 
+-	ltq_dma_reset(dma_dev);
+-
+ 	for (i = 0; i < LTQ_ETH_RX_BUFFER_CNT; i++)
+-		ltq_dma_read(dma_dev, i, ltq_eth_rx_packet_align(i),
++		ltq_dma_rx_map(dma_dev, i, ltq_eth_rx_packet_align(i),
+ 			LTQ_ETH_RX_DATA_SIZE);
+ 
+ 	ltq_dma_enable(dma_dev);
+@@ -302,18 +300,12 @@ static int ltq_eth_send(struct eth_device *dev, void *packet, int length)
+ {
+ 	struct ltq_eth_priv *priv = dev->priv;
+ 	struct ltq_dma_device *dma_dev = &priv->dma_dev;
+-	int err;
+ 
+ #if 0
+ 	printf("%s: packet %p, len %d\n", __func__, packet, length);
+ #endif
+ 
+-	err = ltq_dma_write(dma_dev, priv->tx_num, packet, length, 10);
+-	if (err) {
+-		puts("NET: timeout on waiting for TX descriptor\n");
+-		return -1;
+-	}
+-
++	ltq_dma_tx_map(dma_dev, priv->tx_num, packet, length, 10);
+ 	priv->tx_num = (priv->tx_num + 1) % LTQ_ETH_TX_BUFFER_CNT;
+ 
+ 	return 0;
+@@ -326,29 +318,28 @@ static int ltq_eth_recv(struct eth_device *dev)
+ 	u8 *packet;
+ 	int len;
+ 
+-	for (;;) {
++	if (!ltq_dma_rx_poll(dma_dev, priv->rx_num))
++		return 0;
++
+ #if 0
+-		printf("%s: rx_num %d\n", __func__, priv->rx_num);
++	printf("%s: rx_num %d\n", __func__, priv->rx_num);
+ #endif
+-		len = ltq_dma_read_poll(dma_dev, priv->rx_num);
+-		if (len < 0)
+-			return 0;
+ 
+-		packet = ltq_eth_rx_packet_align(priv->rx_num);
++	len = ltq_dma_rx_length(dma_dev, priv->rx_num);
++	packet = ltq_eth_rx_packet_align(priv->rx_num);
+ 
+ #if 0
+-		printf("%s: received: packet %p, len %u, rx_num %d\n",
+-			__func__, packet, len, priv->rx_num);
++	printf("%s: received: packet %p, len %u, rx_num %d\n",
++		__func__, packet, len, priv->rx_num);
+ #endif
+ 
+-		if (len)
+-			NetReceive(packet, len);
++	if (len)
++		NetReceive(packet, len);
+ 
+-		ltq_dma_read(dma_dev, priv->rx_num, packet,
+-			LTQ_ETH_RX_DATA_SIZE);
++	ltq_dma_rx_map(dma_dev, priv->rx_num, packet,
++		LTQ_ETH_RX_DATA_SIZE);
+ 
+-		priv->rx_num = (priv->rx_num + 1) % LTQ_ETH_RX_BUFFER_CNT;
+-	};
++	priv->rx_num = (priv->rx_num + 1) % LTQ_ETH_RX_BUFFER_CNT;
+ 
+ 	return 0;
+ }
+diff --git a/drivers/net/switch/Makefile b/drivers/net/switch/Makefile
+index c9565443677fd87a75201ba0052c80b267863d97..e257a79e721e63e94ca7ad02e88a3c9b3f3a8b32 100644
+--- a/drivers/net/switch/Makefile
++++ b/drivers/net/switch/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+@@ -13,6 +13,7 @@ LIB	:= $(obj)libswitch.o
+ COBJS-$(CONFIG_SWITCH_MULTI) += switch.o
+ COBJS-$(CONFIG_SWITCH_PSB697X) += psb697x.o
+ COBJS-$(CONFIG_SWITCH_ADM6996I) += adm6996i.o
++COBJS-$(CONFIG_SWITCH_AR8216) += ar8216.o
+ 
+ COBJS	:= $(COBJS-y)
+ SRCS	:= $(COBJS:.o=.c)
+diff --git a/drivers/net/switch/adm6996i.c b/drivers/net/switch/adm6996i.c
+index 53d5a4413bb76a29874cc58a34533818f36a89d6..815d3ee528f63362e6a1aa737c5ad088c7c9c286 100644
+--- a/drivers/net/switch/adm6996i.c
++++ b/drivers/net/switch/adm6996i.c
+@@ -1,8 +1,8 @@
+ /*
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/net/switch/ar8216.c b/drivers/net/switch/ar8216.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..84cde34f50ae6320f3a6729f2e6d58244d05e0f7
+--- /dev/null
++++ b/drivers/net/switch/ar8216.c
+@@ -0,0 +1,115 @@
++/*
++ * Copyright (C) 2012 Luka Perkov <uboot@lukaperkov.net>
++ *
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ */
++
++#include <common.h>
++#include <malloc.h>
++#include <miiphy.h>
++#include <switch.h>
++#include <netdev.h>
++
++#define BITS(_s, _n)  (((1UL << (_n)) - 1) << _s)
++
++#define AR8216_REG_CTRL			0x0000
++#define   AR8216_CTRL_REVISION		BITS(0, 8)
++#define   AR8216_CTRL_VERSION		BITS(8, 8)
++
++#define AR8216_PROBE_RETRIES		10
++
++static void split_addr(u32 regaddr, u16 *r1, u16 *r2, u16 *page)
++{
++	regaddr >>= 1;
++	*r1 = regaddr & 0x1e;
++
++	regaddr >>= 5;
++	*r2 = regaddr & 0x7;
++
++	regaddr >>= 3;
++	*page = regaddr & 0x1ff;
++}
++
++static int ar8216_mii_read(struct mii_dev *bus, u32 reg)
++{
++	u16 r1, r2, page;
++	u16 lo, hi;
++
++	split_addr(reg, &r1, &r2, &page);
++
++	bus->write(bus, 0x18, MDIO_DEVAD_NONE, 0, page);
++	__udelay(1000);
++
++	lo = bus->read(bus, 0x10 | r2, MDIO_DEVAD_NONE, r1);
++	hi = bus->read(bus, 0x10 | r2, MDIO_DEVAD_NONE, r1 + 1);
++
++	return (hi << 16) | lo;
++}
++
++static void ar8216_mii_write(struct mii_dev *bus, u16 reg, u32 val)
++{
++	u16 r1, r2, r3;
++	u16 lo, hi;
++
++	split_addr((u32) reg, &r1, &r2, &r3);
++
++	bus->write(bus, 0x18, MDIO_DEVAD_NONE, 0, r3);
++	__udelay(1000);
++
++	lo = val & 0xffff;
++	hi = (u16) (val >> 16);
++	bus->write(bus, 0x10 | r2, MDIO_DEVAD_NONE, r1 + 1, hi);
++	bus->write(bus, 0x10 | r2, MDIO_DEVAD_NONE, r1, lo);
++}
++
++static int ar8216_probe(struct switch_device *dev)
++{
++	struct mii_dev *bus = dev->bus;
++	u32 val;
++	u16 id;
++
++	val = ar8216_mii_read(bus, AR8216_REG_CTRL);
++	if (val == ~0)
++		return 1;
++
++	id = val & (AR8216_CTRL_REVISION | AR8216_CTRL_VERSION);
++
++	switch (id) {
++		case 0x0101:
++			return 0;
++		default:
++			return 1;
++	}
++}
++
++static void ar8216_setup(struct switch_device *dev)
++{
++	struct mii_dev *bus = dev->bus;
++
++	ar8216_mii_write(bus, 0x200, 0x200);
++	ar8216_mii_write(bus, 0x300, 0x200);
++	ar8216_mii_write(bus, 0x400, 0x200);
++	ar8216_mii_write(bus, 0x500, 0x200);
++	ar8216_mii_write(bus, 0x600, 0x7d);
++	ar8216_mii_write(bus, 0x38, 0xc000050e);
++	ar8216_mii_write(bus, 0x104, 0x4004);
++	ar8216_mii_write(bus, 0x60, 0xffffffff);
++	ar8216_mii_write(bus, 0x64, 0xaaaaaaaa);
++	ar8216_mii_write(bus, 0x68, 0x55555555);
++	ar8216_mii_write(bus, 0x6c, 0x0);
++	ar8216_mii_write(bus, 0x70, 0x41af);
++}
++
++static struct switch_driver ar8216_drv = {
++	.name = "ar8216",
++};
++
++void switch_ar8216_init(void)
++{
++	/* for archs with manual relocation */
++	ar8216_drv.probe = ar8216_probe;
++	ar8216_drv.setup = ar8216_setup;
++
++	switch_driver_register(&ar8216_drv);
++}
+diff --git a/drivers/net/switch/psb697x.c b/drivers/net/switch/psb697x.c
+index 0d47b08db5cd241f70b201a422655227e0ef1d52..8dc89ee02211400395ec098cb587f5db8508ddeb 100644
+--- a/drivers/net/switch/psb697x.c
++++ b/drivers/net/switch/psb697x.c
+@@ -1,8 +1,8 @@
+ /*
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/net/switch/switch.c b/drivers/net/switch/switch.c
+index 9e2ddbb2be3c934b75922116086c7201cfa9d315..42e78653155f9b479ed8e40d0058a4784630bc67 100644
+--- a/drivers/net/switch/switch.c
++++ b/drivers/net/switch/switch.c
+@@ -1,8 +1,8 @@
+ /*
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+  */
+ 
+ #include <common.h>
+@@ -24,6 +24,9 @@ void switch_init(void)
+ #if defined(CONFIG_SWITCH_ADM6996I)
+ 	switch_adm6996i_init();
+ #endif
++#if defined(CONFIG_SWITCH_AR8216)
++	switch_ar8216_init();
++#endif
+ 
+ 	board_switch_init();
+ }
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index 767913bc362f362a4b21b27dfcd26c286988796b..2e3630c7f1bda10bf660c06c4f96436fb58c94be 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/linux/compat.h b/include/linux/compat.h
+index 32022291cf71c0dfa8510dad03e6ec6f84da9ae0..593b07f4b5db621b79371b8338e59579ba521314 100644
+--- a/include/linux/compat.h
++++ b/include/linux/compat.h
+@@ -6,7 +6,7 @@
+ 
+ #define ndelay(x)	udelay(1)
+ 
+-#define printk	debug
++#define printk	printf
+ 
+ #define KERN_EMERG
+ #define KERN_ALERT
+diff --git a/include/sas/boot.h b/include/sas/boot.h
+index 728e2dd5fb48c6eb3fed86253005bfcfcf06ecf9..3e51f86416618c66b65a202826863e8496b1de76 100644
+--- a/include/sas/boot.h
++++ b/include/sas/boot.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -26,52 +26,46 @@ enum sas_boot_state
+ struct mtd_info;
+ struct sas_flash_partition;
+ 
+-extern int sas_boot_init(struct mtd_info *mtd, int *save_env);
++int sas_boot_init(struct mtd_info *mtd, int *save_env);
+ 
+-extern int sas_boot_scan_images(void);
++int sas_boot_scan_images(void);
+ 
+-extern int sas_boot_has_platform_images(
+-				const struct sas_flash_partition *part);
++int sas_boot_has_platform_images(const struct sas_flash_partition *part);
+ 
+-extern int sas_boot_has_service_images(
+-				const struct sas_flash_partition *part);
++int sas_boot_has_service_images(const struct sas_flash_partition *part);
+ 
+-extern void sas_boot_invalidate_image_state(unsigned int active_image);
++void sas_boot_invalidate_image_state(unsigned int active_image);
+ 
+-extern int sas_boot_invalidate_platform_images(
+-				const struct sas_flash_partition *part);
++int sas_boot_invalidate_platform_images(const struct sas_flash_partition *part);
+ 
+-extern int sas_boot_invalidate_service_images(
+-				const struct sas_flash_partition *part);
++int sas_boot_invalidate_service_images(const struct sas_flash_partition *part);
+ 
+-extern int sas_boot_layout_platform(const struct sas_flash_partition *part,
+-					size_t uimage_size, size_t rootfs_size,
+-					ulong *uimage_addr, ulong *rootfs_addr,
+-					size_t *erase_len);
++int sas_boot_layout_platform(const struct sas_flash_partition *part,
++				size_t uimage_size, size_t rootfs_size,
++				ulong *uimage_addr, ulong *rootfs_addr,
++				size_t *erase_len);
+ 
+-extern int sas_boot_layout_service(const struct sas_flash_partition *part,
+-					size_t servicefs_size,
+-					size_t configfs_size,
+-					ulong *servicefs_addr,
+-					ulong *configfs_addr,
+-					size_t *erase_len);
++int sas_boot_layout_service(const struct sas_flash_partition *part,
++				size_t servicefs_size, size_t configfs_size,
++				ulong *servicefs_addr, ulong *configfs_addr,
++				size_t *erase_len);
+ 
+-extern void sas_boot_init_mtdparts(unsigned int active_image, int protect_uboot,
+-					char *buf);
++void sas_boot_init_mtdparts(unsigned int active_image, int protect_uboot,
++				char *buf);
+ 
+-extern int sas_boot_find_working_image(sas_flash_layout_t layout);
++int sas_boot_find_working_image(sas_flash_layout_t layout);
+ 
+-extern int sas_boot_update_states(unsigned int active_image, int *retry,
+-					int *save_env);
++int sas_boot_update_states(unsigned int active_image, int *retry,
++				int *save_env);
+ 
+-extern int sas_boot_load_image(const struct sas_flash_partition *part,
++int sas_boot_load_image(const struct sas_flash_partition *part,
+ 				sas_image_type_t type, ulong addr);
+ 
+-extern int sas_boot_image_mtd_num(const struct sas_flash_partition *part,
+-					sas_image_type_t type);
++int sas_boot_image_mtd_num(const struct sas_flash_partition *part,
++				sas_image_type_t type);
+ 
+-extern void sas_boot_print(void);
++void sas_boot_print(void);
+ 
+-extern const char* sas_boot_state_str(enum sas_boot_state state);
++const char* sas_boot_state_str(enum sas_boot_state state);
+ 
+ #endif /* __SAS_BOOT_H__ */
+diff --git a/include/sas/cd_user.h b/include/sas/cd_user.h
+index fe658676d684b3d807346767372b640580176a4e..ab3bb43aa9646826abf9bc59fa17853c4ab61aff 100644
+--- a/include/sas/cd_user.h
++++ b/include/sas/cd_user.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/cmd_queue.h b/include/sas/cmd_queue.h
+deleted file mode 100644
+index 5e80c91099fea5d94909222127057aafbae9e6f1..0000000000000000000000000000000000000000
+--- a/include/sas/cmd_queue.h
++++ /dev/null
+@@ -1,97 +0,0 @@
+-/*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
+- *
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- */
+-
+-#ifndef __SAS_CMD_QUEUE_H__
+-#define __SAS_CMD_QUEUE_H__
+-
+-struct sas_cmd_queue {
+-	size_t size;
+-	char *queue;
+-	char *pos;
+-};
+-
+-static inline struct sas_cmd_queue * sas_cmd_queue_alloc(size_t size)
+-{
+-	struct sas_cmd_queue *cmdq;
+-	char *s;
+-
+-	cmdq = malloc(size + sizeof(*cmdq));
+-	if (!cmdq)
+-		return NULL;
+-
+-	cmdq->size = size;
+-	s = (char *) &cmdq[1];
+-	*s = '\0';
+-	cmdq->queue = s;
+-	cmdq->pos = s;
+-
+-	return cmdq;
+-}
+-
+-static inline void sas_cmd_queue_release(struct sas_cmd_queue *cmdq)
+-{
+-	if (cmdq)
+-		free(cmdq);
+-}
+-
+-static inline void sas_cmd_queue_push_cmd(struct sas_cmd_queue *cmdq,
+-				const char * cmd)
+-{
+-	size_t len = strlen(cmd);
+-	char *s;
+-
+-	s = cmdq->pos;
+-
+-	if (s != cmdq->queue) {
+-		*s = ';';
+-		s++;
+-	}
+-
+-	strcat(s, cmd);
+-	s += len;
+-	*s = '\0';
+-
+-	cmdq->pos = s;
+-}
+-
+-static inline void sas_cmd_queue_push_macro(struct sas_cmd_queue *cmdq,
+-				const char * cmd)
+-{
+-	size_t len = strlen(cmd);
+-	char *s;
+-
+-	s = cmdq->pos;
+-
+-	if (s != cmdq->queue) {
+-		*s = ';';
+-		s++;
+-	}
+-
+-	strcpy(s, "run ");
+-	s += 4;
+-	strcat(s, cmd);
+-	s += len;
+-	*s = '\0';
+-
+-	cmdq->pos = s;
+-}
+-
+-static inline void sas_cmd_queue_reset(struct sas_cmd_queue *cmdq)
+-{
+-	char *s;
+-
+-	s = cmdq->queue;
+-	*s = '\0';
+-	cmdq->pos = s;
+-}
+-
+-static inline int sas_cmd_queue_exec(struct sas_cmd_queue *cmdq)
+-{
+-	return sas_run_command(cmdq->queue);
+-}
+-
+-#endif /* __SAS_CMD_QUEUE_H__ */
+diff --git a/include/sas/controlfile.h b/include/sas/controlfile.h
+index 983933fcf97bacfc7f9122935f5c34126081cca3..c92bfbf5ba583c0b4481439be6884e96d1e9c714 100644
+--- a/include/sas/controlfile.h
++++ b/include/sas/controlfile.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/etl.h b/include/sas/etl.h
+index 6a5603230983dc46afece2abf18fcb435477cd6b..b200e8f4465ef7f3c826e780d81228e92d49daf1 100644
+--- a/include/sas/etl.h
++++ b/include/sas/etl.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -10,16 +10,16 @@
+ 
+ #include <sas/etl_user.h>
+ 
+-extern int sas_etl_init(int *save_env);
++int sas_etl_init(int *save_env);
+ 
+-extern void sas_etl_print(void);
++void sas_etl_print(void);
+ 
+-extern int sas_etl_get_string(unsigned id, char *retval, size_t len,
++int sas_etl_get_string(unsigned id, char *retval, size_t len,
+ 			const char *defval, char fill);
+ 
+-extern int sas_etl_get_ulong(unsigned int id, unsigned long *retval,
++int sas_etl_get_ulong(unsigned int id, unsigned long *retval,
+ 			unsigned int base, unsigned long defval);
+ 
+-extern int sas_etl_version(void);
++int sas_etl_version(void);
+ 
+ #endif /* __SAS_ETL_H__ */
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index 236957e23671f1e4dd388b223c5a01fccb3d8e1e..6b22e15f27c43b077e7aff393fa2fd4aae51c98a 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/flash.h b/include/sas/flash.h
+index 17f00950e7ace1098e12a3100f7d8c9de5925e6a..9560b178cfb4efcc152b33189a8796e957f53bbc 100644
+--- a/include/sas/flash.h
++++ b/include/sas/flash.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -20,38 +20,36 @@ struct sas_flash_partition {
+ 	int locked;
+ };
+ 
+-extern int sas_flash_init(void);
++int sas_flash_init(void);
+ 
+-extern void sas_flash_verbose_set(int v);
++void sas_flash_verbose_set(int v);
+ 
+-extern const char * sas_flash_boot_device(void);
++const char * sas_flash_boot_device(void);
+ 
+-extern const char * sas_flash_linux_mtdid(const struct mtd_info *mtd);
++const char * sas_flash_linux_mtdid(const struct mtd_info *mtd);
+ 
+-extern struct sas_flash_partition * sas_flash_partition_add(
++struct sas_flash_partition * sas_flash_partition_add(
+ 					struct mtd_info *master,
+ 					sas_flash_partition_t type,
+ 					size_t size, size_t offset,
+ 					int locked);
+ 
+-extern struct sas_flash_partition * sas_flash_partition_get(
++struct sas_flash_partition * sas_flash_partition_get(
+ 					sas_flash_partition_t type);
+ 
+ typedef void (*sas_flash_device_cb)(struct mtd_info *mtd, void *data);
+ 
+-extern void sas_flash_device_foreach(sas_flash_device_cb cb,
+-					void *data);
++void sas_flash_device_foreach(sas_flash_device_cb cb, void *data);
+ 
+ typedef void (*sas_flash_partition_cb)(struct sas_flash_partition *part,
+ 					void *data);
+ 
+-extern void sas_flash_partition_foreach(struct mtd_info *master,
+-					sas_flash_partition_cb cb,
+-					void *data);
++void sas_flash_partition_foreach(struct mtd_info *master,
++					sas_flash_partition_cb cb, void *data);
+ 
+-extern int sas_flash_partition_mtd_update(struct mtd_info *master);
++int sas_flash_partition_mtd_update(struct mtd_info *master);
+ 
+-extern void sas_flash_partition_print(void);
++void sas_flash_partition_print(void);
+ 
+ static inline size_t sas_flash_roundb(const struct sas_flash_partition *part,
+ 					size_t len)
+@@ -59,28 +57,27 @@ static inline size_t sas_flash_roundb(const struct sas_flash_partition *part,
+ 	return ROUND(len, part->mtd->erasesize);
+ }
+ 
+-extern int sas_flash_read(const struct sas_flash_partition *part,
+-				ulong from, size_t len, void *buf);
++int sas_flash_read(const struct sas_flash_partition *part,
++			ulong from, size_t len, void *buf);
+ 
+-extern int sas_flash_write(const struct sas_flash_partition *part,
+-				ulong to, size_t len, const void *buf);
++int sas_flash_write(const struct sas_flash_partition *part,
++			ulong to, size_t len, const void *buf);
+ 
+-extern int sas_flash_lock(const struct sas_flash_partition *part,
+-				ulong off, size_t len);
++int sas_flash_lock(const struct sas_flash_partition *part,
++			ulong off, size_t len);
+ 
+-extern int sas_flash_unlock(const struct sas_flash_partition *part,
+-				ulong off, size_t len);
++int sas_flash_unlock(const struct sas_flash_partition *part,
++			ulong off, size_t len);
+ 
+-extern int sas_flash_erase(const struct sas_flash_partition *part,
+-				ulong off, size_t len);
++int sas_flash_erase(const struct sas_flash_partition *part,
++			ulong off, size_t len);
+ 
+-extern int sas_flash_partial_erase(const struct sas_flash_partition *part,
+-					ulong off, size_t len);
++int sas_flash_partial_erase(const struct sas_flash_partition *part,
++				ulong off, size_t len);
+ 
+-extern int sas_flash_complete_write(const struct sas_flash_partition *part,
+-					ulong to, size_t write_len,
+-					size_t erase_len, const void *buf,
+-					int partial_erase);
++int sas_flash_complete_write(const struct sas_flash_partition *part,
++				ulong to, size_t write_len, size_t erase_len,
++				const void *buf, int partial_erase);
+ 
+ static inline size_t sas_flash_cd_size(void)
+ {
+@@ -102,6 +99,6 @@ static inline ulong sas_flash_etl_offset(struct sas_flash_partition *part)
+ 	return part->size - 7 * 1024;
+ }
+ 
+-extern const char* sas_flash_partition_str(sas_flash_partition_t type);
++const char* sas_flash_partition_str(sas_flash_partition_t type);
+ 
+ #endif /* __SAS_FLASH_H__ */
+diff --git a/include/sas/flash_user.h b/include/sas/flash_user.h
+index 6af8e5c5683cf1f69715ae336ef2b96f6038be1e..52993e87c20e1667c0d4202a5187d9014070322f 100644
+--- a/include/sas/flash_user.h
++++ b/include/sas/flash_user.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/flashlayout.h b/include/sas/flashlayout.h
+index cbaa124788537a49aaffd73d20506d3184c82d0f..4ad46c526aabe5a61ecdd0b7c49159559e675790 100644
+--- a/include/sas/flashlayout.h
++++ b/include/sas/flashlayout.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -19,36 +19,32 @@ typedef enum {
+ 
+ struct mtd_info;
+ 
+-extern int sas_flash_layout_basic_init(struct mtd_info *mtd);
++int sas_flash_layout_basic_init(struct mtd_info *mtd);
+ 
+-extern int sas_flash_layout_full_init(struct mtd_info *mtd,
+-					int *save_env);
++int sas_flash_layout_full_init(struct mtd_info *mtd, int *save_env);
+ 
+-extern int sas_flash_layout_device_init(struct mtd_info *mtd);
++int sas_flash_layout_device_init(struct mtd_info *mtd);
+ 
+-extern void sas_flash_layout_print(void);
++void sas_flash_layout_print(void);
+ 
+-extern int sas_flash_layout_is_mirrored(sas_flash_layout_t layout);
++int sas_flash_layout_is_mirrored(sas_flash_layout_t layout);
+ 
+-extern int sas_flash_layout_image_partitions(
+-					sas_flash_layout_t layout);
++int sas_flash_layout_image_partitions(sas_flash_layout_t layout);
+ 
+ static inline int sas_flash_layout_image_max_partitions(void)
+ {
+ 	return 3;
+ }
+ 
+-extern struct sas_flash_partition *
++struct sas_flash_partition *
+ sas_flash_layout_image_partition(unsigned int index);
+ 
+-extern sas_flash_layout_t sas_flash_layout_current(void);
++sas_flash_layout_t sas_flash_layout_current(void);
+ 
+-extern const char* sas_flash_layout_name(
+-				sas_flash_layout_t layout);
++const char* sas_flash_layout_name(sas_flash_layout_t layout);
+ 
+-extern const char* sas_flash_layout_str(
+-				sas_flash_layout_t layout);
++const char* sas_flash_layout_str(sas_flash_layout_t layout);
+ 
+-extern sas_flash_layout_t sas_flash_layout_parse(const char *str);
++sas_flash_layout_t sas_flash_layout_parse(const char *str);
+ 
+ #endif /* __SAS_FLASHLAYOUT_H__ */
+diff --git a/include/sas/image.h b/include/sas/image.h
+index 7a7b0717e68e1d06632207accf6ba77452c74d36..56473db32576417845742c27f23719f8f7341d94 100644
+--- a/include/sas/image.h
++++ b/include/sas/image.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -34,16 +34,16 @@ typedef enum
+ #define SAS_SERVICEFS_IMAGE	"servicefs.img"
+ #define SAS_CONFIGFS_IMAGE	"configfs.img"
+ 
+-extern int sas_image_header_check(const image_header_t *hdr);
++int sas_image_header_check(const image_header_t *hdr);
+ 
+-extern int sas_image_data_check(const image_header_t *hdr);
++int sas_image_data_check(const image_header_t *hdr);
+ 
+-extern const char* sas_image_type_str(sas_image_type_t type);
++const char* sas_image_type_str(sas_image_type_t type);
+ 
+-extern sas_image_type_t sas_image_type(const image_header_t *hdr);
++sas_image_type_t sas_image_type(const image_header_t *hdr);
+ 
+-extern size_t sas_image_size(const image_header_t *hdr);
++size_t sas_image_size(const image_header_t *hdr);
+ 
+-extern void sas_image_name(const image_header_t *hdr, char *buf);
++void sas_image_name(const image_header_t *hdr, char *buf);
+ 
+ #endif /* __SAS_IMAGE_H__ */
+diff --git a/include/sas/init.h b/include/sas/init.h
+index d3a12adf5d13bbf5c8ee6aa210e1eb5595ae74b0..ccca30bb3ada77ab1b99049587e21be6503c7e16 100644
+--- a/include/sas/init.h
++++ b/include/sas/init.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -9,9 +9,9 @@
+ #define __SAS_INIT_H__
+ 
+ #ifdef CONFIG_LIB_SPHAIRON
+-extern int sas_init_f(void);
++int sas_init_f(void);
+ 
+-extern int sas_init_r(void);
++int sas_init_r(void);
+ #else
+ static inline int sas_init_f(void)
+ {
+diff --git a/include/sas/util.h b/include/sas/util.h
+index 35d51afb4c313c604c74419d75e9bfc14dfdb439..488f79a8ca9a9cfc025fe272e7c296b5e1161c18 100644
+--- a/include/sas/util.h
++++ b/include/sas/util.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -8,29 +8,29 @@
+ #ifndef __SAS_UTIL_H__
+ #define __SAS_UTIL_H__
+ 
+-extern int sas_setenv(const char *name, const char *value, int *saveenv);
++int sas_setenv(const char *name, const char *value, int *saveenv);
+ 
+-extern int sas_setenv_num(const char *name, int value, int *saveenv);
++int sas_setenv_num(const char *name, int value, int *saveenv);
+ 
+-extern int sas_setenv_hex(const char *name, int value, int *saveenv);
++int sas_setenv_hex(const char *name, int value, int *saveenv);
+ 
+-extern void sas_saveenv(void);
++void sas_saveenv(void);
+ 
+-extern int sas_run_command(const char* fmt, ...)
++int sas_run_command(const char* fmt, ...)
+ 		__attribute__((format(printf, 1, 2)));
+ 
+-extern size_t sas_run_tftpboot(ulong loadaddr, const char *file);
++size_t sas_run_tftpboot(ulong loadaddr, const char *file);
+ 
+-extern int sas_confirm(const char *message);
++int sas_confirm(const char *message);
+ 
+-extern void sas_banner_header_print(const char *fmt, ...)
++void sas_banner_header_print(const char *fmt, ...)
+ 		__attribute__((format(printf, 1, 2)));
+ 
+-extern void sas_banner_content_print(const char *fmt, ...)
++void sas_banner_content_print(const char *fmt, ...)
+ 		__attribute__((format(printf, 1, 2)));
+ 
+-extern void sas_banner_footer_print(void);
++void sas_banner_footer_print(void);
+ 
+-extern void sas_banner_line_print(void);
++void sas_banner_line_print(void);
+ 
+ #endif /* __SAS_UTIL_H__ */
+diff --git a/include/spi_flash.h b/include/spi_flash.h
+index 417fd54e90a7c80e5b17bd00bfebb1f708581cf2..cf55d22f70d45ef6d8ea16aeba4e95b0dcba47f0 100644
+--- a/include/spi_flash.h
++++ b/include/spi_flash.h
+@@ -47,10 +47,12 @@ struct spi_flash {
+ 	int		(*erase)(struct spi_flash *flash, u32 offset,
+ 				size_t len);
+ #ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-	int		(*set_4byte_mode)(struct spi_flash *flash, int on);
++	int		(*set_4byte_mode)(struct spi_flash *flash);
+ #endif
+ };
+ 
++int spi_flash_init(void);
++
+ struct spi_flash *spi_flash_probe(unsigned int bus, unsigned int cs,
+ 		unsigned int max_hz, unsigned int spi_mode);
+ void spi_flash_free(struct spi_flash *flash);
+@@ -80,34 +82,4 @@ static inline int spi_flash_erase(struct spi_flash *flash, u32 offset,
+ 
+ void spi_boot(void) __noreturn;
+ 
+-#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-static inline int spi_flash_use_4byte_mode(struct spi_flash *flash)
+-{
+-	return (NULL != flash->set_4byte_mode);
+-}
+-#else
+-static inline int spi_flash_use_4byte_mode(struct spi_flash *flash)
+-{
+-	return 0;
+-}
+-#endif
+-
+-#ifdef CONFIG_SPI_FLASH_MTD
+-extern int spi_flash_mtd_init(struct spi_flash *sf);
+-#else
+-static inline int spi_flash_mtd_init(struct spi_flash *sf)
+-{
+-	return 0;
+-}
+-#endif
+-
+-#ifdef CONFIG_SPI_FLASH
+-extern int spi_flash_init(void);
+-#else
+-static inline int spi_flash_init(void)
+-{
+-	return 0;
+-}
+-#endif
+-
+ #endif /* _SPI_FLASH_H_ */
+diff --git a/include/switch.h b/include/switch.h
+index d0ea0121ddccd87f4c7e8655869f986508728649..d56b16dcb0bfc885784ba9993ba16c84b7e4d8fe 100644
+--- a/include/switch.h
++++ b/include/switch.h
+@@ -92,6 +92,7 @@ static inline void switch_setup(struct switch_device *dev)
+ /* Init functions for supported Switch drivers */
+ extern void switch_psb697x_init(void);
+ extern void switch_adm6996i_init(void);
++extern void switch_ar8216_init(void);
+ 
+ #endif /* __SWITCH_H */
+ 
+diff --git a/lib/sphairon/Makefile b/lib/sphairon/Makefile
+index 6dd9b473b7d83f4549c60abc10cd340c6cd69770..d8d3e7a242f2171e65b9a7804d9019b201ce0627 100644
+--- a/lib/sphairon/Makefile
++++ b/lib/sphairon/Makefile
+@@ -1,5 +1,5 @@
+ #
+-# (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++# (C) Copyright 2011-2012 Sphairon Technologies GmbH
+ #
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index 7ccc0c2e6936a4d827e3fafcd25d7860da0370f1..b09fe3442bdd6650c7dc99392afb889d9369a7a1 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <malloc.h>
+ #include <linux/mtd/mtd.h>
+@@ -102,6 +100,16 @@ static int sas_boot_image_part_scan(const struct sas_flash_partition *part,
+ 
+ 		if (type != SAS_IMG_INVALID) {
+ 			size = sas_image_size(&hdr);
++
++			/*
++			 * Skip image and abort scan if image size exceeds
++			 * remaining gap between current offset and MTD size.
++			 * This situation can occur after changes on
++			 * flash layout.
++			 */
++			if (size >= part->mtd->size - offset)
++				return 0;
++
+ 			ret = sas_boot_image_add(part, &hdr, type, size,
+ 						 offset);
+ 			if (ret)
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index eac63d3344f5caa4e39939af769d573687a2e9bf..3a9eead7ce3c23b906d0c4fde7fc04f760690c5f 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <command.h>
+ #include <malloc.h>
+@@ -16,7 +14,6 @@
+ #include <generated/version_autogenerated.h>
+ 
+ #include <sas/util.h>
+-#include <sas/cmd_queue.h>
+ #include <sas/boot.h>
+ #include <sas/flash.h>
+ #include <sas/flashlayout.h>
+diff --git a/lib/sphairon/cmd_sas_controlfile.c b/lib/sphairon/cmd_sas_controlfile.c
+index 5c17b0f47204b722c7c415f2531c168b8dd40922..4660075bec33afadfedede9f1922d8c1a8d1ce87 100644
+--- a/lib/sphairon/cmd_sas_controlfile.c
++++ b/lib/sphairon/cmd_sas_controlfile.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <command.h>
+ #include <hush.h>
+diff --git a/lib/sphairon/cmd_sas_test_sf.c b/lib/sphairon/cmd_sas_test_sf.c
+index 32871fb35e0bf14a7c4fc4b32a8fe3455281cb43..bf914ee28ff188c849f895ca87bb5bbe6ab6b3ac 100644
+--- a/lib/sphairon/cmd_sas_test_sf.c
++++ b/lib/sphairon/cmd_sas_test_sf.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -13,6 +13,16 @@
+ #include <spi_flash.h>
+ #include <asm/io.h>
+ 
++static int sas_test_4byte_mode(const struct spi_flash *sf)
++{
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++	if (sf->size > (1 << 24) && sf->set_4byte_mode)
++		return 1;
++#endif
++
++	return 0;
++}
++
+ static int do_sas_test_sf(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[])
+ {
+ 	struct spi_flash *sf;
+@@ -24,7 +34,7 @@ static int do_sas_test_sf(cmd_tbl_t * cmdtp, int flag, int argc, char *const arg
+ 	int i, j, ret = 0;
+ 	char c;
+ 
+-	puts(">>> Caustion: this test program erases some flash sectors!");
++	puts(">>> Caution: this test program erases some flash sectors!");
+ 	for (;;) {
+ 		puts("\n>>> Do you want to continue (y|n)? :");
+ 		c = getc();
+@@ -79,7 +89,7 @@ static int do_sas_test_sf(cmd_tbl_t * cmdtp, int flag, int argc, char *const arg
+ 
+ 	print_buffer((ulong)p, p, 4, pattern_len, 0);
+ 
+-	if (!spi_flash_use_4byte_mode(sf) || sf->size <= 0x1000000) {
++	if (!sas_test_4byte_mode(sf)) {
+ 		puts(">>> Skipping 4-byte addressing test\n");
+ 		ret = 0;
+ 		goto out;
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index 338556b241a0385bce1bba9ab266b7efd91f01f3..04485f0f6880564e249bc3ed4bcdc21bc05217dd 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <linux/list.h>
+ #include <linux/mtd/mtd.h>
+@@ -179,7 +177,6 @@ static int do_sas_upgrade_uboot(cmd_tbl_t * cmdtp, int flag,
+ U_BOOT_CMD(sas_upgrade_uboot, 4, 0, do_sas_upgrade_uboot,
+ 	"Update U-Boot in flash", "[-f] [addr size]\n");
+ 
+-#if 0
+ static int do_sas_upgrade_uboot_alt(cmd_tbl_t * cmdtp, int flag,
+ 				    int argc, char *const argv[])
+ {
+@@ -232,7 +229,6 @@ static int do_sas_erase_uboot_alt(cmd_tbl_t * cmdtp, int flag,
+ 
+ U_BOOT_CMD(sas_erase_uboot_alt, 1, 0, do_sas_erase_uboot_alt,
+ 	"Erase second U-Boot in flash", "");
+-#endif
+ 
+ static int do_sas_upgrade_etl(cmd_tbl_t * cmdtp, int flag,
+ 			      int argc, char *const argv[])
+diff --git a/lib/sphairon/controlfile.c b/lib/sphairon/controlfile.c
+index 3a6f136d6f2d19d86f89d700829b2dd692275561..b1ffc5051ca33f18e923517e81136274eeb2fcea 100644
+--- a/lib/sphairon/controlfile.c
++++ b/lib/sphairon/controlfile.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <watchdog.h>
+ #include <linux/compiler.h>
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index 6d473292640525b7668d9c813d7c37ee5c73f257..8272816b2d661354e375ec32894431c16ca61392 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <malloc.h>
+ #include <linux/list.h>
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 21e2a212b86fe99e0dfa06117ecda6ca41ddb140..37614dbf618fcb0b5d2d4c1ad858653f7dea7a9b 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <malloc.h>
+ #include <spi_flash.h>
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index aaccb3ff6ac0c49c7a733bd2b79206cd81f13ac7..7cd06637cbea7d31cb32fb5673f93880913bc2c8 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <linux/list.h>
+ #include <linux/mtd/mtd.h>
+diff --git a/lib/sphairon/image.c b/lib/sphairon/image.c
+index a2e767c7acf2d7ec364b517993075223a126ad7b..0ccc6dfbd4d644ecf0ffcec960fd925d7ca068cb 100644
+--- a/lib/sphairon/image.c
++++ b/lib/sphairon/image.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #
+ #include <sas/image.h>
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index e1889f4b14f4521feec7b36db4d016748149d487..784a264ffc95aa65438583a12e4a540f6191f04f 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <linux/err.h>
+ #include <linux/list.h>
+diff --git a/lib/sphairon/util.c b/lib/sphairon/util.c
+index cb1e23758ccef85ee00db15e075db2401dc8e406..42438b64203a4754f63de06cfeee9f4462ade3e5 100644
+--- a/lib/sphairon/util.c
++++ b/lib/sphairon/util.c
+@@ -1,12 +1,10 @@
+ /*
+- * (C) Copyright 2011 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ 
+ #include <sas/util.h>

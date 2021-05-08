@@ -1,0 +1,1800 @@
+diff --git a/.gitignore b/.gitignore
+index d91e91b1e652dcac5a91e5f653e7d08e763e1d1c..05bfec875a87831e9b3d2da3b4ecdf9ee2205003 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -43,6 +43,13 @@
+ /u-boot.dtb
+ /u-boot.sb
+ /u-boot.geany
++/u-boot.bin.lzma
++/u-boot.bin.lzo
++/u-boot.ltq.lzma.norspl
++/u-boot.ltq.lzo.norspl
++/u-boot.ltq.norspl
++/u-boot.lzma.img
++/u-boot.lzo.img
+ 
+ #
+ # Generated files
+diff --git a/Makefile b/Makefile
+index 9edf8c1752a14ba1958f37557a9611c155e97b5f..9c78629e65d0beb2b5bea7ea09f7f64fe599cb08 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.7
++EXTRAVERSION = -stg-2.8
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/danube/Makefile b/arch/mips/cpu/mips32/danube/Makefile
+index 6634763844b61d9f3bd4d32a8770fc92ba16c8ad..f66094580f6b481dc31ff59f10c5b6072611d0d2 100644
+--- a/arch/mips/cpu/mips32/danube/Makefile
++++ b/arch/mips/cpu/mips32/danube/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/arch/mips/cpu/mips32/danube/cgu.c b/arch/mips/cpu/mips32/danube/cgu.c
+index dec46111990dbb75151f9918072ade26f90ec1af..6e7b46dd42e3bb99580609dcb4fe720e68954974 100644
+--- a/arch/mips/cpu/mips32/danube/cgu.c
++++ b/arch/mips/cpu/mips32/danube/cgu.c
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/danube/cgu_init.S b/arch/mips/cpu/mips32/danube/cgu_init.S
+index 9205c3e058f9a4d0ce798ab32bda53519e98d084..be24989a12005de89076dd7106c6a5dab6e480ec 100644
+--- a/arch/mips/cpu/mips32/danube/cgu_init.S
++++ b/arch/mips/cpu/mips32/danube/cgu_init.S
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <config.h>
+diff --git a/arch/mips/cpu/mips32/danube/chipid.c b/arch/mips/cpu/mips32/danube/chipid.c
+index 87d09bec556a76ff8a951d3343dd171f01c2c4d1..ae2d95dd95022d418a1f886b8fa4f8073c811e59 100644
+--- a/arch/mips/cpu/mips32/danube/chipid.c
++++ b/arch/mips/cpu/mips32/danube/chipid.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/danube/config.mk b/arch/mips/cpu/mips32/danube/config.mk
+index c7f8539e0ffa06396d9943adc34573340c423b58..f544b703aeba34620bc259ebbee127b871032654 100644
+--- a/arch/mips/cpu/mips32/danube/config.mk
++++ b/arch/mips/cpu/mips32/danube/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PF_CPPFLAGS_DANUBE := $(call cc-option,-mtune=24kec,)
+diff --git a/arch/mips/cpu/mips32/danube/ebu.c b/arch/mips/cpu/mips32/danube/ebu.c
+index e43e55e65fa733e6ab7e52290ad9750be7fa041d..af561b2782a2d3382fc21714a26fbdca3bd4ec5f 100644
+--- a/arch/mips/cpu/mips32/danube/ebu.c
++++ b/arch/mips/cpu/mips32/danube/ebu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/danube/mem.c b/arch/mips/cpu/mips32/danube/mem.c
+index 961da8a85b6a8ba5a32d14801ebb24734ebd1617..34ff4836d38f3b4e9aeb37647554050a7d930e6d 100644
+--- a/arch/mips/cpu/mips32/danube/mem.c
++++ b/arch/mips/cpu/mips32/danube/mem.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/danube/mem_init.S b/arch/mips/cpu/mips32/danube/mem_init.S
+index c6e177520542e85ade113055a8d758afb752f47c..2296c9826f7e5d24fb5eb8b8c771ffe7e3fa798c 100644
+--- a/arch/mips/cpu/mips32/danube/mem_init.S
++++ b/arch/mips/cpu/mips32/danube/mem_init.S
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <config.h>
+diff --git a/arch/mips/cpu/mips32/danube/pmu.c b/arch/mips/cpu/mips32/danube/pmu.c
+index f2ba73aa69363bd0070de9ff6b57847acc86f15f..21f27e59fb5e0bc2fe11ef4d6af7e693bf8d4bfe 100644
+--- a/arch/mips/cpu/mips32/danube/pmu.c
++++ b/arch/mips/cpu/mips32/danube/pmu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/danube/rcu.c b/arch/mips/cpu/mips32/danube/rcu.c
+index ba0cf785b3ea6624bd33197930804942ace47d72..10d3a06a984af1eef4a67dd02a2b72c116b9bf8e 100644
+--- a/arch/mips/cpu/mips32/danube/rcu.c
++++ b/arch/mips/cpu/mips32/danube/rcu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/danube/u-boot.lds b/arch/mips/cpu/mips32/danube/u-boot.lds
+index 97653841086aa7fd91f70eeb4dc9f516f41f245c..763333d1ef71a21498e75d45808a8fde10ef7f54 100644
+--- a/arch/mips/cpu/mips32/danube/u-boot.lds
++++ b/arch/mips/cpu/mips32/danube/u-boot.lds
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2003 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ OUTPUT_FORMAT("elf32-tradbigmips", "elf32-tradbigmips", "elf32-tradlittlemips")
+diff --git a/arch/mips/cpu/mips32/lantiq-common/Makefile b/arch/mips/cpu/mips32/lantiq-common/Makefile
+index 3b30aea2714c359dbc3baa866dd39b7c952b2ad6..7514a27ddff50fe05710f9f8263cd403c0969f0f 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/Makefile
++++ b/arch/mips/cpu/mips32/lantiq-common/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++# Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/arch/mips/cpu/mips32/lantiq-common/cpu.c b/arch/mips/cpu/mips32/lantiq-common/cpu.c
+index 9c427e37cdca35140112e228fd0d1fcca5c4f751..f5ba6619c816745828678d3474061605e0777563 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/cpu.c
++++ b/arch/mips/cpu/mips32/lantiq-common/cpu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S b/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S
+index cc352698f7a344f02f748be6c4b13bdabe5b66f5..d57ba44ca2a7c7cb740aa475f9f6fb8c4dbcbb26 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S
++++ b/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <asm/asm.h>
+diff --git a/arch/mips/cpu/mips32/lantiq-common/pmu.c b/arch/mips/cpu/mips32/lantiq-common/pmu.c
+index 19265491308e46bc427f21bdab89ddbf9623410a..bb8ac29cbc8758e8ef0309e9439dc7394156e8b0 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/pmu.c
++++ b/arch/mips/cpu/mips32/lantiq-common/pmu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/lantiq-common/spl.c b/arch/mips/cpu/mips32/lantiq-common/spl.c
+index e07b524d036cfbc3f3b9c761598cfc9ed1c61581..8fd4c610f5228a0f401843032d62b4a3632f219b 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/spl.c
++++ b/arch/mips/cpu/mips32/lantiq-common/spl.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/lantiq-common/start.S b/arch/mips/cpu/mips32/lantiq-common/start.S
+index 103655c64f9842eb1b25cd40b73eeb7f2f5ee569..33692ed77db8df57287dafb43aa0293c125068ac 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/start.S
++++ b/arch/mips/cpu/mips32/lantiq-common/start.S
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2003 Wolfgang Denk, wd@denx.de
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <config.h>
+diff --git a/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds b/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
+index 14741d27413822660f8306816f241352d1e155ef..3b715eb1215b603cf804010a3e33d596f7e601ff 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
++++ b/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ MEMORY { .spl_mem : ORIGIN = CONFIG_SPL_TEXT_BASE, \
+diff --git a/arch/mips/cpu/mips32/vrx200/Makefile b/arch/mips/cpu/mips32/vrx200/Makefile
+index d9a8a69b20b8e7d489052ede26c26b83a01f3ef4..a0e20b95b0517f3be74ab9cfe472dfae24967e37 100644
+--- a/arch/mips/cpu/mips32/vrx200/Makefile
++++ b/arch/mips/cpu/mips32/vrx200/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/arch/mips/cpu/mips32/vrx200/cgu.c b/arch/mips/cpu/mips32/vrx200/cgu.c
+index b732d316528c4db6a184cd70da7867781b87daf3..06ff4043f41a80e6643064d68c75a8b054bbee17 100644
+--- a/arch/mips/cpu/mips32/vrx200/cgu.c
++++ b/arch/mips/cpu/mips32/vrx200/cgu.c
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/cgu_init.S b/arch/mips/cpu/mips32/vrx200/cgu_init.S
+index 44c19cc5387ed5565bfd285b912cbd35bfd42dbf..a4bd30f1f76249c7feaa6e864e765f4782dbe7b4 100644
+--- a/arch/mips/cpu/mips32/vrx200/cgu_init.S
++++ b/arch/mips/cpu/mips32/vrx200/cgu_init.S
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <config.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/chipid.c b/arch/mips/cpu/mips32/vrx200/chipid.c
+index dfbfdc5c311427b3d2b7fa72b4c274ce396b4572..522eda872154e435c775390ec3f859b726ab2c70 100644
+--- a/arch/mips/cpu/mips32/vrx200/chipid.c
++++ b/arch/mips/cpu/mips32/vrx200/chipid.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/config.mk b/arch/mips/cpu/mips32/vrx200/config.mk
+index 5234e09825676a33d5f8fe89b6969d470966e9b6..d7edaec3e236e61ef5384400f0a0329a9151e858 100644
+--- a/arch/mips/cpu/mips32/vrx200/config.mk
++++ b/arch/mips/cpu/mips32/vrx200/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PF_CPPFLAGS_XRX := $(call cc-option,-mtune=34kc,)
+diff --git a/arch/mips/cpu/mips32/vrx200/dcdc.c b/arch/mips/cpu/mips32/vrx200/dcdc.c
+index 553ecff3414f7b94d92333eea264bb7595cadf30..0be174f669d2c696dbd43be718fe2954677acde8 100644
+--- a/arch/mips/cpu/mips32/vrx200/dcdc.c
++++ b/arch/mips/cpu/mips32/vrx200/dcdc.c
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/ebu.c b/arch/mips/cpu/mips32/vrx200/ebu.c
+index d4047e7c51eb3b67fb1a1fee5829ce29dfd04209..8af65c64c492b1e69745272ec53fd32128ff2eb2 100644
+--- a/arch/mips/cpu/mips32/vrx200/ebu.c
++++ b/arch/mips/cpu/mips32/vrx200/ebu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/gphy.c b/arch/mips/cpu/mips32/vrx200/gphy.c
+index 4be6c2633fc3fb70ca227d95e998c944d01c2b8c..be140010bc2b2c8bd9f4755ffef41d3c1729a5c2 100644
+--- a/arch/mips/cpu/mips32/vrx200/gphy.c
++++ b/arch/mips/cpu/mips32/vrx200/gphy.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/gphy_fw.S b/arch/mips/cpu/mips32/vrx200/gphy_fw.S
+index 69c89ffacc5bb26d65e2a00fdf1f4f98aa1e15be..e080249110ea186df8ea3d9cfeee21abe824b384 100644
+--- a/arch/mips/cpu/mips32/vrx200/gphy_fw.S
++++ b/arch/mips/cpu/mips32/vrx200/gphy_fw.S
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <asm/asm.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/mem.c b/arch/mips/cpu/mips32/vrx200/mem.c
+index f953d7a02ab6d8c52b90312940a635dd7d9466b8..6f46a3dde2651e90e966f9abfae05f344ec37dd9 100644
+--- a/arch/mips/cpu/mips32/vrx200/mem.c
++++ b/arch/mips/cpu/mips32/vrx200/mem.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/mem_init.S b/arch/mips/cpu/mips32/vrx200/mem_init.S
+index b4dca15baa05c62fc56c56b5685424faada4c62e..29ffdcfa6174bb7994a57fdd5c503b0935e93288 100644
+--- a/arch/mips/cpu/mips32/vrx200/mem_init.S
++++ b/arch/mips/cpu/mips32/vrx200/mem_init.S
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <config.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/pmu.c b/arch/mips/cpu/mips32/vrx200/pmu.c
+index 5ffd14e6874fa9cfbe52fcb7de43bf1d1b36a732..d42c1cfbf55fd9e3a5ce55cea2b62d0675001f2b 100644
+--- a/arch/mips/cpu/mips32/vrx200/pmu.c
++++ b/arch/mips/cpu/mips32/vrx200/pmu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/rcu.c b/arch/mips/cpu/mips32/vrx200/rcu.c
+index 6e240c09e1df9aa7eb4a173b7206de8cbe8f8034..4d7c27e6c8ebe370439ad162b29c6f5d3cad8921 100644
+--- a/arch/mips/cpu/mips32/vrx200/rcu.c
++++ b/arch/mips/cpu/mips32/vrx200/rcu.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/arch/mips/cpu/mips32/vrx200/u-boot.lds b/arch/mips/cpu/mips32/vrx200/u-boot.lds
+index 97653841086aa7fd91f70eeb4dc9f516f41f245c..763333d1ef71a21498e75d45808a8fde10ef7f54 100644
+--- a/arch/mips/cpu/mips32/vrx200/u-boot.lds
++++ b/arch/mips/cpu/mips32/vrx200/u-boot.lds
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2003 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ OUTPUT_FORMAT("elf32-tradbigmips", "elf32-tradbigmips", "elf32-tradlittlemips")
+diff --git a/arch/mips/include/asm/arch-danube/config.h b/arch/mips/include/asm/arch-danube/config.h
+index 12b43fc25b2d8d53b7833117ea24f2f33c122527..d1033b085b067b5839c8bd1f9cda7bcdd920cc28 100644
+--- a/arch/mips/include/asm/arch-danube/config.h
++++ b/arch/mips/include/asm/arch-danube/config.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * Common board configuration for Lantiq XWAY Danube family
+  *
+diff --git a/arch/mips/include/asm/arch-danube/gpio.h b/arch/mips/include/asm/arch-danube/gpio.h
+index 1cffb7ad64a59b6a7fbb2c0d425f11f660d16c82..f760c300a802369157afdc99aa393cd1d656973f 100644
+--- a/arch/mips/include/asm/arch-danube/gpio.h
++++ b/arch/mips/include/asm/arch-danube/gpio.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __DANUBE_GPIO_H__
+diff --git a/arch/mips/include/asm/arch-danube/soc.h b/arch/mips/include/asm/arch-danube/soc.h
+index 948dc7f5d38101c107024a6f7c8f531176c606eb..3621708310f30cfe37662c91cfef08dada8cabcb 100644
+--- a/arch/mips/include/asm/arch-danube/soc.h
++++ b/arch/mips/include/asm/arch-danube/soc.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __DANUBE_SOC_H__
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 044ebf33609c4ebefb0d94909c8313c8d1a1436a..a6264a82bd213b39b00c68dc92ed8280071fbc12 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * Common board configuration for Lantiq XWAY VRX200 family
+  *
+diff --git a/arch/mips/include/asm/arch-vrx200/gphy.h b/arch/mips/include/asm/arch-vrx200/gphy.h
+index a78556efffa29fef5f9ff6ed36ef5ce1a0b3e2d8..4dd5e62496a56f513d9bfe99ffee3cc39e4587cc 100644
+--- a/arch/mips/include/asm/arch-vrx200/gphy.h
++++ b/arch/mips/include/asm/arch-vrx200/gphy.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __VRX200_GPHY_H__
+diff --git a/arch/mips/include/asm/arch-vrx200/gpio.h b/arch/mips/include/asm/arch-vrx200/gpio.h
+index 7fd87375a4a73e6dcc63e896141214a72db79c79..0b343b80b57dbc4dfb8abe48ded207db8a0e1aad 100644
+--- a/arch/mips/include/asm/arch-vrx200/gpio.h
++++ b/arch/mips/include/asm/arch-vrx200/gpio.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __VRX200_GPIO_H__
+diff --git a/arch/mips/include/asm/arch-vrx200/nand.h b/arch/mips/include/asm/arch-vrx200/nand.h
+index 15b1504c7469b7ba7c32669431174cb22404f06b..2ffd6de34bcfdecc805ee28e922b388b2c51bb22 100644
+--- a/arch/mips/include/asm/arch-vrx200/nand.h
++++ b/arch/mips/include/asm/arch-vrx200/nand.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __VRX200_NAND_H__
+diff --git a/arch/mips/include/asm/arch-vrx200/soc.h b/arch/mips/include/asm/arch-vrx200/soc.h
+index 8339ea3b033a7beef997a4ca79bb37db79cf45ad..73a92a15fc71412b3610c35bb5cd7ddbdf55c018 100644
+--- a/arch/mips/include/asm/arch-vrx200/soc.h
++++ b/arch/mips/include/asm/arch-vrx200/soc.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __VRX200_SOC_H__
+diff --git a/arch/mips/include/asm/arch-vrx200/switch.h b/arch/mips/include/asm/arch-vrx200/switch.h
+index fbe5cc53ecccb1491a80bce8e1579d0ce68dea42..58ab8576ac64edd1013539336647b3f330466d0f 100644
+--- a/arch/mips/include/asm/arch-vrx200/switch.h
++++ b/arch/mips/include/asm/arch-vrx200/switch.h
+@@ -13,7 +13,7 @@
+  *   along with this program; if not, write to the Free Software
+  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
+  *
+- *   Copyright (C) 2012 Daniel Schwierzeck <daniel.schwierzeck@googlemail.com>
++ *   Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __VR9_SWITCH_H__
+diff --git a/arch/mips/include/asm/lantiq/chipid.h b/arch/mips/include/asm/lantiq/chipid.h
+index e602e8c1eadc52f46fbc2d3e87553be87d8b7743..1c67d4150549d95d12bbe0febf5fb4eb58621eaf 100644
+--- a/arch/mips/include/asm/lantiq/chipid.h
++++ b/arch/mips/include/asm/lantiq/chipid.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_CHIPID_H__
+diff --git a/arch/mips/include/asm/lantiq/clk.h b/arch/mips/include/asm/lantiq/clk.h
+index 6d7910e59e06d57bd04b96a857fcf0284c01084c..3e01618c99b130e87ffdff8555a4ecc08ece6f0c 100644
+--- a/arch/mips/include/asm/lantiq/clk.h
++++ b/arch/mips/include/asm/lantiq/clk.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * Based on Lantiq port in Linux kernel
+  */
+diff --git a/arch/mips/include/asm/lantiq/config.h b/arch/mips/include/asm/lantiq/config.h
+index 7fc2da61603149ea614a3022a8d74b998eb88a4e..58f0c94f23d67f66099b7e1a3c656761b6b35313 100644
+--- a/arch/mips/include/asm/lantiq/config.h
++++ b/arch/mips/include/asm/lantiq/config.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_CONFIG_H__
+diff --git a/arch/mips/include/asm/lantiq/cpu.h b/arch/mips/include/asm/lantiq/cpu.h
+index fb775916315ea7618feaf175904e64dc0dc2430b..d52a82489f8c36ec8fe39f4e411ee328b42805e2 100644
+--- a/arch/mips/include/asm/lantiq/cpu.h
++++ b/arch/mips/include/asm/lantiq/cpu.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_CPU_H__
+diff --git a/arch/mips/include/asm/lantiq/dma.h b/arch/mips/include/asm/lantiq/dma.h
+index 9f53de8a54fb909e012738a5c760767c107cf42a..40b8d283cfdcf0f3b1164d42adfdc68761b85939 100644
+--- a/arch/mips/include/asm/lantiq/dma.h
++++ b/arch/mips/include/asm/lantiq/dma.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_DMA_H__
+diff --git a/arch/mips/include/asm/lantiq/eth.h b/arch/mips/include/asm/lantiq/eth.h
+index 8fc25bf5cd724cfc08f07f40d6426f9cf2ffdf9f..c3a40cc7c152ee2584cb01b1c05a18458c872218 100644
+--- a/arch/mips/include/asm/lantiq/eth.h
++++ b/arch/mips/include/asm/lantiq/eth.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_ETH_H__
+diff --git a/arch/mips/include/asm/lantiq/gpio.h b/arch/mips/include/asm/lantiq/gpio.h
+index 120ad660429f5467eedb7adc51885c5eb9e01be7..7ab4d9ff08a00dc095de2b880172b26d45b6b151 100644
+--- a/arch/mips/include/asm/lantiq/gpio.h
++++ b/arch/mips/include/asm/lantiq/gpio.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_GPIO_H__
+diff --git a/arch/mips/include/asm/lantiq/io.h b/arch/mips/include/asm/lantiq/io.h
+index 4a08ad20f3945ec5d0aca284807c2848a96681d7..42b27217cd9c3c09157dcd9e757703bdb75b1fd0 100644
+--- a/arch/mips/include/asm/lantiq/io.h
++++ b/arch/mips/include/asm/lantiq/io.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 John Crispin <blogic@openwrt.org>
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_IO_H__
+diff --git a/arch/mips/include/asm/lantiq/pm.h b/arch/mips/include/asm/lantiq/pm.h
+index 2f5496e01a4352b022f42fcdf88b138c06c021ce..b025e9f0496a42e8bcc6048e614f2770cd243605 100644
+--- a/arch/mips/include/asm/lantiq/pm.h
++++ b/arch/mips/include/asm/lantiq/pm.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_PM_H__
+diff --git a/arch/mips/include/asm/lantiq/reset.h b/arch/mips/include/asm/lantiq/reset.h
+index b9bad5434a63eb1f67eeaf488a646eb8956dfb98..3707bd8c3f6855fc5459f52fca0967d905c63c4b 100644
+--- a/arch/mips/include/asm/lantiq/reset.h
++++ b/arch/mips/include/asm/lantiq/reset.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __LANTIQ_RESET_H__
+diff --git a/board/lantiq/easy50712/Makefile b/board/lantiq/easy50712/Makefile
+index 321154f8cfb9b732fe5498515f3903fd9439c70a..903c6412baa984387ad3a52a9c8d7dd36dd4a67d 100644
+--- a/board/lantiq/easy50712/Makefile
++++ b/board/lantiq/easy50712/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/board/lantiq/easy50712/config.mk b/board/lantiq/easy50712/config.mk
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..8ca647efe58661faf37040e19b51f844069cdaf1 100644
+--- a/board/lantiq/easy50712/config.mk
++++ b/board/lantiq/easy50712/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/lantiq/easy50712/ddr_settings.h b/board/lantiq/easy50712/ddr_settings.h
+index e06522674c1a635eff46ca527114051c5140b3bb..bddf26b3413993cc3b8318449de438c864031ec5 100644
+--- a/board/lantiq/easy50712/ddr_settings.h
++++ b/board/lantiq/easy50712/ddr_settings.h
+@@ -3,12 +3,13 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define MC_DC00_VALUE	0x1B1B
+ #define MC_DC01_VALUE	0x0
+ #define MC_DC02_VALUE	0x0
++#define MC_DC03_VALUE	0x0
+ #define MC_DC04_VALUE	0x0
+ #define MC_DC05_VALUE	0x200
+ #define MC_DC06_VALUE	0x605
+diff --git a/board/lantiq/easy50712/easy50712.c b/board/lantiq/easy50712/easy50712.c
+index 7ecf4265323d3ef39efc8ca98177f45e72f7b5cb..78cd4059d3e03e752b3db3371ce0947458308acc 100644
+--- a/board/lantiq/easy50712/easy50712.c
++++ b/board/lantiq/easy50712/easy50712.c
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Thomas Langer <thomas.langer@lantiq.com>
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/board/lantiq/easy80920/Makefile b/board/lantiq/easy80920/Makefile
+index 321154f8cfb9b732fe5498515f3903fd9439c70a..903c6412baa984387ad3a52a9c8d7dd36dd4a67d 100644
+--- a/board/lantiq/easy80920/Makefile
++++ b/board/lantiq/easy80920/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/board/lantiq/easy80920/config.mk b/board/lantiq/easy80920/config.mk
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..8ca647efe58661faf37040e19b51f844069cdaf1 100644
+--- a/board/lantiq/easy80920/config.mk
++++ b/board/lantiq/easy80920/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/lantiq/easy80920/ddr_settings.h b/board/lantiq/easy80920/ddr_settings.h
+index b04ec172ab1372adf86d4eea112b5141ae4e37a3..b459f9783b7a3612ddbfcda61e717844e54b372c 100644
+--- a/board/lantiq/easy80920/ddr_settings.h
++++ b/board/lantiq/easy80920/ddr_settings.h
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+diff --git a/board/lantiq/easy80920/easy80920.c b/board/lantiq/easy80920/easy80920.c
+index 659f5258983068c4b1ca90293305c77dc6ecdf11..cce21ad5a65b24809f57b10298849a905e9d6da8 100644
+--- a/board/lantiq/easy80920/easy80920.c
++++ b/board/lantiq/easy80920/easy80920.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/board/sphairon/isdn_sip_gw/Makefile b/board/sphairon/isdn_sip_gw/Makefile
+index df1f52fb76373c2cc91b6d72777798b24122b6b4..e4e01013dcee2056e9ffbaa9866d532616354372 100644
+--- a/board/sphairon/isdn_sip_gw/Makefile
++++ b/board/sphairon/isdn_sip_gw/Makefile
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/board/sphairon/isdn_sip_gw/config.mk b/board/sphairon/isdn_sip_gw/config.mk
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..8ca647efe58661faf37040e19b51f844069cdaf1 100644
+--- a/board/sphairon/isdn_sip_gw/config.mk
++++ b/board/sphairon/isdn_sip_gw/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/sphairon/isdn_sip_gw/ddr_settings.h b/board/sphairon/isdn_sip_gw/ddr_settings.h
+index 7b77fa8888bbdb47ba83200c756c9d1c0d4996c2..6e16774a6e8256acd526cd550955bd42fc094a63 100644
+--- a/board/sphairon/isdn_sip_gw/ddr_settings.h
++++ b/board/sphairon/isdn_sip_gw/ddr_settings.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index c3a30051f79652b57d145fd5b60f6a7ba0fcad7d..a11ed521beea1857de44e36c3e3c5dda2b14f876 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/board/sphairon/sl550x/Makefile b/board/sphairon/sl550x/Makefile
+index df1f52fb76373c2cc91b6d72777798b24122b6b4..e4e01013dcee2056e9ffbaa9866d532616354372 100644
+--- a/board/sphairon/sl550x/Makefile
++++ b/board/sphairon/sl550x/Makefile
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/board/sphairon/sl550x/config.mk b/board/sphairon/sl550x/config.mk
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..8ca647efe58661faf37040e19b51f844069cdaf1 100644
+--- a/board/sphairon/sl550x/config.mk
++++ b/board/sphairon/sl550x/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/sphairon/sl550x/ddr_settings.h b/board/sphairon/sl550x/ddr_settings.h
+index 7b77fa8888bbdb47ba83200c756c9d1c0d4996c2..6e16774a6e8256acd526cd550955bd42fc094a63 100644
+--- a/board/sphairon/sl550x/ddr_settings.h
++++ b/board/sphairon/sl550x/ddr_settings.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index c8633c013695a5549a3c476c15b064adada86059..0f64dbbda62629ec5c3426334bfd4cc1f302cd36 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/board/sphairon/tl7201/Makefile b/board/sphairon/tl7201/Makefile
+index df1f52fb76373c2cc91b6d72777798b24122b6b4..e4e01013dcee2056e9ffbaa9866d532616354372 100644
+--- a/board/sphairon/tl7201/Makefile
++++ b/board/sphairon/tl7201/Makefile
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/board/sphairon/tl7201/config.mk b/board/sphairon/tl7201/config.mk
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..8ca647efe58661faf37040e19b51f844069cdaf1 100644
+--- a/board/sphairon/tl7201/config.mk
++++ b/board/sphairon/tl7201/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/sphairon/tl7201/ddr_settings.h b/board/sphairon/tl7201/ddr_settings.h
+index 0a7c41e859fc506f02eeea21c221eea24ef9e0d9..960a20cb112a4c299bd69b664847a51ad8acd417 100644
+--- a/board/sphairon/tl7201/ddr_settings.h
++++ b/board/sphairon/tl7201/ddr_settings.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define MC_DC00_VALUE	0x1B1B
+diff --git a/board/sphairon/tl7201/tl7201.c b/board/sphairon/tl7201/tl7201.c
+index 68cade1fb95319c3b9a53dc3ff400cebcc05b2e6..0b352f4cd096db7d9d5c44ab2464c5e3102e323d 100644
+--- a/board/sphairon/tl7201/tl7201.c
++++ b/board/sphairon/tl7201/tl7201.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/board/sphairon/vrx_g1/Makefile b/board/sphairon/vrx_g1/Makefile
+index df1f52fb76373c2cc91b6d72777798b24122b6b4..e4e01013dcee2056e9ffbaa9866d532616354372 100644
+--- a/board/sphairon/vrx_g1/Makefile
++++ b/board/sphairon/vrx_g1/Makefile
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/board/sphairon/vrx_g1/config.mk b/board/sphairon/vrx_g1/config.mk
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..8ca647efe58661faf37040e19b51f844069cdaf1 100644
+--- a/board/sphairon/vrx_g1/config.mk
++++ b/board/sphairon/vrx_g1/config.mk
+@@ -2,7 +2,7 @@
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/sphairon/vrx_g1/ddr_settings.h b/board/sphairon/vrx_g1/ddr_settings.h
+index 7b77fa8888bbdb47ba83200c756c9d1c0d4996c2..6e16774a6e8256acd526cd550955bd42fc094a63 100644
+--- a/board/sphairon/vrx_g1/ddr_settings.h
++++ b/board/sphairon/vrx_g1/ddr_settings.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+diff --git a/board/sphairon/vrx_g1/vrx_g1.c b/board/sphairon/vrx_g1/vrx_g1.c
+index 94ef3f2acb5a6ee2f99e7b9f0d2cc4c9ff7ba39e..b3143cfde49c4874d961edc1aee5bd9be2a855f0 100644
+--- a/board/sphairon/vrx_g1/vrx_g1.c
++++ b/board/sphairon/vrx_g1/vrx_g1.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/common/cmd_mtd.c b/common/cmd_mtd.c
+index 3114c92b7b1e0f787e506b822217048a1a56fc7d..87f094c36db890bd0f93c8322767715c711638fb 100644
+--- a/common/cmd_mtd.c
++++ b/common/cmd_mtd.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * Command for read/write/erase via MTD layer
+  *
+diff --git a/drivers/dma/lantiq_dma.c b/drivers/dma/lantiq_dma.c
+index 72e3d84a890a832310fcd6043736ea0853b0bcbb..ef3886a77f66861fc6b44dca8496899916d6e23a 100644
+--- a/drivers/dma/lantiq_dma.c
++++ b/drivers/dma/lantiq_dma.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/gpio/lantiq_gpio.c b/drivers/gpio/lantiq_gpio.c
+index 28bcea5cbf49b4c8a10edfcc867fdf6728157cfa..c0c80abdc9fb03785fa7c353b7d6a8645c3fb97e 100644
+--- a/drivers/gpio/lantiq_gpio.c
++++ b/drivers/gpio/lantiq_gpio.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/mtd/nand/lantiq_nand.c b/drivers/mtd/nand/lantiq_nand.c
+index 7b45fe3f3f77f5bc9d43d101b5358d2080c573cb..8d92d1058589d48edf1d8e05787eb01b173263fc 100644
+--- a/drivers/mtd/nand/lantiq_nand.c
++++ b/drivers/mtd/nand/lantiq_nand.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/mtd/spi/spi_flash_mtd.c b/drivers/mtd/spi/spi_flash_mtd.c
+index 5fac97401d16a7e829ca43d458f5ceaf8972aa58..815d3ad966e522480d3e22541097a1b114735018 100644
+--- a/drivers/mtd/spi/spi_flash_mtd.c
++++ b/drivers/mtd/spi/spi_flash_mtd.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * MTD layer driver for SPI flash devices
+  *
+diff --git a/drivers/net/lantiq_danube_etop.c b/drivers/net/lantiq_danube_etop.c
+index e934f92542dff7b5334f2fae308213f79db26807..06cf26ba5d2585b7688893585ee0ee026b57a6a8 100644
+--- a/drivers/net/lantiq_danube_etop.c
++++ b/drivers/net/lantiq_danube_etop.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/net/lantiq_vrx200_switch.c b/drivers/net/lantiq_vrx200_switch.c
+index 784f830189b086325175d360a456c635136d0fb9..6ccd19b849adc9de4482d2435075edaed5e7edec 100644
+--- a/drivers/net/lantiq_vrx200_switch.c
++++ b/drivers/net/lantiq_vrx200_switch.c
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010-2011 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define DEBUG
+diff --git a/drivers/net/phy/lantiq.c b/drivers/net/phy/lantiq.c
+index cb719b4683406eb5d43c199509d56d505341aae6..4618127c8947eae653636d3bdf1b0791c1220664 100644
+--- a/drivers/net/phy/lantiq.c
++++ b/drivers/net/phy/lantiq.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define DEBUG
+diff --git a/drivers/net/switch/Makefile b/drivers/net/switch/Makefile
+index e257a79e721e63e94ca7ad02e88a3c9b3f3a8b32..3e3852fdd7c2ddba64ea47bd2959179bda6f3f2d 100644
+--- a/drivers/net/switch/Makefile
++++ b/drivers/net/switch/Makefile
+@@ -3,7 +3,7 @@
+ # See the file COPYING in the root directory of the source tree for details.
+ #
+ # Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++# Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+ #
+ 
+ include $(TOPDIR)/config.mk
+diff --git a/drivers/net/switch/adm6996i.c b/drivers/net/switch/adm6996i.c
+index 815d3ee528f63362e6a1aa737c5ad088c7c9c286..7a9e7cdee12fcd910fc46d69d83595cb5b25c455 100644
+--- a/drivers/net/switch/adm6996i.c
++++ b/drivers/net/switch/adm6996i.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/drivers/net/switch/ar8216.c b/drivers/net/switch/ar8216.c
+index 84cde34f50ae6320f3a6729f2e6d58244d05e0f7..01ca7572ca9c8fd51e591799cd3586d88e276a13 100644
+--- a/drivers/net/switch/ar8216.c
++++ b/drivers/net/switch/ar8216.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2012 Luka Perkov <uboot@lukaperkov.net>
++ * Copyright (C) 2012 Luka Perkov <luka@openwrt.org>
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/drivers/net/switch/psb697x.c b/drivers/net/switch/psb697x.c
+index 8dc89ee02211400395ec098cb587f5db8508ddeb..c8116e312afb9d620ef78014acdedc74131be95c 100644
+--- a/drivers/net/switch/psb697x.c
++++ b/drivers/net/switch/psb697x.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/drivers/net/switch/switch.c b/drivers/net/switch/switch.c
+index 42e78653155f9b479ed8e40d0058a4784630bc67..021d40c52e92f3b235be61b8b868972079f08cbc 100644
+--- a/drivers/net/switch/switch.c
++++ b/drivers/net/switch/switch.c
+@@ -1,5 +1,5 @@
+ /*
+- * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/drivers/serial/serial_lantiq.c b/drivers/serial/serial_lantiq.c
+index 5f3a78f264514f949de6fea3ac13b8ab3a3f81a7..89d9fa79be0a254a2822f70d45c2d5273e49a2a6 100644
+--- a/drivers/serial/serial_lantiq.c
++++ b/drivers/serial/serial_lantiq.c
+@@ -3,7 +3,7 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+  * Copyright (C) 2010 Thomas Langer <thomas.langer@lantiq.com>
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/drivers/spi/lantiq_spi.c b/drivers/spi/lantiq_spi.c
+index 557e4a5df7113b3d45149a1122882b7ab2b82b81..0b0801c6320507ca6cf295bbb7d8623447e4a51e 100644
+--- a/drivers/spi/lantiq_spi.c
++++ b/drivers/spi/lantiq_spi.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+diff --git a/include/configs/easy50712.h b/include/configs/easy50712.h
+index 9cbae84594da100b69dd803b81bfdf375e7fb255..ae9e1db16063031fa22d95fdab1a673ba279bafc 100644
+--- a/include/configs/easy50712.h
++++ b/include/configs/easy50712.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+diff --git a/include/configs/easy80920.h b/include/configs/easy80920.h
+index 8a0837759c722dbaa7ae02958ddece74f85e468d..3800a283acc9e0aec800f44b9ab1219e15cd9b39 100644
+--- a/include/configs/easy80920.h
++++ b/include/configs/easy80920.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index 00640b84c123b90c0691fcb16faaa084870feedf..da19932ba25bd0addbeeaa4479a72804e59e2bf8 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index fd518b2ddec80698052f937ef822f662b9d3c9fb..c0e5dbe1d95d122e63bc5dbb50a163a4ff37078e 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2012-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index ba0a6daef352ea6259d3374d0a15c4d6c1523585..c00f6af56e8c7c2b80c25b515d42a8ea7cfd76da 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/configs/tl7201.h b/include/configs/tl7201.h
+index 1f2935b1a96c64183c38823132d7b478e674586b..553b8ae93ba2d630575313057a42653568dcaf81 100644
+--- a/include/configs/tl7201.h
++++ b/include/configs/tl7201.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+diff --git a/include/configs/vrx_g1.h b/include/configs/vrx_g1.h
+index c210f303b4e8279629fdff1c9e6d3c642e7ab2e6..642f26f2bb7908cdca8cc5b2621f2c2cecde64a5 100644
+--- a/include/configs/vrx_g1.h
++++ b/include/configs/vrx_g1.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+diff --git a/include/sas/boot.h b/include/sas/boot.h
+index fec6a68e26ee127da3ebfc9a1f07de36f612361e..5f3188e903a7c12cdcb4b88b31e8f0507646267e 100644
+--- a/include/sas/boot.h
++++ b/include/sas/boot.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/cd_user.h b/include/sas/cd_user.h
+index ab3bb43aa9646826abf9bc59fa17853c4ab61aff..ddb30c6269da6ae62f26b6a44190ef4faae544cc 100644
+--- a/include/sas/cd_user.h
++++ b/include/sas/cd_user.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/controlfile.h b/include/sas/controlfile.h
+index 0991d765dd35d66ef3748d7b8536ed6cc1806bdc..0aee2ea309ab91a8d79be89fc78ef1c7f80a113b 100644
+--- a/include/sas/controlfile.h
++++ b/include/sas/controlfile.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/etl.h b/include/sas/etl.h
+index 33545e569079cd90a3149b08ebbf971f6d507feb..eb11916831ab6676031858a9a0229a89c55111a4 100644
+--- a/include/sas/etl.h
++++ b/include/sas/etl.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -26,9 +26,11 @@ void sas_etl_env_set_ethaddr(int *save_env);
+ void sas_etl_env_save(int *save_env);
+ 
+ const char *sas_etl_get_string(enum sas_etl_id idx);
+-unsigned long sas_etl_get_ulong(enum sas_etl_id idx);
++int sas_etl_get_integer(enum sas_etl_id idx);
++unsigned long sas_etl_get_hex(enum sas_etl_id idx, unsigned int len);
+ void sas_etl_set_string(enum sas_etl_id idx, const char *val);
+-void sas_etl_set_ulong(enum sas_etl_id idx, unsigned long val);
++void sas_etl_set_integer(enum sas_etl_id idx, int val);
++void sas_etl_set_hex(enum sas_etl_id idx, unsigned int len, unsigned long val);
+ 
+ void sas_etl_print(void);
+ void sas_etl_dump(void);
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index b33272aa29727a646166cc2a66d462a0cd1977d4..bc68203c2eb6c672d0a8a80082936e3a698a6d54 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -101,7 +101,6 @@ static inline int sas_etl_is_integer(enum sas_etl_id idx)
+ 	switch (idx) {
+ 	case SAS_ETL_IDENT_NO:
+ 	case SAS_ETL_BASE_PLATFORM:
+-	case SAS_ETL_WLANCFG:
+ 	case SAS_ETL_EXTRA_SPACE_SIZE:
+ 	case SAS_ETL_JFFS_IMAGES:
+ 	case SAS_ETL_SHDSL_LINES:
+@@ -111,13 +110,29 @@ static inline int sas_etl_is_integer(enum sas_etl_id idx)
+ 	}
+ }
+ 
+-static inline int sas_etl_is_binary(enum sas_etl_id idx)
++static inline int sas_etl_is_hex(enum sas_etl_id idx)
+ {
+ 	switch (idx) {
+ 	case SAS_ETL_HW_CFG:
+ 	case SAS_ETL_HW_CFG2:
+ 	case SAS_ETL_LEDCFG:
++	case SAS_ETL_WLANCFG:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++static inline size_t sas_etl_hex_size(enum sas_etl_id idx)
++{
++	switch (idx) {
++	case SAS_ETL_HW_CFG:
+ 		return 1;
++	case SAS_ETL_HW_CFG2:
++	case SAS_ETL_LEDCFG:
++		return 2;
++	case SAS_ETL_WLANCFG:
++		return 4;
+ 	default:
+ 		return 0;
+ 	}
+diff --git a/include/sas/flash.h b/include/sas/flash.h
+index 73f036f1b0f768e0ff22b46440165ee0182d7563..35ba3fcb01b9307623ed35a98365c7b47e8dd0da 100644
+--- a/include/sas/flash.h
++++ b/include/sas/flash.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/flash_user.h b/include/sas/flash_user.h
+index e9fdcaa43c2456ac1ee46778cea8d61dd42d708b..66d870c971c2fb108e546a7f9dc020c332cdbda8 100644
+--- a/include/sas/flash_user.h
++++ b/include/sas/flash_user.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/flashlayout.h b/include/sas/flashlayout.h
+index 2ac74a4df83e9c42451e596f895d3c49f8a3e66c..3bff27d875c1847de25190ba96ec069473bf2cb1 100644
+--- a/include/sas/flashlayout.h
++++ b/include/sas/flashlayout.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/image.h b/include/sas/image.h
+index 56473db32576417845742c27f23719f8f7341d94..120cd292d7096ebbe59e9d31dee74d6dc287e6df 100644
+--- a/include/sas/image.h
++++ b/include/sas/image.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/init.h b/include/sas/init.h
+index ccca30bb3ada77ab1b99049587e21be6503c7e16..8b86a9e16e1d6235880f0ace060980fb3c4449c0 100644
+--- a/include/sas/init.h
++++ b/include/sas/init.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/sas/util.h b/include/sas/util.h
+index 488f79a8ca9a9cfc025fe272e7c296b5e1161c18..3ea77cbb7f9b2d4ec6915144149cf96aa39c812a 100644
+--- a/include/sas/util.h
++++ b/include/sas/util.h
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/include/switch.h b/include/switch.h
+index d56b16dcb0bfc885784ba9993ba16c84b7e4d8fe..3bb3e2347ff8f3789471997d1431094781ae9b6e 100644
+--- a/include/switch.h
++++ b/include/switch.h
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __SWITCH_H
+diff --git a/lib/sphairon/Makefile b/lib/sphairon/Makefile
+index 9e062ffeff5f140415318964a207baefe209fac6..ca26d68bbacd5e6c4d2859d2df20ea0a056c9612 100644
+--- a/lib/sphairon/Makefile
++++ b/lib/sphairon/Makefile
+@@ -1,5 +1,5 @@
+ #
+-# (C) Copyright 2011-2012 Sphairon Technologies GmbH
++# Copyright (C) 2011-2013 Sphairon Technologies GmbH
+ #
+ # This file is released under the terms of GPL v2 and any later version.
+ # See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index ac7192025a6c0220c726174e307b147cf5949edc..a715757b30fe4509f5fcfa5dd4e80276060d1a47 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index b48b8d8497c167eadc296f36e10867ba4bd76cff..e2e8ff335864c1cc4df2a973a6a2fdcba0d577e3 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/cmd_sas_controlfile.c b/lib/sphairon/cmd_sas_controlfile.c
+index 4660075bec33afadfedede9f1922d8c1a8d1ce87..547246503cfa593866c1c69edac5b63998ed3d47 100644
+--- a/lib/sphairon/cmd_sas_controlfile.c
++++ b/lib/sphairon/cmd_sas_controlfile.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/cmd_sas_etl.c b/lib/sphairon/cmd_sas_etl.c
+index 9ed9216643ed4466e9374e27fec5ea454cb77132..f82451dc04548584a4f9b1d3903329e4d7489eaf 100644
+--- a/lib/sphairon/cmd_sas_etl.c
++++ b/lib/sphairon/cmd_sas_etl.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -78,6 +78,7 @@ static int do_etl_write(int argc, char * const argv[])
+ static int do_etl_set(int argc, char * const argv[])
+ {
+ 	enum sas_etl_id idx;
++	unsigned long val;
+ 
+ 	if (argc != 3)
+ 		return CMD_RET_USAGE;
+@@ -88,7 +89,11 @@ static int do_etl_set(int argc, char * const argv[])
+ 		return CMD_RET_FAILURE;
+ 	}
+ 
+-	sas_etl_set_string(idx, argv[2]);
++	if (sas_etl_is_hex(idx)) {
++		strict_strtoul(argv[2], 16, &val);
++		sas_etl_set_hex(idx, sas_etl_hex_size(idx), val);
++	} else
++		sas_etl_set_string(idx, argv[2]);
+ 
+ 	return 0;
+ }
+diff --git a/lib/sphairon/cmd_sas_test_sf.c b/lib/sphairon/cmd_sas_test_sf.c
+index bf914ee28ff188c849f895ca87bb5bbe6ab6b3ac..4d331282bd2a2d126fc2d2ab2714f894c42adf74 100644
+--- a/lib/sphairon/cmd_sas_test_sf.c
++++ b/lib/sphairon/cmd_sas_test_sf.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index 9c33a0480af9cde4ac60e12d57042a55c42765f9..b0289ede64048d0382c181afdb425cfa6e5bd4bd 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/controlfile.c b/lib/sphairon/controlfile.c
+index 97e62d189e8027860b3c1afbbe478397c8495509..0906fab99dad4e5aae04da0ea023600fe47a5c6b 100644
+--- a/lib/sphairon/controlfile.c
++++ b/lib/sphairon/controlfile.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index cfbf83f6981e824f1efee15e3de45f90e02afd57..859c9f84f97659b7ff72787eb65bf031be1881a1 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+@@ -143,7 +143,7 @@ int sas_etl_export(unsigned long addr)
+ 	for (idx = SAS_ETL_HW_VERSION; idx < SAS_ETL_ID_LAST; idx++) {
+ 		str = &sas_etl_map[idx][0];
+ 
+-		if (sas_etl_is_binary(idx))
++		if (sas_etl_is_hex(idx))
+ 			len = 4;
+ 		else
+ 			len = strlen(str);
+@@ -246,6 +246,17 @@ static void sas_etl_env_set_hwcfg2(int *save_env)
+ 	sas_setenv_num("etl_s0_int_count", hw_cfg2.S0_int_count, save_env);
+ }
+ 
++static void sas_etl_env_set_bcd(enum sas_etl_id idx, const char *name,
++				int *save_env)
++{
++	unsigned long val;
++	char buf[16];
++
++	val = sas_etl_get_hex(idx, sas_etl_hex_size(idx));
++	sprintf(buf, "%0*lx", sas_etl_hex_size(idx) * 2, val);
++	sas_setenv(name, buf, save_env);
++}
++
+ void sas_etl_env_save(int *save_env)
+ {
+ 	if (!sas_etl_ver) {
+@@ -272,9 +283,15 @@ void sas_etl_env_save(int *save_env)
+ 	sas_etl_env_set_default(SAS_ETL_WLAN_SSID, "etl_wlan_ssid",
+ 		"default", save_env);
+ 
++	sas_etl_env_set_default(SAS_ETL_CUSTOMER, "etl_customer",
++		"Sphairon", save_env);
++
+ 	sas_etl_env_set_default(SAS_ETL_MAC_ADDR_POOL, "etl_mac_addr_pool",
+ 		"8", save_env);
+ 
++	sas_etl_env_set_bcd(SAS_ETL_WLANCFG, "etl_wlanconfig", save_env);
++	sas_etl_env_set_bcd(SAS_ETL_LEDCFG, "etl_led", save_env);
++
+ 	sas_etl_env_set_fill(SAS_ETL_HW_VERSION, "etl_hw_version",
+ 		'x', 4, save_env);
+ 
+@@ -308,15 +325,33 @@ const char *sas_etl_get_string(enum sas_etl_id idx)
+ 	return &sas_etl_map[idx][0];
+ }
+ 
+-unsigned long sas_etl_get_ulong(enum sas_etl_id idx)
++int sas_etl_get_integer(enum sas_etl_id idx)
++{
++	const char *str = sas_etl_get_string(idx);
++	int val;
++
++	if (!str)
++		return 0;
++
++	strict_strtoul(str, 10, (unsigned long *)&val);
++
++	return val;
++}
++
++unsigned long sas_etl_get_hex(enum sas_etl_id idx, unsigned int len)
+ {
+ 	const char *str = sas_etl_get_string(idx);
+ 	unsigned long val;
++	unsigned int i;
+ 
+ 	if (!str)
+ 		return 0;
+ 
+-	strict_strtoul(str, 10, &val);
++	val = str[0];
++	for (i = 1; i < len; i++) {
++		val <<= 8;
++		val |= str[i];
++	}
+ 
+ 	return val;
+ }
+@@ -336,7 +371,19 @@ void sas_etl_set_string(enum sas_etl_id idx, const char *val)
+ 		memset(str, 0, SAS_ETL_MAX_VALUE_CHARS);
+ }
+ 
+-void sas_etl_set_ulong(enum sas_etl_id idx, unsigned long val)
++void sas_etl_set_integer(enum sas_etl_id idx, int val)
++{
++	char *str;
++
++	if (!idx || idx >= SAS_ETL_ID_LAST)
++		return;
++
++	str = &sas_etl_map[idx][0];
++
++	snprintf(str, SAS_ETL_MAX_VALUE_CHARS - 1, "%d", val);
++}
++
++void sas_etl_set_hex(enum sas_etl_id idx, unsigned int len, unsigned long val)
+ {
+ 	char *str;
+ 
+@@ -345,7 +392,8 @@ void sas_etl_set_ulong(enum sas_etl_id idx, unsigned long val)
+ 
+ 	str = &sas_etl_map[idx][0];
+ 
+-	snprintf(str, SAS_ETL_MAX_VALUE_CHARS - 1, "%lu", val);
++	val <<= (4 - len) * 8;
++	memcpy(str, &val, 4);
+ }
+ 
+ static void sas_etl_banner_print(const char *name, const char *buf)
+@@ -391,23 +439,18 @@ void sas_etl_print(void)
+ 
+ void sas_etl_dump(void)
+ {
+-	char *str;
+ 	enum sas_etl_id idx;
+ 
+ 	for (idx = SAS_ETL_HW_VERSION; idx < SAS_ETL_ID_LAST; idx++) {
+-		str = &sas_etl_map[idx][0];
+ 		printf("%03d: %s = ", idx, sas_etl_id_str(idx));
+ 
+-		switch (idx) {
+-		case SAS_ETL_HW_CFG:
+-		case SAS_ETL_HW_CFG2:
+-		case SAS_ETL_LEDCFG:
+-			printf("0x%02x 0x%02x 0x%02x 0x%02x\n",
+-				str[3], str[2], str[1], str[0]);
+-			break;
+-		default:
+-			printf("%s\n", str);
+-		}
++		if (sas_etl_is_integer(idx))
++			printf("%d\n", sas_etl_get_integer(idx));
++		else if (sas_etl_is_hex(idx))
++			printf("0x%0*lx\n", 2 * sas_etl_hex_size(idx),
++				sas_etl_get_hex(idx, sas_etl_hex_size(idx)));
++		else
++			printf("%s\n", sas_etl_get_string(idx));
+ 	}
+ }
+ 
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index b017f364d8bfa0a9f76419b03dbc7ae560944ddc..9f4cb27c32a427b9067f4f1f6374f7920daa9a98 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index 4e0392457ade1420e5d18649e0e42eff24b17e54..65ec9e88a9f33c895d664583fae472c57a59a872 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/image.c b/lib/sphairon/image.c
+index 53673542052c26d61d01ac5257a4570346f98fb8..07ed007abc84ed67e8a16cb0815102d62ea0e799 100644
+--- a/lib/sphairon/image.c
++++ b/lib/sphairon/image.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index c8e9082461bd544bdfdd86f081acc8b10ebca8fa..7dfc27337632d58775bb90a1fa7087857ad4e56e 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/lib/sphairon/util.c b/lib/sphairon/util.c
+index 42438b64203a4754f63de06cfeee9f4462ade3e5..fc285e8c35438f56ed25086c8813860ffa6f4c20 100644
+--- a/lib/sphairon/util.c
++++ b/lib/sphairon/util.c
+@@ -1,5 +1,5 @@
+ /*
+- * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ * Copyright (C) 2011-2013 Sphairon Technologies GmbH
+  *
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+diff --git a/tools/ltq-boot-image.c b/tools/ltq-boot-image.c
+index 74c1dbcb84cb02445b44cbd1bdefae12c4fdb234..9b246332ca45d57971352fb5aab68f460d4964d9 100644
+--- a/tools/ltq-boot-image.c
++++ b/tools/ltq-boot-image.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <stdio.h>

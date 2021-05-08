@@ -1,0 +1,39 @@
+diff --git a/Makefile b/Makefile
+index 72ccd877011b62f53156d2ef9ee0ddf83026ea9f..ea7e10e897917cb930ea3d0e4d5da377f3052393 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.0
++EXTRAVERSION = -stg-1.1
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 91d34eb6d38790d027ee4f9db2a2ff88f4a120f9..285fe2805e5b3f7111795d1fc5d88aee5f196f11 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -120,7 +120,7 @@ static const struct ltq_eth_port_config eth_port_config[] = {
+ 	/* GMAC4: internal GPHY1 with 10/100/1000 firmware for LAN port 1 */
+ 	{ 4, 0x13, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
+ 	/* GMAC5: external Atheros AR8031 10/100/1000 PHY for WANoE port */
+-	{ 5, 0x4, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
++	{ 5, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+ };
+ 
+ static const struct ltq_eth_board_config eth_board_config = {
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 5698c6caf9e034d19743ebb98fea123d16c33248..867db467fef67d34a4fc3e4ebbc9d41e5e27b1b1 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -22,7 +22,7 @@
+ 
+ /* should be ltq-nor for upstream linux */
+ #define SAS_MTDID_LTQ_NOR	"bank1";
+-#define SAS_MTDID_M25P80	"m25p80";
++#define SAS_MTDID_M25P80	"spi0.4";
+ 
+ extern struct mtd_info *mtd_table[MAX_MTD_DEVICES];
+ 

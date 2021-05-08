@@ -1,0 +1,60 @@
+diff --git a/Makefile b/Makefile
+index f324f30a7c34d2f4fa465bfd1d24c6d12e27a1f4..b43ccf311c5fe956c24a93da2561fd075f944b68 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.9
++EXTRAVERSION = -stg-4.10
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index 639fa23b014038ba1733c587d16a74392409e9c1..e7d8f1faf2fd07d01ef43a291fa444c6c296b3f8 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -35,6 +35,7 @@ enum sas_etl_id
+ 	SAS_ETL_DATA_PART_SIZE		= 23,
+ 	SAS_ETL_DATA_PART_LOC		= 24,
+ 	SAS_ETL_ACS_AUTH		= 25,
++	SAS_ETL_WLAN_SSID_EXTRA		= 26,
+ 	SAS_ETL_ID_LAST,
+ };
+ 
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index b157cae62f3a9a23df012ea5b5d1b6eb9efbb2eb..7f395c30936b785f223bf17b2d7c87a3baafe975 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -365,6 +365,9 @@ void sas_etl_env_save(int *save_env)
+ 	sas_etl_env_set_default(SAS_ETL_WLAN_SSID, "etl_wlan_ssid",
+ 		"default", save_env);
+ 
++	sas_etl_env_set_default(SAS_ETL_WLAN_SSID_EXTRA, "etl_wlan_ssid_extra",
++		"default_extra", save_env);
++
+ 	sas_etl_env_set_default(SAS_ETL_CUSTOMER, "etl_customer",
+ 		"Sphairon", save_env);
+ 
+@@ -526,6 +529,10 @@ void sas_etl_print(void)
+ 		sas_etl_get_string(SAS_ETL_MAC_ADDR));
+ 	sas_etl_banner_print("MAC address pool",
+ 		sas_etl_get_string(SAS_ETL_MAC_ADDR_POOL));
++	sas_etl_banner_print("WLAN SSID",
++		sas_etl_get_string(SAS_ETL_WLAN_SSID));
++	sas_etl_banner_print("WLAN SSID extra",
++		sas_etl_get_string(SAS_ETL_WLAN_SSID_EXTRA));
+ 
+ 	sas_banner_footer_print();
+ }
+@@ -614,7 +621,8 @@ static const char sas_etl_id_strings[][16] = {
+ 	"mac_addr_pool",
+ 	"data_part_size",
+ 	"data_part_loc",
+-    "acs_auth"
++	"acs_auth",
++	"wlan_ssid_extra",
+ };
+ 
+ const char *sas_etl_id_str(enum sas_etl_id idx)

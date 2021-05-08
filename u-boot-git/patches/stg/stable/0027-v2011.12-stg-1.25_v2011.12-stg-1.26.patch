@@ -1,0 +1,29 @@
+diff --git a/Makefile b/Makefile
+index 3cdba91a3c0ec06912a6500847800c2f6fb0f000..658fee26d7fd19deb4ad5a6b1667515651e084dd 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.25
++EXTRAVERSION = -stg-1.26
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index e8986d29573816fe41193b35f4eb2064bad49014..68040a32614a640210b58583b96ca454f95f8ebe 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -367,6 +367,11 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 		goto usage;
+ 
+ 	ptest_mode = sas_check_ptest(flash_layout, kernel, rootfs, servicefs);
++
++	/* Fixup servicefs mode if ptest auto-detection sets ptest_mode to 1 */
++	if (ptest_mode && servicefs != SAS_PTEST)
++		servicefs = SAS_PTEST;
++
+ 	loadaddr = getenv_ulong("loadaddr", 16, 0);
+ 	boot_logic = sas_bootlogic_active(flash_layout, kernel, rootfs,
+ 						servicefs);

@@ -1,0 +1,40 @@
+diff --git a/Makefile b/Makefile
+index 93575d64a973b7a7bea8ab16ee46bedeb1c9dd32..51ba7c6f86e64597b13612abf00cd8244cb37bde 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.4
++EXTRAVERSION = -stg-4.5
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 6d653677946fe098f7ba4c5e9b38d711e302af10..84ed5dc49854c7593851dce81972c6a9ee812198 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -368,8 +368,10 @@ static int __flash_erase(struct mtd_info *mtd, ulong off, size_t len)
+ 
+ 		WATCHDOG_RESET();
+ 
+-		if (tstc())
+-			return 1;
++		if (tstc()) {
++			if ('c' == getc())
++				return 1;
++		}
+ 
+ 		if (mtd->block_isbad) {
+ 			ret = mtd->block_isbad(mtd, instr.addr);
+@@ -384,7 +386,8 @@ static int __flash_erase(struct mtd_info *mtd, ulong off, size_t len)
+ 		if (ret)
+ 			return ret;
+ 
+-		printf("\rErasing block %lu/%lu", erased_len + 1, erase_len);
++		printf("\rErasing block %lu/%lu (press c to cancel)",
++			erased_len + 1, erase_len);
+ 	}
+ 
+ 	return 0;

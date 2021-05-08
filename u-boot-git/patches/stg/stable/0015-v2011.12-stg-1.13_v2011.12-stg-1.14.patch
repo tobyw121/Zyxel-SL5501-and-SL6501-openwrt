@@ -1,0 +1,48 @@
+diff --git a/Makefile b/Makefile
+index b9052bb72abebb5dadec3f23f566a39bb5aef7bc..ecf7714a33b6f4367ca2e0e6280e1303306d5e32 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.13
++EXTRAVERSION = -stg-1.14
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/ddr_settings.h b/board/sphairon/isdn_sip_gw/ddr_settings.h
+index 5ec21c03565717be445cd7f1fecd245bfcad1e59..cdb90b096b604baf2986b737bd02ae49c3ad0cf7 100644
+--- a/board/sphairon/isdn_sip_gw/ddr_settings.h
++++ b/board/sphairon/isdn_sip_gw/ddr_settings.h
+@@ -18,7 +18,7 @@
+ #define	MC_CCR10_VALUE	0x2000100
+ #define	MC_CCR11_VALUE	0x2000401
+ #define	MC_CCR12_VALUE	0x30000
+-#define	MC_CCR13_VALUE	0x202
++#define	MC_CCR13_VALUE	0x203
+ #define	MC_CCR14_VALUE	0x7080A0F
+ #define	MC_CCR15_VALUE	0x2040F
+ #define	MC_CCR16_VALUE	0x40000
+@@ -26,7 +26,7 @@
+ #define	MC_CCR18_VALUE	0x4020002
+ #define	MC_CCR19_VALUE	0x30302
+ #define	MC_CCR20_VALUE	0x8000700
+-#define	MC_CCR21_VALUE	0x40F020A
++#define	MC_CCR21_VALUE	0x40F020C
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+ #define	MC_CCR24_VALUE	0x4401B04
+@@ -62,8 +62,8 @@
+ #define	MC_CCR54_VALUE	0xF3014B27
+ #define	MC_CCR55_VALUE	0xF3014B27
+ #define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7800301
+-#define	MC_CCR58_VALUE	0x7800301
+-#define	MC_CCR59_VALUE	0x7800301
+-#define	MC_CCR60_VALUE	0x7800301
++#define	MC_CCR57_VALUE	0x7c00301
++#define	MC_CCR58_VALUE	0x7c00301
++#define	MC_CCR59_VALUE	0x7c00301
++#define	MC_CCR60_VALUE	0x7c00301
+ #define	MC_CCR61_VALUE	0x4

@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 53960a5eb8079bed6f450a61343ddf37766fd01f..72a2c7eebd7faef6ef85ac10595a80fa5ed3497e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.6
++EXTRAVERSION = -stg-1.7
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index ec614b91348b26124fee7824e1cde82e67c9b846..4a87a2c09ce898334233fb073baf210069071c80 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -58,7 +58,7 @@ static void gpio_init(void)
+ 
+ 	/* Zarlink PLL ZL30342 */
+ 	/* Reset line to PLL */
+-	gpio_direction_output(36, 1);
++	gpio_direction_output(36, 0);
+ 	/* Interrupt line from PLL */
+ 	gpio_direction_input(9);
+ 	/* CLK_OUT2 as input for 25 MHz from PLL */

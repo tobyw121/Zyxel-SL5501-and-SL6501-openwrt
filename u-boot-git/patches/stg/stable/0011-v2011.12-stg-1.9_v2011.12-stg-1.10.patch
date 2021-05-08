@@ -1,0 +1,430 @@
+diff --git a/Makefile b/Makefile
+index 9f76595f064b76baf81ca74536614b83b4d436a8..f7d37e54d3cd73359461e0b5b43dc4bd083c5ebb 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.9
++EXTRAVERSION = -stg-1.10
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/vrx200/cgu.c b/arch/mips/cpu/mips32/vrx200/cgu.c
+index f955b546ad9e6541d9d63ac856d1cec491f32837..b732d316528c4db6a184cd70da7867781b87daf3 100644
+--- a/arch/mips/cpu/mips32/vrx200/cgu.c
++++ b/arch/mips/cpu/mips32/vrx200/cgu.c
+@@ -12,11 +12,20 @@
+ #include <asm/lantiq/clk.h>
+ #include <asm/lantiq/io.h>
+ 
++#define LTQ_CGU_PLL1_PLLN_SHIFT		6
++#define LTQ_CGU_PLL1_PLLN_MASK		(0x3F << LTQ_CGU_PLL1_PLLN_SHIFT)
++#define LTQ_CGU_PLL1_PLLM_SHIFT		2
++#define LTQ_CGU_PLL1_PLLM_MASK		(0xF << LTQ_CGU_PLL1_PLLM_SHIFT)
++#define LTQ_CGU_PLL1_PLLL		(1 << 1)
++#define LTQ_CGU_PLL1_PLL_EN		1
++
+ #define LTQ_CGU_SYS_OCP_SHIFT		0
+ #define LTQ_CGU_SYS_OCP_MASK		(0x3 << LTQ_CGU_SYS_OCP_SHIFT)
+ #define LTQ_CGU_SYS_CPU_SHIFT		4
+ #define LTQ_CGU_SYS_CPU_MASK		(0xF << LTQ_CGU_SYS_CPU_SHIFT)
+ 
++#define LTQ_CGU_UPDATE			1
++
+ #define LTQ_CGU_IFCLK_GPHY_SEL_SHIFT	2
+ #define LTQ_CGU_IFCLK_GPHY_SEL_MASK	(0x7 << LTQ_CGU_IFCLK_GPHY_SEL_SHIFT)
+ 
+@@ -137,3 +146,64 @@ void ltq_cgu_gphy_clk_src(enum ltq_gphy_clk clk)
+ 	ltq_clrbits(&ltq_cgu_regs->if_clk, LTQ_CGU_IFCLK_GPHY_SEL_MASK);
+ 	ltq_setbits(&ltq_cgu_regs->if_clk, clk << LTQ_CGU_IFCLK_GPHY_SEL_SHIFT);
+ }
++
++static inline int ltq_cgu_pll1_locked(void)
++{
++	u32 pll1_cfg = ltq_readl(&ltq_cgu_regs->pll1_cfg);
++
++	return pll1_cfg & LTQ_CGU_PLL1_PLLL;
++}
++
++static inline void ltq_cgu_pll1_restart(unsigned m, unsigned n)
++{
++	u32 pll1_cfg;
++
++	ltq_clrbits(&ltq_cgu_regs->pll1_cfg, LTQ_CGU_PLL1_PLL_EN);
++	ltq_setbits(&ltq_cgu_regs->update, LTQ_CGU_UPDATE);
++
++	pll1_cfg = ltq_readl(&ltq_cgu_regs->pll1_cfg);
++	pll1_cfg &= ~(LTQ_CGU_PLL1_PLLN_MASK | LTQ_CGU_PLL1_PLLM_MASK);
++	pll1_cfg |= n << LTQ_CGU_PLL1_PLLN_SHIFT;
++	pll1_cfg |= m << LTQ_CGU_PLL1_PLLM_SHIFT;
++	pll1_cfg |= LTQ_CGU_PLL1_PLL_EN;
++	ltq_writel(&ltq_cgu_regs->pll1_cfg, pll1_cfg);
++	ltq_setbits(&ltq_cgu_regs->update, LTQ_CGU_UPDATE);
++
++	__udelay(1000);
++}
++
++/*
++ * From chapter 9 in errata sheet:
++ *
++ * Under certain condition, the PLL1 may failed to enter into lock
++ * status by hardware default N, M setting.
++ *
++ * Since system always starts from PLL0, the system software can run
++ * and re-program the PLL1 settings.
++ */
++static void ltq_cgu_pll1_init(void)
++{
++	unsigned i;
++	const unsigned pll1_m[] = { 1, 2, 3, 4 };
++	const unsigned pll1_n[] = { 21, 32, 43, 54 };
++
++	/* Check if PLL1 has locked with hardware default settings */
++	if (ltq_cgu_pll1_locked())
++		return;
++
++	for (i = 0; i < 4; i++) {
++		ltq_cgu_pll1_restart(pll1_m[i], pll1_n[i]);
++
++		if (ltq_cgu_pll1_locked())
++			goto done;
++	}
++
++done:
++	/* Restart with hardware default values M=5, N=64 */
++	ltq_cgu_pll1_restart(5, 64);
++}
++
++void ltq_pll_init(void)
++{
++	ltq_cgu_pll1_init();
++}
+diff --git a/arch/mips/cpu/mips32/vrx200/cgu_init.S b/arch/mips/cpu/mips32/vrx200/cgu_init.S
+index 378485fe1f42f3890fb94505e751b5b513601592..44c19cc5387ed5565bfd285b912cbd35bfd42dbf 100644
+--- a/arch/mips/cpu/mips32/vrx200/cgu_init.S
++++ b/arch/mips/cpu/mips32/vrx200/cgu_init.S
+@@ -22,6 +22,7 @@
+ #define LTQ_CGU_PLL2_CFG		0x0060	/* PLL2 config */
+ #define LTQ_CGU_SYS			0x000C	/* System clock */
+ #define LTQ_CGU_CLK_FSR			0x0010	/* Clock frequency select */
++#define LTQ_CGU_UPDATE			0x0020	/* Clock update control */
+ 
+ /* Valid SYS.CPU values */
+ #define LTQ_CGU_SYS_CPU_SHIFT		4
+@@ -96,14 +97,21 @@ update:
+ 	sw	t4, LTQ_CGU_CLK_FSR(t0)
+ 
+ 	/* Perform software reset to activate new clock config */
++#if 0
+ 	li	t0, (LTQ_RCU_BASE | KSEG1)
+ 	lw	t1, LTQ_RCU_RST_REQ(t0)
+ 	or	t1, LTQ_RCU_RST_REQ_VALUE
+ 	sw	t1, LTQ_RCU_RST_REQ(t0)
++#else
++	li	t1, 1
++	sw	t1, LTQ_CGU_UPDATE(t0)
++#endif
+ 
++#if 0
+ wait_reset:
+ 	b	wait_reset
+ 	 nop
++#endif
+ 
+ finished:
+ 	jr	ra
+diff --git a/arch/mips/cpu/mips32/vrx200/cpu.c b/arch/mips/cpu/mips32/vrx200/cpu.c
+index f451858e2506a688da89d800174d7cdba1711e68..7424b562141b1dba308748470a4b904de6576aa7 100644
+--- a/arch/mips/cpu/mips32/vrx200/cpu.c
++++ b/arch/mips/cpu/mips32/vrx200/cpu.c
+@@ -15,6 +15,7 @@ int arch_cpu_init(void)
+ {
+ 	ltq_pmu_init();
+ 	ltq_ebu_init();
++	ltq_pll_init();
+ 
+ 	return 0;
+ }
+diff --git a/arch/mips/include/asm/arch-vrx200/cpu.h b/arch/mips/include/asm/arch-vrx200/cpu.h
+index 30e6f59cb4110f7752837b8a7d590a01549e2052..8dd674dd427dabd0f21d2ba048f4949ec72d3c41 100644
+--- a/arch/mips/include/asm/arch-vrx200/cpu.h
++++ b/arch/mips/include/asm/arch-vrx200/cpu.h
+@@ -21,6 +21,7 @@ enum ltq_boot_select {
+ 
+ extern void ltq_ebu_init(void);
+ extern void ltq_pmu_init(void);
++extern void ltq_pll_init(void);
+ extern void ltq_dcdc_init(unsigned int dig_ref);
+ 
+ extern enum ltq_boot_select ltq_boot_select(void);
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index 2b00fda2996ee12eba52e8913eef92f687e4eeb6..f9dec2729fe049c7a4e3465ff5f24bab77d7edda 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -21,7 +21,7 @@
+ #endif
+ 
+ /* Image booting */
+-#define CONFIG_SPHAIRON_SCAN_STEP_SIZE		0x8000
++#define CONFIG_SPHAIRON_SCAN_STEP_SIZE		0x2000
+ #define CONFIG_BOOTDELAY			3
+ 
+ /* Environment */
+diff --git a/include/sas/boot.h b/include/sas/boot.h
+index 6935206238e7a49442aca1388e7fa0d482939919..5ebcaa191edaccdf21fd85ddd7d71a73b5e931a6 100644
+--- a/include/sas/boot.h
++++ b/include/sas/boot.h
+@@ -42,6 +42,13 @@ extern int sas_boot_platform_layout(const struct sas_flash_partition *part,
+ 					ulong *uimage_addr, ulong *rootfs_addr,
+ 					size_t *erase_len);
+ 
++extern int sas_boot_service_layout(const struct sas_flash_partition *part,
++					size_t servicefs_size,
++					size_t configfs_size,
++					ulong *servicefs_addr,
++					ulong *configfs_addr,
++					size_t *erase_len);
++
+ extern void sas_boot_mtdparts_init(int active_image, int protect_uboot,
+ 					char *buf);
+ 
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index 64561a2c5bc1c2091a929c129d0376079b9c772e..cf7b148fb326d959f439445d0007b4a59d9ded9b 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -5,8 +5,6 @@
+  * See the file COPYING in the root directory of the source tree for details.
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <malloc.h>
+ #include <linux/mtd/mtd.h>
+@@ -111,7 +109,7 @@ static int sas_boot_image_part_scan(const struct sas_flash_partition *part,
+ 				return ret;
+ 
+ 			offset += size;
+-			offset = ROUND(offset, CONFIG_SPHAIRON_SCAN_STEP_SIZE);
++			offset = ALIGN(offset, CONFIG_SPHAIRON_SCAN_STEP_SIZE);
+ 		} else
+ 			offset += CONFIG_SPHAIRON_SCAN_STEP_SIZE;
+ 	} while (offset < part->mtd->size);
+@@ -526,34 +524,95 @@ int sas_boot_platform_layout(const struct sas_flash_partition *part,
+ 				size_t *erase_len)
+ {
+ 	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
++	ulong uimage_srcaddr, rootfs_srcaddr;
+ 
+ 	debug("%s: part %s, uimage_size %zu, rootfs_size %zu\n",
+ 		__func__, part->mtd->name, uimage_size, rootfs_size);
+ 
++	if (flash_layout == SAS_LAYOUT_PLATFORM_SERVICE_HANOI) {
++		puts("Hanoi layout not yet supported\n");
++		return 1;
++	}
++
+ 	/*
+ 	 * - uImage at the beginning of the partition
+ 	 * - rootfs.img after uImage and aligned to flashStepSize
+ 	 * - if Hanoi layout is not configured the whole partition can
+ 	 *   be used for platform
+ 	 */
+-	*uimage_addr = 0;
+-	*rootfs_addr = ROUND(uimage_size, CONFIG_SPHAIRON_SCAN_STEP_SIZE);
++	uimage_srcaddr = 0;
++	rootfs_srcaddr = uimage_srcaddr + uimage_size;
++
++	debug("%s: uimage_srcaddr %08lx, rootfs_srcaddr %08lx\n",
++		__func__, uimage_srcaddr, rootfs_srcaddr);
++
++	*uimage_addr = uimage_srcaddr;
++	*rootfs_addr = ALIGN(rootfs_srcaddr, CONFIG_SPHAIRON_SCAN_STEP_SIZE);
++
++	*erase_len = *rootfs_addr + rootfs_size;
++	*erase_len = sas_flash_roundb(part, *erase_len);
++
++	if (*erase_len > part->size) {
++		puts("Size of images exceeds partition size\n");
++		return 1;
++	}
++
++	debug("%s: uimage_addr %08lx, rootfs_addr %08lx, erase_len %zu\n",
++		__func__, *uimage_addr, *rootfs_addr, *erase_len);
++
++	return 0;
++}
++
++int sas_boot_service_layout(const struct sas_flash_partition *part,
++				size_t servicefs_size, size_t configfs_size,
++				ulong *servicefs_addr, ulong *configfs_addr,
++				size_t *erase_len)
++{
++	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
++	struct sas_boot_image *image;
++	ulong servicefs_srcaddr, configfs_srcaddr;
++	ulong rootfs_endaddr = 0;
++
++	debug("%s: part %s, servicefs_size %zu, configfs_size %zu\n",
++		__func__, part->mtd->name, servicefs_size, configfs_size);
+ 
+ 	if (flash_layout == SAS_LAYOUT_PLATFORM_SERVICE_HANOI) {
+ 		puts("Hanoi layout not yet supported\n");
+ 		return 1;
+-	} else {
+-		*erase_len = *rootfs_addr + rootfs_size;
+-		*erase_len = sas_flash_roundb(part, *erase_len);
++	}
+ 
+-		if (*erase_len > part->size) {
+-			puts("Size of images exceeds partition size\n");
+-			return 1;
+-		}
++	/*
++	 * - in Hanoi layout servicefs.img at the beginning of the partition
++	 * - configfs.img after servicefs.img and aligned to flash sector size
++	 * - in other layouts configfs.img at the end of the partition
++	 *   in own sector
++	 * - servicefs.img before configfs.img
++	 */
++
++	image = sas_boot_find(SAS_IMG_ROOTFS, part);
++	if (image)
++		rootfs_endaddr = image->offset + image->size;
++
++	servicefs_srcaddr = ALIGN(rootfs_endaddr, part->mtd->erasesize);
++	configfs_srcaddr = servicefs_srcaddr + servicefs_size;
++
++	debug("%s: rootfs_endaddr %08lx, servicefs_srcaddr %08lx, configfs_srcaddr %08lx\n",
++		__func__, rootfs_endaddr, servicefs_srcaddr, configfs_srcaddr);
++
++	*servicefs_addr = servicefs_srcaddr;
++	*configfs_addr = ALIGN(configfs_srcaddr, part->mtd->erasesize);
++
++	*erase_len = *configfs_addr + configfs_size - *servicefs_addr;
++	*erase_len = sas_flash_roundb(part, *erase_len);
++
++	if (*erase_len > part->size) {
++		puts("Size of images exceeds partition size\n");
++		return 1;
+ 	}
+ 
+-	debug("%s: uimage_addr %08lx, rootfs_addr %08lx, erase_len %zu\n",
+-		__func__, *uimage_addr, *rootfs_addr, *erase_len);
++	debug("%s: rootfs_endaddr %08lx, servicefs_addr %08lx, configfs_addr %08lx, erase_len %zu\n",
++		__func__, rootfs_endaddr, *servicefs_addr, *configfs_addr,
++		*erase_len);
+ 
+ 	return 0;
+ }
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index 92077f3fb85e2a140c4f34f5aaf5e74530f3369d..1d34b1fa5814230f69dae06a97d4b655f2d45a55 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -385,7 +385,7 @@ static int do_sas_upgrade_platform(cmd_tbl_t * cmdtp, int flag,
+ 
+ 	ret = sas_flash_complete_write(part, uimage_dstaddr, uimage_size,
+ 					erase_len,
+-					(const void *) uimage_srcaddr, 1);
++					(const void *) uimage_srcaddr, 0);
+ 	if (ret)
+ 		goto done;
+ 
+@@ -407,8 +407,9 @@ static int do_sas_upgrade_service(cmd_tbl_t * cmdtp, int flag,
+ {
+ 	struct sas_flash_partition *part;
+ 	int index = 0, ret;
+-	ulong servicefs_addr, configfs_addr;
+-	size_t servicefs_size, configfs_size;
++	ulong servicefs_srcaddr, servicefs_dstaddr;
++	ulong configfs_srcaddr, configfs_dstaddr;
++	size_t servicefs_size, configfs_size, erase_len;
+ 
+ 	sas_upgrade_index(argc, argv, &index);
+ 	part = sas_flash_layout_image_partition(index);
+@@ -419,22 +420,78 @@ static int do_sas_upgrade_service(cmd_tbl_t * cmdtp, int flag,
+ 
+ 	debug("using partition %s\n", part->mtd->name);
+ 
+-	ret = sas_upgrade_images_load(SAS_SERVICEFS_IMAGE, &servicefs_addr,
++	ret = sas_upgrade_images_load(SAS_SERVICEFS_IMAGE, &servicefs_srcaddr,
+ 					&servicefs_size, SAS_CONFIGFS_IMAGE,
+-					&configfs_addr, &configfs_size);
++					&configfs_srcaddr, &configfs_size);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = sas_upgrade_image_check(servicefs_addr, SAS_IMG_SERVICEFS);
++	ret = sas_upgrade_image_check(servicefs_srcaddr, SAS_IMG_SERVICEFS);
+ 	if (!ret)
+ 		return 1;
+ 
+-	ret = sas_upgrade_image_check(configfs_addr, SAS_IMG_DEFCONFIG);
++	ret = sas_upgrade_image_check(configfs_srcaddr, SAS_IMG_DEFCONFIG);
+ 	if (!ret)
+ 		return 1;
+ 
+-	return 0;
++	ret = sas_boot_service_layout(part, servicefs_size, configfs_size,
++					&servicefs_dstaddr, &configfs_dstaddr,
++					&erase_len);
++	if (ret)
++		return ret;
++
++	sas_flash_verbose_set(1);
++
++	ret = sas_flash_complete_write(part, servicefs_dstaddr, servicefs_size,
++					erase_len,
++					(const void *) servicefs_srcaddr, 0);
++	if (ret)
++		goto done;
++
++	ret = sas_flash_write(part, configfs_dstaddr, configfs_size,
++				(const void *) configfs_srcaddr);
++
++done:
++	sas_flash_verbose_set(0);
++	ret = sas_boot_image_scan();
++
++	return ret;
+ }
+ 
+ U_BOOT_CMD(sas_upgrade_service, 2, 0, do_sas_upgrade_service,
+ 	"Update servicefs and defconfig in flash", "[index]");
++
++static int do_sas_erase_syscfg(cmd_tbl_t * cmdtp, int flag,
++				int argc, char *const argv[])
++{
++	struct sas_flash_partition *part;
++	sas_flash_partition_t part_type;
++	int index = 0, ret;
++
++	sas_upgrade_index(argc, argv, &index);
++
++	switch (index) {
++	case 0:
++		part_type = SAS_PART_SYSCFG1;
++		break;
++	case 1:
++		part_type = SAS_PART_SYSCFG2;
++		break;
++	default:
++		puts("Invalid index\n");
++		return 1;
++	}
++
++	part = sas_flash_partition_get(part_type);
++	if (!part)
++		return 1;
++
++	sas_flash_verbose_set(1);
++	ret = sas_flash_erase(part, 0, part->size);
++	sas_flash_verbose_set(0);
++
++	return ret;
++}
++
++U_BOOT_CMD(sas_erase_syscfg, 2, 0, do_sas_erase_syscfg,
++	"Erase sysconfig in flash", "[index]");

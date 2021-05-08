@@ -1,0 +1,25 @@
+diff --git a/Makefile b/Makefile
+index 73525ff168bc0c9a33882a86fdda149d86e56a51..f3eb323128e0cb2bffb581c441b9ffae4fbaa9d3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.1
++EXTRAVERSION = -stg-4.2
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index 1c5097fc828b3331b872f86e61d75fde0a12192c..639fa23b014038ba1733c587d16a74392409e9c1 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -100,6 +100,7 @@ static inline int sas_etl_is_string(enum sas_etl_id idx)
+ 	case SAS_ETL_WLAN_SSID:
+ 	case SAS_ETL_FLASH_LAYOUT:
+ 	case SAS_ETL_SERIAL_EXTRA:
++	case SAS_ETL_ACS_AUTH:
+ 		return 1;
+ 	default:
+ 		return 0;

@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 1bd90c9f344ac04fb166fba457a5542b7169d57c..d7d117d9e431f9e769901c948c0f87946b5f05c2 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.3
++EXTRAVERSION = -stg-2.4
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index b42355756d137d31a9e890f224ef96d489430102..ffdcf6f742768d103ff054160f004fd2cf0fb28b 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -122,7 +122,7 @@ static inline int sas_etl_is_binary(enum sas_etl_id idx)
+ 	}
+ }
+ 
+-#define SAS_ETL_AREA_SIZE		SAS_FLASH_ETL_SIZE
++#define SAS_ETL_AREA_SIZE		256
+ #define SAS_ETL_VARIABLE_EMPTY_CHAR	0x78
+ 
+ #endif /* __SAS_ETL_USER_H__ */

@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 620e1d54aab683b133384f3a70324ff255be0126..027ef9f849b8fcc88fb7e4729acbfa6b81a69e89 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.21
++EXTRAVERSION = -stg-1.22
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 12a7a6783278184be118d12f1d8e8d55b2b02725..47034c2631bf020e68ed1037d460f851c924b7ea 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -150,7 +150,7 @@
+ #endif
+ 
+ #if defined(CONFIG_SYS_BOOT_RAM)
+-#define CONFIG_SYS_TEXT_BASE		0x80100000
++#define CONFIG_SYS_TEXT_BASE		0xA0100000
+ #define CONFIG_SKIP_LOWLEVEL_INIT
+ #define CONFIG_SYS_DISABLE_CACHE
+ #elif defined(CONFIG_SYS_BOOT_EVA)

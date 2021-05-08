@@ -1,0 +1,60 @@
+diff --git a/Makefile b/Makefile
+index d7d117d9e431f9e769901c948c0f87946b5f05c2..6695f6c69de705c7ac3c0bfb4ee40a8cd94d66c0 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.4
++EXTRAVERSION = -stg-2.5
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index fdf87d561b5842d1f06a011232f47f4a2bb4e1ea..b48b8d8497c167eadc296f36e10867ba4bd76cff 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -151,16 +151,19 @@ static int sas_servicefs_load(enum sas_flash_layout_type layout,
+ 		return 0;
+ 
+ 	if (!active_image)
+-		return 1;
++		goto err;
+ 
+ 	part = sas_flash_layout_image_partition(active_image - 1);
+ 	if (!part)
+-		return 1;
++		goto err;
+ 
+ 	ret = sas_boot_has_service_images(part);
+ 	if (ret)
+ 		return 0;
+ 
++err:
++	puts("Failed to load service images\n");
++
+ 	return 1;
+ }
+ 
+@@ -322,7 +325,7 @@ static int sas_check_ptest(enum sas_flash_layout_type flash_layout,
+ 	 * different from SAS_ETL_VARIABLE_EMPTY_CHAR
+ 	 */
+ 	etl_serial_no = sas_etl_get_string(SAS_ETL_SERIAL);
+-	if (etl_serial_no && etl_serial_no[0] != SAS_ETL_VARIABLE_EMPTY_CHAR)
++	if (etl_serial_no && strlen(etl_serial_no))
+ 		return 0;
+ 
+ 	/* No PTEST if current ethaddr does not differ from default ethaddr */
+@@ -459,8 +462,10 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 
+ 	ret = sas_mtdparts_update(flash_layout, active_image, rootfs,
+ 		servicefs);
+-	if (ret)
++	if (ret) {
++		puts("Failed to init mtdparts\n");
+ 		return 1;
++	}
+ 
+ 	/* Handle transient env variables */
+ 	sas_env_linux_fixup(loadaddr);

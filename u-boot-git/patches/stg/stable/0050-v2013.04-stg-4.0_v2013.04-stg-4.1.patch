@@ -1,0 +1,48 @@
+diff --git a/Makefile b/Makefile
+index 3e4d32c667a245e64580868d9dabe0c6e9b82757..73525ff168bc0c9a33882a86fdda149d86e56a51 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.0
++EXTRAVERSION = -stg-4.1
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index bcaa05a47d3bd208ffd590ce6049edf579c08e6a..1c5097fc828b3331b872f86e61d75fde0a12192c 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -34,6 +34,7 @@ enum sas_etl_id
+ 	SAS_ETL_MAC_ADDR_POOL		= 22,
+ 	SAS_ETL_DATA_PART_SIZE		= 23,
+ 	SAS_ETL_DATA_PART_LOC		= 24,
++	SAS_ETL_ACS_AUTH		= 25,
+ 	SAS_ETL_ID_LAST,
+ };
+ 
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index 5f59a86e8731c3dcf04eb092869d740a5ed7bffc..c6d17392324178c74cf6e2417468205760210f4b 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -316,6 +316,9 @@ void sas_etl_env_save(int *save_env)
+ 	sas_etl_env_set_fill(SAS_ETL_WPS_PIN, "etl_wlan_wps_pin",
+ 		'x', 16, save_env);
+ 
++	sas_etl_env_set_fill(SAS_ETL_ACS_AUTH, "etl_acs_auth",
++		'x', 16, save_env);
++
+ 	sas_etl_env_set_hwcfg(save_env);
+ 	sas_etl_env_set_hwcfg2(save_env);
+ }
+@@ -434,6 +437,8 @@ void sas_etl_print(void)
+ 		sas_etl_get_string(SAS_ETL_SERIAL));
+ 	sas_etl_banner_print("Serial number extra",
+ 		sas_etl_get_string(SAS_ETL_SERIAL_EXTRA));
++	sas_etl_banner_print("ACS authentication",
++		sas_etl_get_string(SAS_ETL_ACS_AUTH));
+ 	sas_etl_banner_print("Date of production",
+ 		sas_etl_get_string(SAS_ETL_PROD_DATE));
+ 	sas_etl_banner_print("MAC address",

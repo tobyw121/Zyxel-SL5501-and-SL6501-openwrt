@@ -1,0 +1,30 @@
+diff --git a/Makefile b/Makefile
+index 1b8251cbc22fec6448c78cb4c955770b519b35f3..ea49e5e39948a3a3cabfd43a95bf42dc566d8621 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.15
++EXTRAVERSION = -stg-1.16
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 63e2f1c4f1d7976f2d884a15d38de9887d3cc6e9..51186a356d3cfc6fff521ba8280369369081d570 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -36,9 +36,9 @@
+ #define CONFIG_SOC_XWAY_VRX200
+ 
+ /* Cache configuration */
+-#define CONFIG_SYS_MIPS_CACHE_MODE	(CONF_CM_CACHABLE_NO_WA)
+-#define CONFIG_SYS_DCACHE_SIZE		16384
+-#define CONFIG_SYS_ICACHE_SIZE		16384
++#define CONFIG_SYS_MIPS_CACHE_MODE	CONF_CM_CACHABLE_NO_WA /*CONF_CM_CACHABLE_NONCOHERENT*/
++#define CONFIG_SYS_DCACHE_SIZE		(32 * 1024)
++#define CONFIG_SYS_ICACHE_SIZE		(32 * 1024)
+ #define CONFIG_SYS_CACHELINE_SIZE	32
+ 
+ /*

@@ -1,0 +1,168 @@
+diff --git a/Makefile b/Makefile
+index ef04822d4ca98f2fc07cc04f223ffad7b5e2413e..24e05764af2309234b08000209881cce58c11c69 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.11
++EXTRAVERSION = -stg-1.12
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 737e96a7939d7853858a00fe3d65775e05650808..5f50e59ceb5c1aa5fe277fcc2474500705698ad4 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -13,7 +13,21 @@
+ #include <asm/arch/gphy.h>
+ #include <asm/arch/cpu.h>
+ 
+-static void gpio_init(void)
++#if defined(CONFIG_SPL_BUILD)
++#define do_gpio_init	1
++#define do_pll_init	1
++#define do_dcdc_init	0
++#elif defined(CONFIG_SYS_BOOT_RAM)
++#define do_gpio_init	1
++#define do_pll_init	0
++#define do_dcdc_init	1
++#else
++#define do_gpio_init	0
++#define do_pll_init	0
++#define do_dcdc_init	1
++#endif
++
++static inline void gpio_init(void)
+ {
+ 	/* GPIO button WLAN enable (low-active) */
+ 	gpio_direction_input(45);
+@@ -58,12 +72,14 @@ static void gpio_init(void)
+ 
+ int board_early_init_f(void)
+ {
+-#if defined(CONFIG_SPL_BUILD)
+-	gpio_init();
+-	ltq_pll_init();
+-#else
+-	ltq_dcdc_init(0x7F);
+-#endif
++	if (do_gpio_init)
++		gpio_init();
++
++	if (do_pll_init)
++		ltq_pll_init();
++
++	if (do_dcdc_init)
++		ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/mtd/spi/spansion.c b/drivers/mtd/spi/spansion.c
+index 6301d871237d0b6c1d139cb086bb04b5a9282c15..bdd9dc4bd3f86e04c39508091cc930b49335b8a2 100644
+--- a/drivers/mtd/spi/spansion.c
++++ b/drivers/mtd/spi/spansion.c
+@@ -44,16 +44,22 @@
+ #define CMD_S25FLXX_BE		0xc7	/* Bulk Erase */
+ #define CMD_S25FLXX_DP		0xb9	/* Deep Power-down */
+ #define CMD_S25FLXX_RES		0xab	/* Release from DP, and Read Signature */
++#define CMD_S25FLXX_BRRD	0x16	/* Read Bank Register */
++#define CMD_S25FLXX_BRWR	0x17	/* Write Bank Register */
++
++#define S25FLXX_BAR_EXTADD	(1 << 7)	/* Extended address enable */
+ 
+ #define SPSN_ID_S25FL008A	0x0213
+ #define SPSN_ID_S25FL016A	0x0214
+ #define SPSN_ID_S25FL032A	0x0215
+ #define SPSN_ID_S25FL064A	0x0216
+ #define SPSN_ID_S25FL128P	0x2018
++#define SPSN_ID_S25FL256S	0x0219
+ #define SPSN_EXT_ID_S25FL128P_256KB	0x0300
+ #define SPSN_EXT_ID_S25FL128P_64KB	0x0301
+ #define SPSN_EXT_ID_S25FL032P		0x4d00
+ #define SPSN_EXT_ID_S25FL129P		0x4d01
++#define SPSN_EXT_ID_S25FL256S		0x4d01
+ 
+ struct spansion_spi_flash_params {
+ 	u16 idcode1;
+@@ -61,6 +67,7 @@ struct spansion_spi_flash_params {
+ 	u16 page_size;
+ 	u16 pages_per_sector;
+ 	u16 nr_sectors;
++	unsigned use_4byte_addr:1;
+ 	const char *name;
+ };
+ 
+@@ -129,6 +136,15 @@ static const struct spansion_spi_flash_params spansion_spi_flash_table[] = {
+ 		.nr_sectors = 256,
+ 		.name = "S25FL129P_64K",
+ 	},
++	{
++		.idcode1 = SPSN_ID_S25FL256S,
++		.idcode2 = SPSN_EXT_ID_S25FL256S,
++		.page_size = 256,
++		.pages_per_sector = 256,
++		.nr_sectors = 512,
++		.use_4byte_addr = 1,
++		.name = "S25FL256S",
++	},
+ };
+ 
+ static int spansion_erase(struct spi_flash *flash, u32 offset, size_t len)
+@@ -136,6 +152,27 @@ static int spansion_erase(struct spi_flash *flash, u32 offset, size_t len)
+ 	return spi_flash_cmd_erase(flash, CMD_S25FLXX_SE, offset, len);
+ }
+ 
++static int spansion_set_4byte_addressing(struct spi_flash *flash, int on)
++{
++	struct spi_slave *spi = flash->spi;
++	u8 bar, cmd;
++	int err;
++
++	cmd = CMD_S25FLXX_BRRD;
++	err = spi_flash_cmd(spi, cmd, &bar, 1);
++	if (err)
++		return err;
++
++	if (on)
++		bar |= S25FLXX_BAR_EXTADD;
++	else
++		bar &= ~S25FLXX_BAR_EXTADD;
++
++	cmd = CMD_S25FLXX_BRWR;
++
++	return spi_flash_cmd_write(spi, &cmd, 1, &bar, 1);
++}
++
+ struct spi_flash *spi_flash_probe_spansion(struct spi_slave *spi, u8 *idcode)
+ {
+ 	const struct spansion_spi_flash_params *params;
+@@ -175,5 +212,10 @@ struct spi_flash *spi_flash_probe_spansion(struct spi_slave *spi, u8 *idcode)
+ 	flash->sector_size = params->page_size * params->pages_per_sector;
+ 	flash->size = flash->sector_size * params->nr_sectors;
+ 
++	if (params->use_4byte_addr)
++		flash->set_4byte_addressing = spansion_set_4byte_addressing;
++	else
++		flash->set_4byte_addressing = NULL;
++
+ 	return flash;
+ }
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index d8870d8dbd51099651610cc6471e558681657a7f..ace01db3b6a4e7feecb57f86259b26fb211cfde5 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -19,9 +19,11 @@
+ #define CONFIG_LTQ_SUPPORT_ETHERNET	/* Enable ethernet */
+ 
+ #define CONFIG_LTQ_SUPPORT_SPI_FLASH
+-#define CONFIG_SPI_FLASH_MACRONIX	/* Have a MX29LV620 serial flash */
++#define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
++#define CONFIG_SPI_FLASH_SPANSION	/* Supports SF25FL256S serial flash */
+ #define CONFIG_SPI_FLASH_4BYTE_ADDRESSING
+ 
++
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+ #define CONFIG_SPL_SPI_CS		4

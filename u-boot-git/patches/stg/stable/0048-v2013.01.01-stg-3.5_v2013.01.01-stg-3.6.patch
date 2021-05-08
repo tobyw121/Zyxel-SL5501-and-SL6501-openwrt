@@ -1,0 +1,287 @@
+diff --git a/Makefile b/Makefile
+index 257b62652f6f08f28e9cee2ca7d8591efcde4207..66e2f6010c64ae2ace11be980806fc6358092ea5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 01
+ SUBLEVEL = 01
+-EXTRAVERSION = -stg-3.5
++EXTRAVERSION = -stg-3.6
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/boot.h b/include/sas/boot.h
+index 5f3188e903a7c12cdcb4b88b31e8f0507646267e..14ccb9885fa13cc2e9238780dd391f93fbd0148d 100644
+--- a/include/sas/boot.h
++++ b/include/sas/boot.h
+@@ -28,7 +28,7 @@ struct sas_flash_partition;
+ 
+ void sas_boot_init(void);
+ 
+-int sas_boot_scan_images(void);
++int sas_boot_scan_images(int *save_env);
+ 
+ int sas_boot_has_platform_images(const struct sas_flash_partition *part);
+ 
+diff --git a/include/sas/flashlayout.h b/include/sas/flashlayout.h
+index e192a22fe5a7652a389f4ba1efcb146ab04dea75..99cd120ce7f7f03bbe6c0283b7848354dcf47b27 100644
+--- a/include/sas/flashlayout.h
++++ b/include/sas/flashlayout.h
+@@ -34,6 +34,18 @@ void sas_flash_layout_print(void);
+ unsigned long sas_flash_layout_dynamic_offset(void);
+ 
+ static inline int
++sas_flash_layout_is_bootable(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_BASIC:
++	case SAS_LAYOUT_INVALID:
++		return 0;
++	default:
++		return 1;
++	}
++}
++
++static inline int
+ sas_flash_layout_is_mirrored(enum sas_flash_layout_type layout)
+ {
+ 	switch (layout) {
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index a715757b30fe4509f5fcfa5dd4e80276060d1a47..6bc48d823641b964f4e3707e76892799f671b8bd 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -113,7 +113,7 @@ static int sas_boot_image_part_scan(const struct sas_flash_partition *part,
+ }
+ 
+ static void sas_boot_content_set(unsigned int index, int has_platform,
+-					int has_service)
++					int has_service, int *save_env)
+ {
+ 	unsigned int content = (has_platform | (has_service << 1));
+ 	char buf[32];
+@@ -122,7 +122,7 @@ static void sas_boot_content_set(unsigned int index, int has_platform,
+ 	printf("Setting content of image %u to %u\n",
+ 		index, content);
+ 
+-	sas_setenv_num(buf, content, NULL);
++	sas_setenv_num(buf, content, save_env);
+ }
+ 
+ static enum sas_boot_state sas_boot_state_get(unsigned int index)
+@@ -190,7 +190,7 @@ static void sas_boot_flush_images(void)
+ 	}
+ }
+ 
+-int sas_boot_scan_images(void)
++int sas_boot_scan_images(int *save_env)
+ {
+ 	const struct sas_flash_partition *part;
+ 	enum sas_flash_layout_type flash_layout;
+@@ -201,8 +201,7 @@ int sas_boot_scan_images(void)
+ 	debug("sas_boot: scanning\n");
+ 
+ 	flash_layout = sas_flash_layout_current();
+-	if (flash_layout == SAS_LAYOUT_BASIC ||
+-		flash_layout == SAS_LAYOUT_INVALID)
++	if (!sas_flash_layout_has_image_parts(flash_layout))
+ 		return 0;
+ 
+ 	sas_boot_flush_images();
+@@ -211,8 +210,9 @@ int sas_boot_scan_images(void)
+ 
+ 	for (i = 0; i < sas_flash_layout_max_image_parts(); i++) {
+ 		if (i >= image_cnt) {
+-			sas_boot_state_set(i + 1, SAS_BOOT_NOTAVAILABLE, NULL);
+-			sas_boot_content_set(i + 1, 0, 0);
++			sas_boot_state_set(i + 1, SAS_BOOT_NOTAVAILABLE,
++				save_env);
++			sas_boot_content_set(i + 1, 0, 0, save_env);
+ 			continue;
+ 		}
+ 
+@@ -225,28 +225,20 @@ int sas_boot_scan_images(void)
+ 		has_platformfs = sas_boot_has_platform_images(part);
+ 		has_servicefs = sas_boot_has_service_images(part);
+ 
+-		sas_boot_content_set(i + 1, has_platformfs, has_servicefs);
++		sas_boot_content_set(i + 1, has_platformfs, has_servicefs,
++			save_env);
+ 
+ 		state_cur = sas_boot_state_get(i + 1);
+ 		state_new = SAS_BOOT_NOTAVAILABLE;
+ 
+-		switch (flash_layout) {
+-		case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
+-		case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+-		case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+-		case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-			if (has_platformfs)
+-				state_new = SAS_BOOT_AVAILABLE;
+-			break;
+-		default:
+-			break;
+-		}
++		if (has_platformfs)
++			state_new = SAS_BOOT_AVAILABLE;
+ 
+ 		if (state_new == SAS_BOOT_AVAILABLE &&
+ 			state_cur != SAS_BOOT_NOTAVAILABLE)
+ 			state_new = state_cur;
+ 
+-		sas_boot_state_set(i + 1, state_new, NULL);
++		sas_boot_state_set(i + 1, state_new, save_env);
+ 	}
+ 
+ 	return 0;
+@@ -468,11 +460,11 @@ int sas_boot_update_states(int active_image, int *retry, int *save_env)
+ 	enum sas_boot_state state_cur, state_new;
+ 	int can_boot = 0;
+ 
+-	if (active_image) {
++	if (active_image)
+ 		state_cur = sas_boot_state_get(active_image);
+-	} else {
++	else
+ 		state_cur = SAS_BOOT_NOTWORKING;
+-	}
++
+ 	state_new = state_cur;
+ 
+ 	*retry = 0;
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 32812bedd59b9a1ce1fe1df86042fbab67bc3e5f..6c82adaf8d1d9cec1e5d66b3c180f8c216c325b7 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -238,7 +238,8 @@ static void sas_env_bootargs_clear(void)
+ 	setenv(sas_image_str(SAS_IMG_DEFCONFIG), NULL);
+ }
+ 
+-static void sas_env_flashlayout_set(enum sas_flash_layout_type layout, int *save_env)
++static void sas_env_flashlayout_set(enum sas_flash_layout_type layout,
++					int *save_env)
+ {
+ 	const char flash_layout[] = "flash_layout";
+ 	char buf[24];
+@@ -275,8 +276,10 @@ static void sas_env_bootargs_init(int ptest_mode)
+ 
+ static void sas_env_save(int status)
+ {
++#if 1
+ 	if (status | getenv_ulong("sas_saveenv", 10, 0))
+ 		sas_saveenv();
++#endif
+ }
+ 
+ static int sas_bootm(ulong addr)
+@@ -313,7 +316,8 @@ static int sas_bootm(ulong addr)
+ }
+ 
+ static int sas_check_ptest(enum sas_flash_layout_type flash_layout,
+-				enum sas_image_src_type kernel, enum sas_image_src_type rootfs,
++				enum sas_image_src_type kernel,
++				enum sas_image_src_type rootfs,
+ 				enum sas_image_src_type servicefs)
+ {
+ 	const char *etl_serial_no, *ethaddr;
+@@ -329,26 +333,14 @@ static int sas_check_ptest(enum sas_flash_layout_type flash_layout,
+ 	if (rootfs != SAS_FLASH)
+ 		return 0;
+ 
+-	switch (flash_layout) {
+-	case SAS_LAYOUT_BASIC:
+-		/* no PTEST possible */
++	/* no PTEST if flash layout is not bootable */
++	if (!sas_flash_layout_is_bootable(flash_layout))
+ 		return 0;
+-	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
+-	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+-		/* no servicefs, fall-through to ETL check */
+-		break;
+-	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-		/* no PTEST if servicefs is not booted from flash */
+-		if (servicefs != SAS_FLASH)
+-			return 0;
+ 
+-		/* fall-through to ETL check */
+-		break;
+-	default:
+-		/* no PTEST possible */
++	/* no PTEST if servicefs is not booted from flash */
++	if (sas_flash_layout_has_service_images(flash_layout) &&
++		servicefs != SAS_FLASH)
+ 		return 0;
+-	}
+ 
+ 	/*
+ 	 * No PTEST if serial number is already set or first char is
+@@ -367,7 +359,8 @@ static int sas_check_ptest(enum sas_flash_layout_type flash_layout,
+ }
+ 
+ static int sas_bootlogic_active(enum sas_flash_layout_type flash_layout,
+-				enum sas_image_src_type kernel, enum sas_image_src_type rootfs,
++				enum sas_image_src_type kernel,
++				enum sas_image_src_type rootfs,
+ 				enum sas_image_src_type servicefs)
+ {
+ 	if (kernel != SAS_FLASH)
+@@ -376,18 +369,12 @@ static int sas_bootlogic_active(enum sas_flash_layout_type flash_layout,
+ 	if (rootfs != SAS_FLASH)
+ 		return 0;
+ 
+-	switch (flash_layout) {
+-	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
+-	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
++	if (servicefs == SAS_PTEST)
++		return 1;
++
++	if (sas_flash_layout_has_service_images(flash_layout) &&
++		servicefs == SAS_FLASH)
+ 		return 1;
+-	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-		if (servicefs == SAS_FLASH || servicefs == SAS_PTEST)
+-			return 1;
+-		break;
+-	default:
+-		break;
+-	}
+ 
+ 	return 0;
+ }
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index d1a1ac3f1cced491013908a14b52c48163f5b678..b69928fd602aa751c710d4f3f8713ee9850932b8 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -393,7 +393,7 @@ static int do_sas_upgrade_platform(cmd_tbl_t * cmdtp, int flag,
+ 
+ done:
+ 	sas_flash_verbose_set(0);
+-	ret = sas_boot_scan_images();
++	ret = sas_boot_scan_images(NULL);
+ 
+ 	return ret;
+ }
+@@ -458,7 +458,7 @@ static int do_sas_upgrade_service(cmd_tbl_t * cmdtp, int flag,
+ 
+ done:
+ 	sas_flash_verbose_set(0);
+-	ret = sas_boot_scan_images();
++	ret = sas_boot_scan_images(NULL);
+ 
+ 	return ret;
+ }
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index 071928f41034545e500e4bcfe67a3a9d62159d61..bf59587fe019827356df6442558d440877149916 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -72,7 +72,7 @@ int sas_init_r(void)
+ 			if (ret)
+ 				goto err;
+ 
+-			ret = sas_boot_scan_images();
++			ret = sas_boot_scan_images(&save_env);
+ 			if (ret)
+ 				goto err;
+ 		}

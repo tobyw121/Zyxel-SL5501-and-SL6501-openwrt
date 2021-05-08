@@ -1,0 +1,172 @@
+diff --git a/Makefile b/Makefile
+index ebb6ff1dbb6c6b62d352fefbe5d0270cce784a46..53960a5eb8079bed6f450a61343ddf37766fd01f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.5
++EXTRAVERSION = -stg-1.6
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/vrx200/cgu.c b/arch/mips/cpu/mips32/vrx200/cgu.c
+index 57ed442f72ef020e29cd37d63a900a5718af1b65..f955b546ad9e6541d9d63ac856d1cec491f32837 100644
+--- a/arch/mips/cpu/mips32/vrx200/cgu.c
++++ b/arch/mips/cpu/mips32/vrx200/cgu.c
+@@ -43,7 +43,7 @@ struct ltq_cgu_regs {
+ 	u32	pll2_cfg;	/* PLL2 config */
+ };
+ 
+-static struct ltq_cgu_regs* ltq_cgu_regs =
++static struct ltq_cgu_regs *ltq_cgu_regs =
+ 	(struct ltq_cgu_regs *) CKSEG1ADDR(LTQ_CGU_BASE);
+ 
+ static inline u32 ltq_cgu_sys_readl(u32 mask, u32 shift)
+diff --git a/arch/mips/cpu/mips32/vrx200/chipid.c b/arch/mips/cpu/mips32/vrx200/chipid.c
+index c21aab94086472b5f068d3f25295aeb85ae484ed..dfbfdc5c311427b3d2b7fa72b4c274ce396b4572 100644
+--- a/arch/mips/cpu/mips32/vrx200/chipid.c
++++ b/arch/mips/cpu/mips32/vrx200/chipid.c
+@@ -20,7 +20,7 @@ struct ltq_chipid_regs {
+ 	u32	chipid;		/* Chip identification */
+ };
+ 
+-static struct ltq_chipid_regs* ltq_chipid_regs =
++static struct ltq_chipid_regs *ltq_chipid_regs =
+ 	(struct ltq_chipid_regs *) CKSEG1ADDR(LTQ_CHIPID_BASE);
+ 
+ unsigned int ltq_chip_version_get(void)
+@@ -29,7 +29,7 @@ unsigned int ltq_chip_version_get(void)
+ 
+ 	chipid = ltq_readl(&ltq_chipid_regs->chipid);
+ 
+-	return ((chipid & LTQ_CHIPID_VERSION_MASK) >> LTQ_CHIPID_VERSION_SHIFT);
++	return (chipid & LTQ_CHIPID_VERSION_MASK) >> LTQ_CHIPID_VERSION_SHIFT;
+ }
+ 
+ unsigned int ltq_chip_partnum_get(void)
+@@ -38,10 +38,10 @@ unsigned int ltq_chip_partnum_get(void)
+ 
+ 	chipid = ltq_readl(&ltq_chipid_regs->chipid);
+ 
+-	return ((chipid & LTQ_CHIPID_PNUM_MASK) >> LTQ_CHIPID_PNUM_SHIFT);
++	return (chipid & LTQ_CHIPID_PNUM_MASK) >> LTQ_CHIPID_PNUM_SHIFT;
+ }
+ 
+-const char* ltq_chip_partnum_str(void)
++const char *ltq_chip_partnum_str(void)
+ {
+ 	enum ltq_chip_partnum partnum = ltq_chip_partnum_get();
+ 
+diff --git a/arch/mips/cpu/mips32/vrx200/dcdc.c b/arch/mips/cpu/mips32/vrx200/dcdc.c
+index 162f1e8abe41e0d3acd2ece4050799e68cbec8d8..553ecff3414f7b94d92333eea264bb7595cadf30 100644
+--- a/arch/mips/cpu/mips32/vrx200/dcdc.c
++++ b/arch/mips/cpu/mips32/vrx200/dcdc.c
+@@ -51,7 +51,7 @@ struct ltq_dcdc_regs {
+ 	u8	osc_stat;		/* OSC general status */
+ };
+ 
+-static struct ltq_dcdc_regs* ltq_dcdc_regs =
++static struct ltq_dcdc_regs *ltq_dcdc_regs =
+ 	(struct ltq_dcdc_regs *) CKSEG1ADDR(LTQ_DCDC_BASE);
+ 
+ void ltq_dcdc_init(unsigned int dig_ref)
+diff --git a/arch/mips/cpu/mips32/vrx200/ebu.c b/arch/mips/cpu/mips32/vrx200/ebu.c
+index 42f10e9cdd3925150b5299300931d281485455a4..243fb756798e428a765d02f0376427ad65ff58b7 100644
+--- a/arch/mips/cpu/mips32/vrx200/ebu.c
++++ b/arch/mips/cpu/mips32/vrx200/ebu.c
+@@ -31,7 +31,7 @@ struct ltq_ebu_regs {
+ 	u32	con_3;
+ };
+ 
+-static struct ltq_ebu_regs* ltq_ebu_regs =
++static struct ltq_ebu_regs *ltq_ebu_regs =
+ 	(struct ltq_ebu_regs *) CKSEG1ADDR(LTQ_EBU_BASE);
+ 
+ void ltq_ebu_init(void)
+@@ -51,7 +51,7 @@ void ltq_ebu_init(void)
+ 			LTQ_EBU_CON_0_RST_VAL & ~LTQ_EBU_CON_WRDIS);
+ }
+ 
+-void * flash_swap_addr(unsigned long addr)
++void *flash_swap_addr(unsigned long addr)
+ {
+ 	return (void *)(addr ^ 2);
+ }
+diff --git a/arch/mips/cpu/mips32/vrx200/mem.c b/arch/mips/cpu/mips32/vrx200/mem.c
+index a8dd0408f5d1a3d0f275bdc41375b4ec008e4e9d..f953d7a02ab6d8c52b90312940a635dd7d9466b8 100644
+--- a/arch/mips/cpu/mips32/vrx200/mem.c
++++ b/arch/mips/cpu/mips32/vrx200/mem.c
+@@ -51,8 +51,8 @@ phys_size_t initdram(int board_type)
+ 	 * size (bytes) = 2 ^ rowsize * 2 ^ colsize * banks * chipselects
+ 	 *                 * datawidth (bytes)
+ 	 */
+-	size = (2 << (max_col_reg - column_size -1)) *
+-		(2 << (max_row_reg - addr_pins -1)) * banks * cs_map * 2;
++	size = (2 << (max_col_reg - column_size - 1)) *
++		(2 << (max_row_reg - addr_pins - 1)) * banks * cs_map * 2;
+ 
+ 	return size;
+ }
+diff --git a/arch/mips/cpu/mips32/vrx200/pmu.c b/arch/mips/cpu/mips32/vrx200/pmu.c
+index b2b57b9b4cdd2b85e1ee8cc661646fb195b3840d..9d4fcb3d3c1707b25640d21f6ea093ce6d12de72 100644
+--- a/arch/mips/cpu/mips32/vrx200/pmu.c
++++ b/arch/mips/cpu/mips32/vrx200/pmu.c
+@@ -51,7 +51,7 @@ struct ltq_pmu_regs {
+ 	u32	sr1;		/* Power down status 1 */
+ };
+ 
+-static struct ltq_pmu_regs* ltq_pmu_regs =
++static struct ltq_pmu_regs *ltq_pmu_regs =
+ 	(struct ltq_pmu_regs *) CKSEG1ADDR(LTQ_PMU_BASE);
+ 
+ u32 ltq_pm_map(enum ltq_pm_modules module)
+diff --git a/arch/mips/cpu/mips32/vrx200/rcu.c b/arch/mips/cpu/mips32/vrx200/rcu.c
+index 86a3e59ca2d43fec8b752cf9860a8055afe9dac2..b56d490b82b32695da67636011f7bfa0d8e9e678 100644
+--- a/arch/mips/cpu/mips32/vrx200/rcu.c
++++ b/arch/mips/cpu/mips32/vrx200/rcu.c
+@@ -72,7 +72,7 @@ struct ltq_rcu_regs {
+ 	u32	gfs_add1;	/* GPHY1 firmware base addr */
+ };
+ 
+-static struct ltq_rcu_regs* ltq_rcu_regs =
++static struct ltq_rcu_regs *ltq_rcu_regs =
+ 	(struct ltq_rcu_regs *) CKSEG1ADDR(LTQ_RCU_BASE);
+ 
+ u32 ltq_reset_map(enum ltq_reset_modules module)
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 934fe302501ff9a6580a5c276e495a74b82849ff..b1103a46492aca661b42854c6d22f77777dc0448 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -265,7 +265,7 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 
+ 	etl_exists = getenv_ulong("etl_exists", 10, 0);
+ 	if (!etl_exists) {
+-		printf("Cannot boot with Sphairon typelabel\n");
++		printf("Cannot boot without Sphairon typelabel\n");
+ 		ret = 1;
+ 		goto done;
+ 	}
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index 73b0b3b4c66b64ec9439fc81212974c486f99dc8..6d473292640525b7668d9c813d7c37ee5c73f257 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -74,10 +74,14 @@ static int sas_etl_parse(int *save_env)
+ 	struct sas_hw_cfg hw_cfg;
+ 	struct sas_hw_cfg2 hw_cfg2;
+ 
+-	sas_banner_header_print("Sphairon type label v%u", sas_etl_ver);
++	if (!sas_etl_ver) {
++		sas_setenv_num("etl_exists", 0, save_env);
++		return 0;
++	}
+ 
+-	/* Compat values for userspace */
+-	sas_setenv("etl_exists", "1", save_env);
++	sas_setenv_num("etl_exists", 1, save_env);
++
++	sas_banner_header_print("Sphairon type label v%u", sas_etl_ver);
+ 
+ 	/* Trivial name of board */
+ 	sas_etl_get_string(SAS_ETL_TRIV_NAME, buf, 32,

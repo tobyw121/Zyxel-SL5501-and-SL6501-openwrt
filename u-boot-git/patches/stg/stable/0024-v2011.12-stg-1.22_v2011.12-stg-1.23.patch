@@ -1,0 +1,172 @@
+diff --git a/Makefile b/Makefile
+index 027ef9f849b8fcc88fb7e4729acbfa6b81a69e89..8e362d02989bccb7fde0b06b713256048306327d 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.22
++EXTRAVERSION = -stg-1.23
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/drivers/mtd/spi/eon.c b/drivers/mtd/spi/eon.c
+index f9352f95a6c67363daae45c80c7189fcc2773a75..15243b4cf691fb07fb84c36a09981dea9293e00b 100644
+--- a/drivers/mtd/spi/eon.c
++++ b/drivers/mtd/spi/eon.c
+@@ -22,19 +22,22 @@
+ #define CMD_EN25Q128_BE		0xd8    /* Block Erase */
+ #define CMD_EN25Q128_DP		0xb9    /* Deep Power-down */
+ #define CMD_EN25Q128_RES	0xab    /* Release from DP, and Read Signature */
++#define CMD_EN25XX_EN4B		0xb7	/* Enter 4-byte mode */
++#define CMD_EN25XX_EX4B		0xe9	/* Exit 4-byte mode */
+ 
+ struct eon_spi_flash_params {
+-	u8 idcode1;
++	u16 idcode;
+ 	u16 page_size;
+ 	u16 pages_per_sector;
+ 	u16 sectors_per_block;
+ 	u16 nr_sectors;
++	unsigned use_4byte_addr:1;
+ 	const char *name;
+ };
+ 
+ static const struct eon_spi_flash_params eon_spi_flash_table[] = {
+ 	{
+-		.idcode1 = 0x16,
++		.idcode = 0x3016,
+ 		.page_size = 256,
+ 		.pages_per_sector = 16,
+ 		.sectors_per_block = 16,
+@@ -42,7 +45,7 @@ static const struct eon_spi_flash_params eon_spi_flash_table[] = {
+ 		.name = "EN25Q32B",
+ 	},
+ 	{
+-		.idcode1 = 0x18,
++		.idcode = 0x3018,
+ 		.page_size = 256,
+ 		.pages_per_sector = 16,
+ 		.sectors_per_block = 16,
+@@ -50,12 +53,13 @@ static const struct eon_spi_flash_params eon_spi_flash_table[] = {
+ 		.name = "EN25Q128",
+ 	},
+ 	{
+-		.idcode1 = 0x16,
++		.idcode = 0x7019,
+ 		.page_size = 256,
+ 		.pages_per_sector = 16,
+ 		.sectors_per_block = 16,
+-		.nr_sectors = 1024,
+-		.name = "EN25Q32B",
++		.nr_sectors = 8192,
++		.use_4byte_addr = 1,
++		.name = "EN25QH256",
+ 	},
+ };
+ 
+@@ -64,15 +68,24 @@ static int eon_erase(struct spi_flash *flash, u32 offset, size_t len)
+ 	return spi_flash_cmd_erase(flash, CMD_EN25Q128_BE, offset, len);
+ }
+ 
++static int eon_set_4byte_addressing(struct spi_flash *flash, int on)
++{
++	struct spi_slave *spi = flash->spi;
++	u8 cmd = on ? CMD_EN25XX_EN4B : CMD_EN25XX_EX4B;
++
++	return spi_flash_cmd(spi, cmd, NULL, 0);
++}
++
+ struct spi_flash *spi_flash_probe_eon(struct spi_slave *spi, u8 *idcode)
+ {
+ 	const struct eon_spi_flash_params *params;
+ 	struct spi_flash *flash;
+ 	unsigned int i;
++	u16 id = idcode[2] | idcode[1] << 8;
+ 
+ 	for (i = 0; i < ARRAY_SIZE(eon_spi_flash_table); ++i) {
+ 		params = &eon_spi_flash_table[i];
+-		if (params->idcode1 == idcode[2])
++		if (params->idcode == id)
+ 			break;
+ 	}
+ 
+@@ -99,5 +112,10 @@ struct spi_flash *spi_flash_probe_eon(struct spi_slave *spi, u8 *idcode)
+ 	flash->size = params->page_size * params->pages_per_sector
+ 	    * params->nr_sectors;
+ 
++	if (params->use_4byte_addr)
++		flash->set_4byte_addressing = eon_set_4byte_addressing;
++	else
++		flash->set_4byte_addressing = NULL;
++
+ 	return flash;
+ }
+diff --git a/drivers/mtd/spi/spi_flash.c b/drivers/mtd/spi/spi_flash.c
+index e437c168d3ba32b25a83acb8a98038d1ae540664..c662485a93cf5c576a9e02f7191d6b057f8bf053 100644
+--- a/drivers/mtd/spi/spi_flash.c
++++ b/drivers/mtd/spi/spi_flash.c
+@@ -323,7 +323,7 @@ int spi_flash_cmd_erase(struct spi_flash *flash, u8 erase_cmd,
+  */
+ #define IDCODE_CONT_LEN 0
+ #define IDCODE_PART_LEN 5
+-static const struct {
++static struct {
+ 	const u8 shift;
+ 	const u8 idcode;
+ 	struct spi_flash *(*probe) (struct spi_slave *spi, u8 *idcode);
+@@ -490,7 +490,7 @@ int spi_flash_probe_spl(struct spi_flash *sf, unsigned int bus, unsigned int cs,
+ 		if (ret)
+ 			goto err_read_id;
+ 
+-	} else if (*idp == 0xc2) {
++	} else if (*idp == 0xc2 || *idp == 0x1c) {
+ 		u8 cmd;
+ 
+ 		cmd = 0xe9;
+@@ -519,11 +519,29 @@ err_claim_bus:
+ 	return ret;
+ }
+ 
++#if defined(CONFIG_NEEDS_MANUAL_RELOC)
++DECLARE_GLOBAL_DATA_PTR;
++
++static void spi_flash_fixup(void)
++{
++	int i;
++
++	for (i = 0; i < ARRAY_SIZE(flashes); ++i)
++		flashes[i].probe += gd->reloc_off;
++}
++#else
++static inline void spi_flash_fixup(void)
++{
++}
++#endif
++
+ int spi_flash_init(void)
+ {
+ 	struct spi_flash *sf;
+ 	int err;
+ 
++	spi_flash_fixup();
++
+ 	sf = spi_flash_probe(CONFIG_ENV_SPI_BUS, CONFIG_ENV_SPI_CS,
+ 			CONFIG_ENV_SPI_MAX_HZ, CONFIG_ENV_SPI_MODE);
+ 	if (!sf)
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index c0466919d8a145337740e2c3914c1b6583f857ae..7ae236c7b3a78414f68e0c9790880625580602a5 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -21,9 +21,9 @@
+ #define CONFIG_LTQ_SUPPORT_SPI_FLASH
+ #define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
+ #define CONFIG_SPI_FLASH_SPANSION	/* Supports SF25FL256S serial flash */
++#define CONFIG_SPI_FLASH_EON		/* Supports EN25QH256 serial flash */
+ #define CONFIG_SPI_FLASH_4BYTE_ADDRESSING
+ 
+-
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+ #define CONFIG_SPL_SPI_CS		4

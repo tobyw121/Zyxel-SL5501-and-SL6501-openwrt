@@ -1,0 +1,217 @@
+diff --git a/Makefile b/Makefile
+index 72a2c7eebd7faef6ef85ac10595a80fa5ed3497e..9ee4c5d1ecab0e50f543c848296c62065f300591 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.7
++EXTRAVERSION = -stg-1.8
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 4a87a2c09ce898334233fb073baf210069071c80..a85fb76a437ec9059f7ce2c81e284fb95c09628e 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -23,54 +23,21 @@ static void gpio_init(void)
+ 	/* SPI CS 0.4 to serial flash */
+ 	gpio_direction_output(10, 1);
+ 
+-	/* LEDC/LED_ST for LED shift register */
+-	gpio_set_altfunc(4, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* LEDC/LED_D for LED shift register */
+-	gpio_set_altfunc(5, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* LEDC/LED_SH for LED shift register */
+-	gpio_set_altfunc(6, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-
+-	/* TDM/FSC used as input (FSC slave) */
+-	gpio_set_altfunc(0, GPIO_ALTSEL_SET, GPIO_ALTSEL_SET, GPIO_DIR_IN);
+-	/* TDM/DO output */
+-	gpio_set_altfunc(25, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* TDM/DI input */
+-	gpio_set_altfunc(26, GPIO_ALTSEL_CLR, GPIO_ALTSEL_SET, GPIO_DIR_IN);
+-	/* TDM/DCL used as input (DCL slave) */
+-	gpio_set_altfunc(40, GPIO_ALTSEL_CLR, GPIO_ALTSEL_SET, GPIO_DIR_IN);
+-
+-	/* Lantiq S-VIP, ISAC-SX */
+-	/* Reset line to S-VIP, ISAC-SX */
+-	gpio_direction_output(31, 1);
+-	/* Interrupt line from ISAC-SX */
+-	gpio_direction_input(1);
+ 	/* SPI CS 1.0..1.3 to ISAC-SX 0..3 */
+ 	gpio_direction_output(39, 1);
+ 	gpio_direction_output(32, 1);
+ 	gpio_direction_output(34, 1);
+ 	gpio_direction_output(22, 1);
+ 
+-	/* Atheros AR8031 10/100/1000 PHY */
+-	/* Reset line to PHY */
++	/* Atheros AR8031 10/100/1000 PHY reset line */
+ 	gpio_direction_output(15, 1);
+-	/* Interrupt line from PHY */
+-	gpio_direction_input(2);
+-
+-	/* Zarlink PLL ZL30342 */
+-	/* Reset line to PLL */
+-	gpio_direction_output(36, 0);
+-	/* Interrupt line from PLL */
+-	gpio_direction_input(9);
+-	/* CLK_OUT2 as input for 25 MHz from PLL */
+-	gpio_set_altfunc(3, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
+-	/* NTR_CLK as output to reference clock 2 input of PLL */
+-	gpio_set_altfunc(14, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* SPI CS 1.4 to PLL */
++
++	/* SPI CS 1.4 to PLL ZL30342 */
+ 	gpio_direction_output(37, 1);
+ 
+-	/* USB port0 power enable, must be disabled at startup */
++	/* USB port0 power enable, disabled at startup */
+ 	gpio_direction_output(41, 0);
+-	/* USB port1 power enable, must be disabled at startup */
++	/* USB port1 power enable, disabled at startup */
+ 	gpio_direction_output(33, 0);
+ 
+ 	/* TODO: move to NAND driver */
+@@ -79,14 +46,6 @@ static void gpio_init(void)
+ 	/* EBU.FL_A23 as output for NAND CLE */
+ 	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 
+-	/* TODO: move to USIF driver */
+-	/* USIF/DIN input */
+-	gpio_set_altfunc(11, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
+-	/* USIF/DOUT output */
+-	gpio_set_altfunc(12, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* USIF/CLK output */
+-	gpio_set_altfunc(38, GPIO_ALTSEL_CLR, GPIO_ALTSEL_SET, GPIO_DIR_OUT);
+-
+ 	/* Watchdog trigger line for MAX6722, needs clarification */
+ 	/* gpio_direction_output(8, 1); */
+ 
+diff --git a/board/sphairon/tl7201/tl7201.c b/board/sphairon/tl7201/tl7201.c
+index db71382ccaf3d7da1c74d6afed0bd81932d59c8d..68cade1fb95319c3b9a53dc3ff400cebcc05b2e6 100644
+--- a/board/sphairon/tl7201/tl7201.c
++++ b/board/sphairon/tl7201/tl7201.c
+@@ -38,15 +38,6 @@ static void gpio_init(void)
+ 	/* GPIO button board reset */
+ 	gpio_direction_input(30);
+ 
+-	/* TDM/FSC used as input (FSC slave) */
+-	gpio_set_altfunc(0, GPIO_ALTSEL_SET, GPIO_ALTSEL_SET, GPIO_DIR_IN);
+-	/* TDM/DO output */
+-	gpio_set_altfunc(25, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* TDM/DI input */
+-	gpio_set_altfunc(26, GPIO_ALTSEL_CLR, GPIO_ALTSEL_SET, GPIO_DIR_IN);
+-	/* TDM/DCL used as input (DCL slave) */
+-	gpio_set_altfunc(27, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
+-
+ 	/* SPI/CS output (low-active) for ISAC-SX */
+ 	gpio_direction_output(15, 1);
+ 	/* SPI/CS output (low-active) for ISAC-SX */
+@@ -54,14 +45,10 @@ static void gpio_init(void)
+ 	/* SPI/CS output (low-active) for SI3050 */
+ 	gpio_direction_output(22, 1);
+ 
+-	/* PCI reset */
+-	gpio_set_altfunc(21, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 	/* FL_A23 for Flash address pin A22 */
+ 	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 	/* FL_A24 for Flash address pin A23 */
+ 	gpio_set_altfunc(13, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* external interrupt line from ISAC-SX chips */
+-	gpio_direction_input(1);
+ 
+ 	/*
+ 	 * External hardware reset line
+@@ -70,11 +57,9 @@ static void gpio_init(void)
+ 	 * driven high.
+ 	 */
+ 	gpio_direction_output(28, 1);
+-	gpio_set_opendrain(28, GPIO_OD_ACTIVE);
+ 
+-	/* USB port0 power enable, must be disabled at startup */
++	/* USB port0 power enable, disabled at startup */
+ 	gpio_direction_output(31, 0);
+-	gpio_set_opendrain(31, GPIO_OD_ACTIVE);
+ }
+ 
+ int board_early_init_f(void)
+diff --git a/board/sphairon/vrx_g1/vrx_g1.c b/board/sphairon/vrx_g1/vrx_g1.c
+index 7435fa88bfb9460445fd7693bbdfc2a6a5cc4a1c..186edc0aaac80b78e13f4dec82316ebfd243569d 100644
+--- a/board/sphairon/vrx_g1/vrx_g1.c
++++ b/board/sphairon/vrx_g1/vrx_g1.c
+@@ -24,16 +24,16 @@ static void gpio_init(void)
+ 	/* COSIC modem reset, low-active, must be asserted at startup */
+ 	gpio_direction_output(14, 0);
+ 
+-	/* Ralink iNIC WLAN reset, low-active, must be asserted at startup */
++	/* Ralink iNIC WLAN reset, low-active, asserted at startup */
+ 	gpio_direction_output(15, 0);
+ 
+-	/* Ralink iNIC WLAN power, must be disabled at startup */
++	/* Ralink iNIC WLAN power, disabled at startup */
+ 	gpio_direction_output(37, 0);
+ 
+-	/* USB port0 power enable, must be disabled at startup */
++	/* USB port0 power enable, disabled at startup */
+ 	gpio_direction_output(41, 0);
+ 
+-	/* USB port1 power enable, must be disabled at startup */
++	/* USB port1 power enable, disabled at startup */
+ 	gpio_direction_output(33, 0);
+ }
+ 
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index b1103a46492aca661b42854c6d22f77777dc0448..417d528fb6046d8f28deda06a0518bcfab3e1f06 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -26,6 +26,21 @@
+ #define sas_has_saveenv		0
+ #endif
+ 
++/* Alternate console devices needed for Lantiq UGW kernels */
++static inline const char *sas_consoledev_fixup(void)
++{
++#if defined(CONFIG_SOC_XWAY_VRX200)
++	return "ttyS0";
++#else
++	return "ttyS1";
++#endif
++}
++
++static inline const char *sas_consoledev_configured(void)
++{
++	return CONFIG_CONSOLE_DEV;
++}
++
+ typedef enum {
+ 	SAS_FLASH,
+ 	SAS_TFTP,
+@@ -163,16 +178,19 @@ static int sas_load_fs(const struct sas_flash_partition *part,
+ static void sas_linux_fixup(ulong loadaddr)
+ {
+ 	const image_header_t *hdr = (const image_header_t *)loadaddr;
++	const char *consoledev;
+ 	char name[IH_NMLEN + 1];
+ 
+ 	sas_image_name(hdr, name);
+ 
+-	if (!strstr(name, "kernel#Linux-3"))
+-#ifdef CONFIG_SOC_XWAY_VRX200
+-		setenv("consoledev", "ttyS0");
+-#else
+-		setenv("consoledev", "ttyS1");
+-#endif
++	if (!strncmp(name, "kernel#Linux-2.6.32", 19))
++		consoledev = sas_consoledev_fixup();
++	else
++		consoledev = sas_consoledev_configured();
++
++	printf("Fixup console device to %s\n", consoledev);
++
++	setenv("consoledev", consoledev);
+ }
+ 
+ static void sas_env_bootargs_clear(void)

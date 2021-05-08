@@ -1,0 +1,196 @@
+diff --git a/Makefile b/Makefile
+index 9948b28848f87ba2cdbf2250fba0ec6312255d51..5e9e44b169d07ffa0de072ce28ed29b3fc20e003 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.7
++EXTRAVERSION = -stg-4.8
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/lantiq-common/spl.c b/arch/mips/cpu/mips32/lantiq-common/spl.c
+index f465fe5596c0b4e412611cfd388aafd450133031..05f66a9343d0fb7748e9ca0333ce9466e1569c98 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/spl.c
++++ b/arch/mips/cpu/mips32/lantiq-common/spl.c
+@@ -69,8 +69,9 @@
+ struct spl_image {
+ 	ulong data_addr;
+ 	ulong entry_addr;
+-	size_t data_size;
+-	size_t entry_size;
++	ulong data_size;
++	ulong entry_size;
++	ulong data_crc;
+ 	u8 comp;
+ };
+ 
+@@ -127,25 +128,42 @@ static void spl_console_init(void)
+ 
+ static int spl_parse_image(const image_header_t *hdr, struct spl_image *spl)
+ {
+-	u32 magic;
+-
+ 	spl_puts("SPL: checking U-Boot image\n");
+ 
+-	magic = image_get_magic(hdr);
+-	if (magic != IH_MAGIC)
++	if (!image_check_magic(hdr)) {
++		spl_puts("SPL: invalid magic\n");
++		return -1;
++	}
++
++        if (!image_check_hcrc(hdr)) {
++		spl_puts("SPL: invalid header CRC\n");
+ 		return -1;
++	}
+ 
+ 	spl->data_addr += image_get_header_size();
+ 	spl->entry_addr = image_get_load(hdr);
+ 	spl->data_size = image_get_data_size(hdr);
++	spl->data_crc = image_get_dcrc(hdr);
+ 	spl->comp = image_get_comp(hdr);
+ 
+-	spl_debug("SPL: data %08lx, size %zu, entry %08lx, comp %u\n",
++	spl_debug("SPL: data %08lx, size %lu, entry %08lx, comp %u\n",
+ 		spl->data_addr, spl->data_size, spl->entry_addr, spl->comp);
+ 
+ 	return 0;
+ }
+ 
++static int spl_check_data(const struct spl_image *spl, ulong loadaddr)
++{
++	ulong dcrc = crc32(0, (unsigned char *)loadaddr, spl->data_size);
++
++	if (dcrc != spl->data_crc) {
++		spl_puts("SPL: invalid data CRC\n");
++		return 0;
++	}
++
++	return 1;
++}
++
+ static void *spl_lzma_alloc(void *p, size_t size)
+ {
+ 	u8 *ret;
+@@ -283,6 +301,9 @@ static int spl_load_spi_flash(struct spl_image *spl)
+ 	ret = spi_flash_read(&sf, spl->data_addr, spl->data_size,
+ 				(void *) loadaddr);
+ 
++	if (!spl_check_data(spl, loadaddr))
++		return -1;
++
+ 	if (spl_is_compressed(spl))
+ 		ret = spl_uncompress(spl, loadaddr);
+ 
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 465b14371665cfd642d05fa5da698231329b154c..aa78483c1c3d2917b7013f55bac491a182ec7f65 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -82,8 +82,8 @@ static inline void gpio_init(void)
+ 	/* PCM DCL/FSC input/output switch -> default output */
+ 	gpio_direction_output(47, 1);
+ 
+-        /* CLKOUT0 for Supervisor */
+-        gpio_set_altfunc(8, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++        /* High output for supervisor */
++        gpio_direction_output(8, 1);
+ }
+ 
+ int board_early_init_f(void)
+@@ -246,3 +246,11 @@ void sas_cf_led_action(enum sas_cf_state state)
+ 	}
+ 	return;
+ }
++
++int sas_board_init_r(void)
++{
++	/* enable CLKOUT0 for Supervisor */
++        gpio_set_altfunc(8, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++
++	return 0;
++}
+diff --git a/include/sas/init.h b/include/sas/init.h
+index 8b86a9e16e1d6235880f0ace060980fb3c4449c0..92bf7a0ab204641720c20e5fbbe60b0b545b25ee 100644
+--- a/include/sas/init.h
++++ b/include/sas/init.h
+@@ -24,4 +24,7 @@ static inline int sas_init_r(void)
+ }
+ #endif
+ 
++int sas_board_init_f(void);
++int sas_board_init_r(void);
++
+ #endif /* __SAS_INIT_H__ */
+diff --git a/lib/sphairon/Makefile b/lib/sphairon/Makefile
+index ca26d68bbacd5e6c4d2859d2df20ea0a056c9612..1c8ba93b84d6ef2dc497174ade0bccc5efa393e5 100644
+--- a/lib/sphairon/Makefile
++++ b/lib/sphairon/Makefile
+@@ -20,8 +20,8 @@ COBJS-y	+= controlfile.o
+ ifneq ($(CONFIG_SYS_BOOT_RAM),y)
+ COBJS-y	+= cmd_sas_boot.o
+ COBJS-y	+= cmd_sas_upgrade.o
+-COBJS-$(CONFIG_SPI_FLASH) += cmd_sas_test_sf.o
+ endif
++COBJS-$(CONFIG_SPI_FLASH) += cmd_sas_test_sf.o
+ COBJS-y	+= cmd_sas_controlfile.o
+ COBJS-y	+= cmd_sas_etl.o
+ SOBJS-y	+=
+diff --git a/lib/sphairon/cmd_sas_test_sf.c b/lib/sphairon/cmd_sas_test_sf.c
+index 4d331282bd2a2d126fc2d2ab2714f894c42adf74..6fde7116c0fba5820c5509c584aad18a38693173 100644
+--- a/lib/sphairon/cmd_sas_test_sf.c
++++ b/lib/sphairon/cmd_sas_test_sf.c
+@@ -15,10 +15,8 @@
+ 
+ static int sas_test_4byte_mode(const struct spi_flash *sf)
+ {
+-#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
+-	if (sf->size > (1 << 24) && sf->set_4byte_mode)
++	if (sf->size > (1 << 24))
+ 		return 1;
+-#endif
+ 
+ 	return 0;
+ }
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index bf59587fe019827356df6442558d440877149916..4e462627657659cbe3371bc86e6cbdca7e3e8e18 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -26,8 +26,24 @@
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
++__weak int sas_board_init_f(void)
++{
++	return 0;
++}
++
++__weak int sas_board_init_r(void)
++{
++	return 0;
++}
++
+ int sas_init_f(void)
+ {
++	int ret;
++
++	ret = sas_board_init_f();
++	if (ret)
++		return ret;
++
+ 	return 0;
+ }
+ 
+@@ -82,6 +98,10 @@ int sas_init_r(void)
+ 		sas_boot_print();
+ 	}
+ 
++	ret = sas_board_init_r();
++	if (ret)
++		goto err;
++
+ 	sas_cf_run();
+ 
+ 	if (!sas_cf_is_active()) {

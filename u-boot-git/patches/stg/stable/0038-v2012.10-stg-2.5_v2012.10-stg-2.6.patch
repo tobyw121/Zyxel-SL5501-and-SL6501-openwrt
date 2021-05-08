@@ -1,0 +1,77 @@
+diff --git a/Makefile b/Makefile
+index 6695f6c69de705c7ac3c0bfb4ee40a8cd94d66c0..609636a01a362d9a7634ac1fc17c547285256399 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.5
++EXTRAVERSION = -stg-2.6
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index ffdcf6f742768d103ff054160f004fd2cf0fb28b..b33272aa29727a646166cc2a66d462a0cd1977d4 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -31,6 +31,7 @@ enum sas_etl_id
+ 	SAS_ETL_JFFS_IMAGES		= 19,
+ 	SAS_ETL_SERIAL_EXTRA		= 20,
+ 	SAS_ETL_SHDSL_LINES		= 21,
++	SAS_ETL_MAC_ADDR_POOL		= 22,
+ 	SAS_ETL_ID_LAST,
+ };
+ 
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index 7332a8ad092f3f9924d955fbee3fe6859a150406..cfbf83f6981e824f1efee15e3de45f90e02afd57 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -204,10 +204,9 @@ void sas_etl_env_set_ethaddr(int *save_env)
+ 	if (17 != strlen(val))
+ 		return;
+ 
+-	for (i = 2; i < 15; i += 3) {
++	for (i = 2; i < 15; i += 3)
+ 		if (val[i] != ':')
+ 			return;
+-	}
+ 
+ 	sas_setenv("ethaddr", val, save_env);
+ }
+@@ -273,6 +272,9 @@ void sas_etl_env_save(int *save_env)
+ 	sas_etl_env_set_default(SAS_ETL_WLAN_SSID, "etl_wlan_ssid",
+ 		"default", save_env);
+ 
++	sas_etl_env_set_default(SAS_ETL_MAC_ADDR_POOL, "etl_mac_addr_pool",
++		"8", save_env);
++
+ 	sas_etl_env_set_fill(SAS_ETL_HW_VERSION, "etl_hw_version",
+ 		'x', 4, save_env);
+ 
+@@ -381,6 +383,8 @@ void sas_etl_print(void)
+ 		sas_etl_get_string(SAS_ETL_PROD_DATE));
+ 	sas_etl_banner_print("MAC address",
+ 		sas_etl_get_string(SAS_ETL_MAC_ADDR));
++	sas_etl_banner_print("MAC address pool",
++		sas_etl_get_string(SAS_ETL_MAC_ADDR_POOL));
+ 
+ 	sas_banner_footer_print();
+ }
+@@ -433,7 +437,7 @@ static const char sas_etl_id_strings[][16] = {
+ 	"wlan_module",
+ 	"wlan_key",
+ 	"triv_name",
+-	"ethaddr",
++	"mac_addr",
+ 	"hw_cfg",
+ 	"hw_cfg2",
+ 	"ident_no",
+@@ -448,6 +452,7 @@ static const char sas_etl_id_strings[][16] = {
+ 	"jffs_images",
+ 	"serial_extra",
+ 	"shdsl_lines",
++	"mac_addr_pool",
+ };
+ 
+ const char *sas_etl_id_str(enum sas_etl_id idx)

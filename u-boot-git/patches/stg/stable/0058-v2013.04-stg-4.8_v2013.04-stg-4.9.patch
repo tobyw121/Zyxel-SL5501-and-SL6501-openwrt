@@ -1,0 +1,93 @@
+diff --git a/Makefile b/Makefile
+index 5e9e44b169d07ffa0de072ce28ed29b3fc20e003..f324f30a7c34d2f4fa465bfd1d24c6d12e27a1f4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.8
++EXTRAVERSION = -stg-4.9
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index 67a73b09f0139f1ca88c5d40c349175cb640d42f..54a95eca077ee55e0bafe2be4e5ecaba44707dd8 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -78,6 +78,13 @@ static inline void gpio_init(void)
+ 	/* GPIO 3.1 as output for NAND Read */
+ 	gpio_set_altfunc(49, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 
++	/* LEDC/LED_ST for LED shift register */
++	gpio_set_altfunc(4, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* LEDC/LED_D for LED shift register */
++	gpio_set_altfunc(5, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* LEDC/LED_SH for LED shift register */
++	gpio_set_altfunc(6, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++
+ 	/* Ralink iNIC WLAN reset, low-active, asserted at startup */
+ 	gpio_direction_output(15, 0);
+ 	/* Ralink iNIC WLAN power, disabled at startup */
+@@ -86,8 +93,10 @@ static inline void gpio_init(void)
+ 
+ int board_early_init_f(void)
+ {
+-	if (do_gpio_init)
++	if (do_gpio_init) {
++		ltq_gpio_init();
+ 		gpio_init();
++	}
+ 
+ 	if (do_pll_init)
+ 		ltq_pll_init();
+diff --git a/drivers/gpio/lantiq_gpio.c b/drivers/gpio/lantiq_gpio.c
+index c0c80abdc9fb03785fa7c353b7d6a8645c3fb97e..822559e5fbe2ee2533fd81ac76587d53c7329403 100644
+--- a/drivers/gpio/lantiq_gpio.c
++++ b/drivers/gpio/lantiq_gpio.c
+@@ -32,16 +32,27 @@
+ #define SSIO_CON1_GROUP2	(1 << 2)
+ #define SSIO_CON1_GROUP1	(1 << 1)
+ #define SSIO_CON1_GROUP0	(1 << 0)
+-#define SSIO_CON1_GROUP_CONFIG	(0x3)
+ 
+ #ifdef CONFIG_LTQ_SSIO_SHIFT_REGS
+ #define enable_ssio	1
++
++#if CONFIG_LTQ_SSIO_SHIFT_REGS == 1
++#define SSIO_CON1_GROUP_CONFIG	(SSIO_CON1_GROUP0)
++#elif CONFIG_LTQ_SSIO_SHIFT_REGS == 2
++#define SSIO_CON1_GROUP_CONFIG	(SSIO_CON1_GROUP0 | SSIO_CON1_GROUP1)
++#elif CONFIG_LTQ_SSIO_SHIFT_REGS == 3
++#define SSIO_CON1_GROUP_CONFIG	(SSIO_CON1_GROUP0 | SSIO_CON1_GROUP1 | \
++				SSIO_CON1_GROUP2)
++#else
++#define SSIO_CON1_GROUP_CONFIG	0
++#endif
+ #else
+ #define enable_ssio	0
+ 
+ #define CONFIG_LTQ_SSIO_GPHY1_MODE	0
+ #define CONFIG_LTQ_SSIO_GPHY2_MODE	0
+ #define CONFIG_LTQ_SSIO_INIT_VALUE	0
++#define SSIO_CON1_GROUP_CONFIG		0
+ #endif
+ 
+ #ifdef CONFIG_LTQ_SSIO_EDGE_FALLING
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index c0e5dbe1d95d122e63bc5dbb50a163a4ff37078e..1a04f64cf73645317b34afe52aafa83fd7e80ef7 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -17,6 +17,12 @@
+ 
+ #define CONFIG_LTQ_SUPPORT_ETHERNET	/* Enable ethernet */
+ 
++#define CONFIG_LTQ_SSIO_SHIFT_REGS	1
++#define CONFIG_LTQ_SSIO_EDGE_FALLING
++#define CONFIG_LTQ_SSIO_GPHY1_MODE	0x3
++#define CONFIG_LTQ_SSIO_GPHY2_MODE	0x3
++#define CONFIG_LTQ_SSIO_INIT_VALUE	0x0
++
+ #define CONFIG_LTQ_SUPPORT_SPI_FLASH
+ #define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
+ #define CONFIG_SPI_FLASH_SPANSION	/* Supports SF25FL256S serial flash */

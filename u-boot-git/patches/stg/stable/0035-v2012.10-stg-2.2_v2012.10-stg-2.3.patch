@@ -1,0 +1,3455 @@
+diff --git a/Makefile b/Makefile
+index b56fbf2a2341003e843d451fb6921dfb2a0cb086..1bd90c9f344ac04fb166fba457a5542b7169d57c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.2
++EXTRAVERSION = -stg-2.3
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+@@ -536,6 +536,15 @@ $(obj)u-boot.ltq.lzma.sfspl: $(obj)u-boot.lzma.img $(obj)spl/u-boot-spl.bin
+ 		$(obj)tools/ltq-boot-image -t sfspl -e $(CONFIG_SPL_TEXT_BASE) \
+ 			-s $(obj)spl/u-boot-spl.bin -u $< -o $@
+ 
++$(obj)u-boot.ltq.norspl: $(obj)u-boot.img $(obj)spl/u-boot-spl.bin
++	cat $(obj)spl/u-boot-spl.bin $< > $@
++
++$(obj)u-boot.ltq.lzo.norspl: $(obj)u-boot.lzo.img $(obj)spl/u-boot-spl.bin
++	cat $(obj)spl/u-boot-spl.bin $< > $@
++
++$(obj)u-boot.ltq.lzma.norspl: $(obj)u-boot.lzma.img $(obj)spl/u-boot-spl.bin
++	cat $(obj)spl/u-boot-spl.bin $< > $@
++
+ ifeq ($(CONFIG_SANDBOX),y)
+ GEN_UBOOT = \
+ 		cd $(LNDIR) && $(CC) $(SYMS) -T $(obj)u-boot.lds \
+diff --git a/arch/mips/config.mk b/arch/mips/config.mk
+index de9140b67b5258b9a4511bc0dbbdd913c00c525a..3e181923f4e33cde6ecb887c0a867098c996dd07 100644
+--- a/arch/mips/config.mk
++++ b/arch/mips/config.mk
+@@ -61,7 +61,10 @@ PLATFORM_CPPFLAGS += -DCONFIG_MIPS -D__MIPS__
+ # On the other hand, we want PIC in the U-Boot code to relocate it from ROM
+ # to RAM. $28 is always used as gp.
+ #
+-PLATFORM_CPPFLAGS		+= -G 0 -mabicalls -fpic $(ENDIANNESS)
++PF_ABICALLS			?= -mabicalls
++PF_PIC				?= -fpic
++
++PLATFORM_CPPFLAGS		+= -G 0 $(PF_ABICALLS) $(PF_PIC) $(ENDIANNESS)
+ PLATFORM_CPPFLAGS		+= -msoft-float
+ PLATFORM_LDFLAGS		+= -G 0 -static -n -nostdlib $(ENDIANNESS)
+ PLATFORM_RELFLAGS		+= -ffunction-sections -fdata-sections
+diff --git a/arch/mips/cpu/mips32/danube/Makefile b/arch/mips/cpu/mips32/danube/Makefile
+index e9fb7e0e5fd9cb0306e1e4325bbf8614dd72ed61..6634763844b61d9f3bd4d32a8770fc92ba16c8ad 100644
+--- a/arch/mips/cpu/mips32/danube/Makefile
++++ b/arch/mips/cpu/mips32/danube/Makefile
+@@ -10,8 +10,8 @@ include $(TOPDIR)/config.mk
+ 
+ LIB	= $(obj)lib$(SOC).o
+ 
+-COBJS-y	+= cgu.o chipid.o cpu.o ebu.o mem.o pmu.o rcu.o
+-SOBJS-y	+= cgu_init.o mem_init.o lowlevel_init.o
++COBJS-y	+= cgu.o chipid.o ebu.o mem.o pmu.o rcu.o
++SOBJS-y	+= cgu_init.o mem_init.o
+ 
+ COBJS	:= $(COBJS-y)
+ SOBJS	:= $(SOBJS-y)
+diff --git a/arch/mips/cpu/mips32/danube/config.mk b/arch/mips/cpu/mips32/danube/config.mk
+index d8ae51d66face5698791665c60118e432e0ac867..c7f8539e0ffa06396d9943adc34573340c423b58 100644
+--- a/arch/mips/cpu/mips32/danube/config.mk
++++ b/arch/mips/cpu/mips32/danube/config.mk
+@@ -8,4 +8,20 @@
+ PF_CPPFLAGS_DANUBE := $(call cc-option,-mtune=24kec,)
+ PLATFORM_CPPFLAGS += $(PF_CPPFLAGS_DANUBE)
+ 
++ifdef CONFIG_SPL_BUILD
++PF_ABICALLS		:= -mno-abicalls
++PF_PIC			:= -fno-pic
++USE_PRIVATE_LIBGCC	:= yes
++endif
++
++LIBS-y += $(CPUDIR)/lantiq-common/liblantiq-common.o
++
++ifndef CONFIG_SPL_BUILD
++ifdef CONFIG_SYS_BOOT_NORSPL
++ALL-y += $(obj)u-boot.ltq.norspl
++ALL-$(CONFIG_SPL_LZO_SUPPORT) += $(obj)u-boot.ltq.lzo.norspl
++ALL-$(CONFIG_SPL_LZMA_SUPPORT) += $(obj)u-boot.ltq.lzma.norspl
++endif
++endif
++
+ LDSCRIPT := $(TOPDIR)/$(CPUDIR)/$(SOC)/u-boot.lds
+diff --git a/arch/mips/cpu/mips32/danube/cpu.c b/arch/mips/cpu/mips32/danube/cpu.c
+deleted file mode 100644
+index 792bb966fab6f9a5cf10be5148a3a31943a414d5..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/danube/cpu.c
++++ /dev/null
+@@ -1,36 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <common.h>
+-#include <asm/lantiq/clk.h>
+-#include <asm/lantiq/chipid.h>
+-#include <asm/lantiq/reset.h>
+-#include <asm/arch/cpu.h>
+-
+-int arch_cpu_init(void)
+-{
+-	ltq_pmu_init();
+-	ltq_ebu_init();
+-
+-	return 0;
+-}
+-
+-void ltq_chip_print_info(void)
+-{
+-	char buf[32];
+-
+-	printf("SoC:   Lantiq %s v1.%u\n", ltq_chip_partnum_str(),
+-		ltq_chip_version_get());
+-	printf("CPU:   %s MHz\n", strmhz(buf, ltq_get_cpu_clock()));
+-	printf("IO:    %s MHz\n", strmhz(buf, ltq_get_io_region_clock()));
+-	printf("BUS:   %s MHz\n", strmhz(buf, ltq_get_bus_clock()));
+-}
+-
+-void _machine_restart(void)
+-{
+-	ltq_reset_activate(LTQ_RESET_CORE);
+-}
+diff --git a/arch/mips/cpu/mips32/danube/lowlevel_init.S b/arch/mips/cpu/mips32/danube/lowlevel_init.S
+deleted file mode 100644
+index cc352698f7a344f02f748be6c4b13bdabe5b66f5..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/danube/lowlevel_init.S
++++ /dev/null
+@@ -1,21 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <asm/asm.h>
+-#include <asm/regdef.h>
+-
+-NESTED(lowlevel_init, 0, ra)
+-	move	t8, ra
+-
+-	la	t7, ltq_cgu_init
+-	jalr	t7
+-
+-	la	t7, ltq_mem_init
+-	jalr	t7
+-
+-	jr	t8
+-	END(lowlevel_init)
+diff --git a/arch/mips/cpu/mips32/danube/rcu.c b/arch/mips/cpu/mips32/danube/rcu.c
+index 8d14917088f440ec391a70a9d14c0a1bac6ecbc4..ba0cf785b3ea6624bd33197930804942ace47d72 100644
+--- a/arch/mips/cpu/mips32/danube/rcu.c
++++ b/arch/mips/cpu/mips32/danube/rcu.c
+@@ -8,6 +8,7 @@
+ #include <common.h>
+ #include <asm/lantiq/io.h>
+ #include <asm/lantiq/reset.h>
++#include <asm/lantiq/cpu.h>
+ #include <asm/arch/soc.h>
+ 
+ #define LTQ_RCU_RD_SRST		(1 << 30)	/* Global SW Reset */
+@@ -27,6 +28,9 @@
+ #define LTQ_RCU_RD_CPU0		(1 << 1)	/* CPU0 subsystem */
+ #define LTQ_RCU_RD_HRST		(1 << 0)	/* HW reset via HRST pin */
+ 
++#define LTQ_RCU_STAT_BOOT_SHIFT		18
++#define LTQ_RCU_STAT_BOOT_MASK		(0x7 << LTQ_RCU_STAT_BOOT_SHIFT)
++
+ struct ltq_rcu_regs {
+ 	u32	rsvd0[4];
+ 	u32	req;		/* Reset request */
+@@ -90,3 +94,33 @@ int ltq_reset_deactivate(enum ltq_reset_modules module)
+ 
+ 	return 0;
+ }
++
++enum ltq_boot_select ltq_boot_select(void)
++{
++	u32 stat;
++	unsigned int bootstrap;
++
++	stat = ltq_readl(&ltq_rcu_regs->stat);
++	bootstrap = (stat & LTQ_RCU_STAT_BOOT_MASK) >> LTQ_RCU_STAT_BOOT_SHIFT;
++
++	switch (bootstrap) {
++	case 0:
++		return BOOT_NOR_NO_BOOTROM;
++	case 1:
++		return BOOT_NOR;
++	case 2:
++		return BOOT_MII0;
++	case 3:
++		return BOOT_PCI;
++	case 4:
++		return BOOT_UART;
++	case 5:
++		return BOOT_SPI;
++	case 6:
++		return BOOT_NAND;
++	case 7:
++		return BOOT_RMII0;
++	default:
++		return BOOT_UNKNOWN;
++	}
++}
+diff --git a/arch/mips/cpu/mips32/lantiq-common/Makefile b/arch/mips/cpu/mips32/lantiq-common/Makefile
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b30aea2714c359dbc3baa866dd39b7c952b2ad6
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/Makefile
+@@ -0,0 +1,36 @@
++#
++# This file is released under the terms of GPL v2 and any later version.
++# See the file COPYING in the root directory of the source tree for details.
++#
++# Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
++# Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++#
++
++include $(TOPDIR)/config.mk
++
++LIB	= $(obj)liblantiq-common.o
++
++START	= start.o
++COBJS-y	= cpu.o pmu.o
++COBJS-$(CONFIG_SPL_BUILD) += spl.o
++SOBJS-y	= lowlevel_init.o
++
++COBJS	:= $(COBJS-y)
++SOBJS	:= $(SOBJS-y)
++SRCS	:= $(START:.o=.S) $(SOBJS:.o=.S) $(COBJS:.o=.c)
++OBJS	:= $(addprefix $(obj),$(SOBJS) $(COBJS))
++START	:= $(addprefix $(obj),$(START))
++
++all:	$(LIB)
++
++$(LIB):	$(obj).depend $(OBJS)
++	$(call cmd_link_o_target, $(OBJS))
++
++#########################################################################
++
++# defines $(obj).depend target
++include $(SRCTREE)/rules.mk
++
++sinclude $(obj).depend
++
++#########################################################################
+diff --git a/arch/mips/cpu/mips32/lantiq-common/cpu.c b/arch/mips/cpu/mips32/lantiq-common/cpu.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..9c427e37cdca35140112e228fd0d1fcca5c4f751
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/cpu.c
+@@ -0,0 +1,60 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#include <common.h>
++#include <asm/lantiq/chipid.h>
++#include <asm/lantiq/clk.h>
++#include <asm/lantiq/reset.h>
++#include <asm/lantiq/cpu.h>
++
++static const char ltq_bootsel_strings[][16] = {
++	"NOR",
++	"NOR w/o BootROM",
++	"UART",
++	"UART w/o EEPROM",
++	"SPI",
++	"NAND",
++	"PCI",
++	"MII0",
++	"RMII0",
++	"RGMII1",
++	"unknown",
++};
++
++const char *ltq_boot_select_str(void)
++{	enum ltq_boot_select bootsel = ltq_boot_select();
++
++	if (bootsel > BOOT_UNKNOWN)
++		bootsel = BOOT_UNKNOWN;
++
++	return ltq_bootsel_strings[bootsel];
++}
++
++void ltq_chip_print_info(void)
++{
++	char buf[32];
++
++	printf("SoC:   Lantiq %s v1.%u\n", ltq_chip_partnum_str(),
++		ltq_chip_version_get());
++	printf("CPU:   %s MHz\n", strmhz(buf, ltq_get_cpu_clock()));
++	printf("IO:    %s MHz\n", strmhz(buf, ltq_get_io_region_clock()));
++	printf("BUS:   %s MHz\n", strmhz(buf, ltq_get_bus_clock()));
++	printf("BOOT:  %s\n", ltq_boot_select_str());
++}
++
++int arch_cpu_init(void)
++{
++	ltq_pmu_init();
++	ltq_ebu_init();
++
++	return 0;
++}
++
++void _machine_restart(void)
++{
++	ltq_reset_activate(LTQ_RESET_CORE);
++}
+diff --git a/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S b/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc352698f7a344f02f748be6c4b13bdabe5b66f5
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/lowlevel_init.S
+@@ -0,0 +1,21 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#include <asm/asm.h>
++#include <asm/regdef.h>
++
++NESTED(lowlevel_init, 0, ra)
++	move	t8, ra
++
++	la	t7, ltq_cgu_init
++	jalr	t7
++
++	la	t7, ltq_mem_init
++	jalr	t7
++
++	jr	t8
++	END(lowlevel_init)
+diff --git a/arch/mips/cpu/mips32/lantiq-common/pmu.c b/arch/mips/cpu/mips32/lantiq-common/pmu.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..19265491308e46bc427f21bdab89ddbf9623410a
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/pmu.c
+@@ -0,0 +1,10 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#include <common.h>
++#include <asm/lantiq/pm.h>
++
+diff --git a/arch/mips/cpu/mips32/lantiq-common/spl.c b/arch/mips/cpu/mips32/lantiq-common/spl.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..e07b524d036cfbc3f3b9c761598cfc9ed1c61581
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/spl.c
+@@ -0,0 +1,385 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#include <common.h>
++#include <image.h>
++#include <version.h>
++#include <spi_flash.h>
++#include <linux/compiler.h>
++#include <lzma/LzmaDec.h>
++#include <linux/lzo.h>
++#include <asm/mipsregs.h>
++
++#if defined(CONFIG_LTQ_SPL_CONSOLE)
++#define spl_has_console		1
++
++#if defined(CONFIG_LTQ_SPL_DEBUG)
++#define spl_has_debug		1
++#else
++#define spl_has_debug		0
++#endif
++
++#else
++#define spl_has_console		0
++#endif
++
++#define spl_debug(fmt, args...)			\
++	do {					\
++		if (spl_has_debug)		\
++			printf(fmt, ##args);	\
++	} while (0)
++
++#define spl_puts(msg)				\
++	do {					\
++		if (spl_has_console)		\
++			puts(msg);		\
++	} while (0)
++
++#if defined(CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH) && defined(CONFIG_SYS_BOOT_SFSPL)
++#define spl_boot_spi_flash	1
++#else
++#define spl_boot_spi_flash	0
++#ifndef CONFIG_SPL_SPI_BUS
++#define CONFIG_SPL_SPI_BUS	0
++#endif
++#ifndef CONFIG_SPL_SPI_CS
++#define CONFIG_SPL_SPI_CS	0
++#endif
++#ifndef CONFIG_SPL_SPI_MAX_HZ
++#define CONFIG_SPL_SPI_MAX_HZ	0
++#endif
++#ifndef CONFIG_SPL_SPI_MODE
++#define CONFIG_SPL_SPI_MODE	0
++#endif
++#endif
++
++#if defined(CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH) && defined(CONFIG_SYS_BOOT_NORSPL)
++#define spl_boot_nor_flash	1
++#else
++#define spl_boot_nor_flash	0
++#endif
++
++#define spl_sync()	__asm__ __volatile__("sync");
++
++struct spl_image {
++	ulong data_addr;
++	ulong entry_addr;
++	size_t data_size;
++	size_t entry_size;
++	u8 comp;
++};
++
++extern ulong __image_copy_end;
++
++DECLARE_GLOBAL_DATA_PTR;
++
++/* Emulated malloc area needed for LZMA allocator in BSS */
++static u8 *spl_mem_ptr __maybe_unused;
++static size_t spl_mem_size __maybe_unused;
++
++static int spl_is_comp_lzma(const struct spl_image *spl)
++{
++#if defined(CONFIG_LTQ_SPL_COMP_LZMA)
++	return spl->comp == IH_COMP_LZMA;
++#else
++	return 0;
++#endif
++}
++
++static int spl_is_comp_lzo(const struct spl_image *spl)
++{
++#if defined(CONFIG_LTQ_SPL_COMP_LZO)
++	return spl->comp == IH_COMP_LZO;
++#else
++	return 0;
++#endif
++}
++
++static int spl_is_compressed(const struct spl_image *spl)
++{
++	if (spl_is_comp_lzma(spl))
++		return 1;
++
++	if (spl_is_comp_lzo(spl))
++		return 1;
++
++	return 0;
++}
++
++static void spl_console_init(void)
++{
++	if (!spl_has_console)
++		return;
++
++	gd->flags |= GD_FLG_RELOC;
++	gd->baudrate = CONFIG_BAUDRATE;
++
++	serial_init();
++
++	gd->have_console = 1;
++
++	spl_puts("\nU-Boot SPL " PLAIN_VERSION " (" U_BOOT_DATE " - " \
++		U_BOOT_TIME ")\n");
++}
++
++static int spl_parse_image(const image_header_t *hdr, struct spl_image *spl)
++{
++	u32 magic;
++
++	spl_puts("SPL: checking U-Boot image\n");
++
++	magic = image_get_magic(hdr);
++	if (magic != IH_MAGIC)
++		return -1;
++
++	spl->data_addr += image_get_header_size();
++	spl->entry_addr = image_get_load(hdr);
++	spl->data_size = image_get_data_size(hdr);
++	spl->comp = image_get_comp(hdr);
++
++	spl_debug("SPL: data %08lx, size %zu, entry %08lx, comp %u\n",
++		spl->data_addr, spl->data_size, spl->entry_addr, spl->comp);
++
++	return 0;
++}
++
++static void *spl_lzma_alloc(void *p, size_t size)
++{
++	u8 *ret;
++
++	if (size > spl_mem_size)
++		return NULL;
++
++	ret = spl_mem_ptr;
++	spl_mem_ptr += size;
++	spl_mem_size -= size;
++
++	return ret;
++}
++
++static void spl_lzma_free(void *p, void *addr)
++{
++}
++
++static int spl_copy_image(struct spl_image *spl)
++{
++	spl_puts("SPL: copying U-Boot to RAM\n");
++
++	memcpy((void *) spl->entry_addr, (const void *) spl->data_addr,
++		spl->data_size);
++
++	spl->entry_size = spl->data_size;
++
++	return 0;
++}
++
++static int spl_uncompress_lzma(struct spl_image *spl, unsigned long loadaddr)
++{
++	SRes res;
++	const Byte *prop = (const Byte *) loadaddr;
++	const Byte *src = (const Byte *) loadaddr + LZMA_PROPS_SIZE +
++							sizeof(uint64_t);
++	Byte *dest = (Byte *) spl->entry_addr;
++	SizeT dest_len = 0xFFFFFFFF;
++	SizeT src_len = spl->data_size - LZMA_PROPS_SIZE;
++	ELzmaStatus status = 0;
++	ISzAlloc alloc;
++
++	spl_puts("SPL: decompressing U-Boot with LZMA\n");
++
++	alloc.Alloc = spl_lzma_alloc;
++	alloc.Free = spl_lzma_free;
++	spl_mem_ptr = (u8 *) CONFIG_SPL_MALLOC_BASE;
++	spl_mem_size = CONFIG_SPL_MALLOC_MAX_SIZE;
++
++	res = LzmaDecode(dest, &dest_len, src, &src_len, prop, LZMA_PROPS_SIZE,
++		LZMA_FINISH_ANY, &status, &alloc);
++	if (res != SZ_OK)
++		return 1;
++
++	spl->entry_size = dest_len;
++
++	return 0;
++}
++
++static int spl_uncompress_lzo(struct spl_image *spl, unsigned long loadaddr)
++{
++	size_t len;
++	int ret;
++
++	spl_puts("SPL: decompressing U-Boot with LZO\n");
++
++	ret = lzop_decompress(
++		(const unsigned char*) loadaddr, spl->data_size,
++		(unsigned char *) spl->entry_addr, &len);
++
++	spl->entry_size = len;
++
++	return ret;
++}
++
++static int spl_uncompress(struct spl_image *spl, unsigned long loadaddr)
++{
++	int ret;
++
++	if (spl_is_comp_lzma(spl))
++		ret = spl_uncompress_lzma(spl, loadaddr);
++	else if (spl_is_comp_lzo(spl))
++		ret = spl_uncompress_lzo(spl, loadaddr);
++	else
++		ret = 1;
++
++	return ret;
++}
++
++static int spl_load_spi_flash(struct spl_image *spl)
++{
++	struct spi_flash sf;
++	image_header_t hdr;
++	int ret;
++	unsigned long loadaddr;
++
++	/*
++	 * Image format:
++	 *
++	 * - 12 byte non-volatile bootstrap header
++	 * - SPL binary
++	 * - 12 byte non-volatile bootstrap header
++	 * - 64 byte U-Boot mkimage header
++	 * - U-Boot binary
++	 */
++	spl->data_addr = (ulong) &__image_copy_end - CONFIG_SPL_TEXT_BASE + 24;
++
++	spl_puts("SPL: probing SPI flash\n");
++
++	spi_init();
++	ret = spi_flash_probe_spl(&sf, CONFIG_SPL_SPI_BUS, CONFIG_SPL_SPI_CS,
++				CONFIG_SPL_SPI_MAX_HZ, CONFIG_SPL_SPI_MODE);
++	if (ret)
++		return ret;
++
++	spl_debug("SPL: reading image header at offset %lx\n", spl->data_addr);
++
++	ret = spi_flash_read(&sf, spl->data_addr, sizeof(hdr), &hdr);
++	if (ret)
++		return ret;
++
++	spl_debug("SPL: checking image header at offset %lx\n", spl->data_addr);
++
++	ret = spl_parse_image(&hdr, spl);
++	if (ret)
++		return ret;
++
++	if (spl_is_compressed(spl))
++		loadaddr = CONFIG_LOADADDR;
++	else
++		loadaddr = spl->entry_addr;
++
++	spl_puts("SPL: loading U-Boot to RAM\n");
++
++	ret = spi_flash_read(&sf, spl->data_addr, spl->data_size,
++				(void *) loadaddr);
++
++	if (spl_is_compressed(spl))
++		ret = spl_uncompress(spl, loadaddr);
++
++	return ret;
++}
++
++static int spl_load_nor_flash(struct spl_image *spl)
++{
++	const image_header_t *hdr;
++	int ret;
++
++	/*
++	 * Image format:
++	 *
++	 * - SPL binary
++	 * - 64 byte U-Boot mkimage header
++	 * - U-Boot binary
++	 */
++	spl->data_addr = (ulong) &__image_copy_end;
++	hdr = (const image_header_t *) &__image_copy_end;
++
++	spl_debug("SPL: checking image header at address %p\n", hdr);
++
++	ret = spl_parse_image(hdr, spl);
++	if (ret)
++		return ret;
++
++	if (spl_is_compressed(spl))
++		ret = spl_uncompress(spl, spl->data_addr);
++	else
++		ret = spl_copy_image(spl);
++
++	return ret;
++}
++
++static int spl_load(struct spl_image *spl)
++{
++	int ret;
++
++	if (spl_boot_spi_flash)
++		ret = spl_load_spi_flash(spl);
++	else if (spl_boot_nor_flash)
++		ret = spl_load_nor_flash(spl);
++	else
++		ret = 1;
++
++	return ret;
++}
++
++void __noreturn spl_lantiq_init(void)
++{
++	void (*uboot)(void) __noreturn;
++	struct spl_image spl;
++	gd_t gd_data;
++	int ret;
++
++	gd = &gd_data;
++	barrier();
++	memset((void *)gd, 0, sizeof(gd_t));
++
++	spl_console_init();
++
++	spl_debug("SPL: initializing\n");
++
++#if 0
++	spl_debug("CP0_CONFIG:   %08x\n", read_c0_config());
++	spl_debug("CP0_CONFIG1:  %08x\n", read_c0_config1());
++	spl_debug("CP0_CONFIG2:  %08x\n", read_c0_config2());
++	spl_debug("CP0_CONFIG3:  %08x\n", read_c0_config3());
++	spl_debug("CP0_CONFIG6:  %08x\n", read_c0_config6());
++	spl_debug("CP0_CONFIG7:  %08x\n", read_c0_config7());
++	spl_debug("CP0_STATUS:   %08x\n", read_c0_status());
++	spl_debug("CP0_PRID:     %08x\n", read_c0_prid());
++#endif
++
++	board_early_init_f();
++	timer_init();
++
++	memset(&spl, 0, sizeof(spl));
++
++	ret = spl_load(&spl);
++	if (ret)
++		goto hang;
++
++	spl_debug("SPL: U-Boot entry %08lx\n", spl.entry_addr);
++	spl_puts("SPL: jumping to U-Boot\n");
++
++	flush_cache(spl.entry_addr, spl.entry_size);
++	spl_sync();
++
++	uboot = (void *) spl.entry_addr;
++	uboot();
++
++hang:
++	spl_puts("SPL: cannot start U-Boot\n");
++
++	for (;;)
++		;
++}
+diff --git a/arch/mips/cpu/mips32/lantiq-common/start.S b/arch/mips/cpu/mips32/lantiq-common/start.S
+new file mode 100644
+index 0000000000000000000000000000000000000000..103655c64f9842eb1b25cd40b73eeb7f2f5ee569
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/start.S
+@@ -0,0 +1,144 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2003 Wolfgang Denk, wd@denx.de
++ * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#include <config.h>
++#include <asm/regdef.h>
++#include <asm/mipsregs.h>
++
++#define S_PRIdCoID	16		/* Company ID (R) */
++#define M_PRIdCoID	(0xff << S_PRIdCoID)
++#define S_PRIdImp	8		/* Implementation ID (R) */
++#define M_PRIdImp	(0xff << S_PRIdImp)
++
++#define K_CacheAttrCWTnWA	0	/* Cacheable, write-thru, no write allocate */
++#define K_CacheAttrCWTWA	1	/* Cacheable, write-thru, write allocate */
++#define K_CacheAttrU		2	/* Uncached */
++#define K_CacheAttrC		3	/* Cacheable */
++#define K_CacheAttrCN		3	/* Cacheable, non-coherent */
++#define K_CacheAttrCCE		4	/* Cacheable, coherent, exclusive */
++#define K_CacheAttrCCS		5	/* Cacheable, coherent, shared */
++#define K_CacheAttrCCU		6	/* Cacheable, coherent, update */
++#define K_CacheAttrUA		7	/* Uncached accelerated */
++
++#define S_ConfigK23		28	/* Kseg2/3 coherency algorithm (FM MMU only) (R/W) */
++#define M_ConfigK23		(0x7 << S_ConfigK23)
++#define W_ConfigK23		3
++#define S_ConfigKU		25	/* Kuseg coherency algorithm (FM MMU only) (R/W) */
++#define M_ConfigKU		(0x7 << S_ConfigKU)
++#define W_ConfigKU		3
++
++#define S_ConfigMM		18	/* Merge mode (implementation specific) */
++#define M_ConfigMM		(0x1 << S_ConfigMM)
++
++#define S_StatusBEV		22	/* Enable Boot Exception Vectors (R/W) */
++#define M_StatusBEV		(0x1 << S_StatusBEV)
++
++#define S_StatusFR		26	/* Enable 64-bit FPRs (R/W) */
++#define M_StatusFR		(0x1 << S_StatusFR)
++
++#define S_ConfigK0		0	/* Kseg0 coherency algorithm (R/W) */
++#define M_ConfigK0		(0x7 << S_ConfigK0)
++
++#define CONFIG0_MIPS32_64_MSK	0x8000ffff
++#define STATUS_MIPS32_64_MSK	0xfffcffff
++
++#define STATUS_MIPS24K		0
++#define CONFIG0_MIPS24K		((K_CacheAttrCN << S_ConfigK23) |\
++				(K_CacheAttrCN << S_ConfigKU)  |\
++				(M_ConfigMM))
++
++#define STATUS_MIPS34K		0
++#define CONFIG0_MIPS34K		((K_CacheAttrCN << S_ConfigK23) |\
++				(K_CacheAttrCN << S_ConfigKU) |\
++				(M_ConfigMM))
++
++#define STATUS_MIPS32_64	(M_StatusBEV | M_StatusFR)
++#define CONFIG0_MIPS32_64	(K_CacheAttrCN << S_ConfigK0)
++
++#ifdef CONFIG_SOC_XWAY_DANUBE
++#define CONFIG0_LANTIQ		(CONFIG0_MIPS24K | CONFIG0_MIPS32_64)
++#define STATUS_LANTIQ		(STATUS_MIPS24K | STATUS_MIPS32_64)
++#endif
++
++#ifdef CONFIG_SOC_XWAY_VRX200
++#define CONFIG0_LANTIQ		(CONFIG0_MIPS34K | CONFIG0_MIPS32_64)
++#define STATUS_LANTIQ		(STATUS_MIPS34K | STATUS_MIPS32_64)
++#endif
++
++
++	.set noreorder
++
++	.globl _start
++	.text
++_start:
++	/* Entry point */
++	b	main
++	 nop
++
++	/* Lantiq SoC Boot config word */
++	.org	0x10
++#ifdef CONFIG_SYS_XWAY_EBU_BOOTCFG
++	.word	CONFIG_SYS_XWAY_EBU_BOOTCFG
++#else
++	.word	0
++#endif
++	.word	0
++
++	.align	4
++main:
++
++	/* Init Timer */
++	mtc0	zero, CP0_COUNT
++	mtc0	zero, CP0_COMPARE
++
++	/* Setup MIPS24K/MIPS34K specifics (implementation dependent fields) */
++	mfc0	t0, CP0_CONFIG
++	li	t1, CONFIG0_MIPS32_64_MSK
++	and	t0, t1
++	li	t1, CONFIG0_LANTIQ
++	or	t0, t1
++	mtc0	t0, CP0_CONFIG
++
++	mfc0	t0, CP0_STATUS
++	li	t1, STATUS_MIPS32_64_MSK
++	and	t0, t1
++	li	t1, STATUS_LANTIQ
++	or	t0, t1
++	mtc0	t0, CP0_STATUS
++
++	/* Initialize CGU */
++	la	t9, ltq_cgu_init
++	jalr	t9
++	 nop
++
++	/* Initialize memory controller */
++	la	t9, ltq_mem_init
++	jalr	t9
++	 nop
++
++	/* Initialize caches... */
++	la	t9, mips_cache_reset
++	jalr	t9
++	 nop
++
++	/* Clear BSS */
++	la	t1, __bss_start
++	la	t2, __bss_end
++	sub	t1, 4
++1:
++	addi	t1, 4
++	bltl	t1, t2, 1b
++	 sw	zero, 0(t1)
++
++	/* Setup stack pointer and force alignment on a 16 byte boundary */
++	li	t0, (CONFIG_SPL_STACK_BASE & ~0xF)
++	la	sp, 0(t0)
++
++	la	t9, spl_lantiq_init
++	jr	t9
++	 nop
+diff --git a/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds b/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
+new file mode 100644
+index 0000000000000000000000000000000000000000..14741d27413822660f8306816f241352d1e155ef
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
+@@ -0,0 +1,49 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++MEMORY { .spl_mem : ORIGIN = CONFIG_SPL_TEXT_BASE, \
++		LENGTH = CONFIG_SPL_MAX_SIZE }
++MEMORY { .bss_mem : ORIGIN = CONFIG_SPL_BSS_BASE, \
++		LENGTH = CONFIG_SPL_BSS_MAX_SIZE }
++
++OUTPUT_FORMAT("elf32-tradbigmips", "elf32-tradbigmips", "elf32-tradlittlemips")
++OUTPUT_ARCH(mips)
++ENTRY(_start)
++SECTIONS
++{
++	. = ALIGN(4);
++	.text : {
++		*(.text*)
++	} > .spl_mem
++
++	. = ALIGN(4);
++	.rodata : {
++		*(SORT_BY_ALIGNMENT(SORT_BY_NAME(.rodata*)))
++	} > .spl_mem
++
++	. = ALIGN(4);
++	.data : {
++		*(SORT_BY_ALIGNMENT(.data*))
++		*(SORT_BY_ALIGNMENT(.sdata*))
++	} > .spl_mem
++
++	. = ALIGN(4);
++	__image_copy_end = .;
++	uboot_end_data = .;
++
++	.bss : {
++		__bss_start = .;
++		*(.bss*)
++		*(.sbss*)
++		. = ALIGN(4);
++		__bss_end = .;
++	} > .bss_mem
++
++	. = ALIGN(4);
++	__end = .;
++	uboot_end = .;
++}
+diff --git a/arch/mips/cpu/mips32/time.c b/arch/mips/cpu/mips32/time.c
+index 350896a2a5657e4cd08b2ab428fd6b1ce1e1ef1e..09fc842b502cd6dc18647ffb646aafbcd5874a95 100644
+--- a/arch/mips/cpu/mips32/time.c
++++ b/arch/mips/cpu/mips32/time.c
+@@ -36,7 +36,6 @@ static unsigned long timestamp;
+ int timer_init(void)
+ {
+ 	/* Set up the timer for the first expiration. */
+-	timestamp = 0;
+ 	write_c0_compare(read_c0_count() + CYCLES_PER_JIFFY);
+ 
+ 	return 0;
+diff --git a/arch/mips/cpu/mips32/vrx200/Makefile b/arch/mips/cpu/mips32/vrx200/Makefile
+index 8cb2187300d5dfb9305f3646f57adf94ea77294a..d9a8a69b20b8e7d489052ede26c26b83a01f3ef4 100644
+--- a/arch/mips/cpu/mips32/vrx200/Makefile
++++ b/arch/mips/cpu/mips32/vrx200/Makefile
+@@ -10,8 +10,8 @@ include $(TOPDIR)/config.mk
+ 
+ LIB	= $(obj)lib$(SOC).o
+ 
+-COBJS-y	+= cgu.o chipid.o cpu.o dcdc.o ebu.o gphy.o mem.o pmu.o rcu.o
+-SOBJS-y	+= cgu_init.o mem_init.o lowlevel_init.o
++COBJS-y	+= cgu.o chipid.o dcdc.o ebu.o gphy.o mem.o pmu.o rcu.o
++SOBJS-y	+= cgu_init.o mem_init.o
+ SOBJS-y	+= gphy_fw.o
+ 
+ COBJS	:= $(COBJS-y)
+diff --git a/arch/mips/cpu/mips32/vrx200/config.mk b/arch/mips/cpu/mips32/vrx200/config.mk
+index 13d3d4c6566ceb243e4c026397d08f17d8df8c20..5234e09825676a33d5f8fe89b6969d470966e9b6 100644
+--- a/arch/mips/cpu/mips32/vrx200/config.mk
++++ b/arch/mips/cpu/mips32/vrx200/config.mk
+@@ -8,15 +8,25 @@
+ PF_CPPFLAGS_XRX := $(call cc-option,-mtune=34kc,)
+ PLATFORM_CPPFLAGS += $(PF_CPPFLAGS_XRX)
+ 
+-ifndef CONFIG_SPL_BUILD
+-ifdef CONFIG_SYS_BOOT_EVA
+-ALL-y += $(obj)u-boot.bin.lzma
++ifdef CONFIG_SPL_BUILD
++PF_ABICALLS		:= -mno-abicalls
++PF_PIC			:= -fno-pic
++USE_PRIVATE_LIBGCC	:= yes
+ endif
++
++LIBS-y += $(CPUDIR)/lantiq-common/liblantiq-common.o
++
++ifndef CONFIG_SPL_BUILD
+ ifdef CONFIG_SYS_BOOT_SFSPL
+ ALL-y += $(obj)u-boot.ltq.sfspl
+ ALL-$(CONFIG_SPL_LZO_SUPPORT) += $(obj)u-boot.ltq.lzo.sfspl
+ ALL-$(CONFIG_SPL_LZMA_SUPPORT) += $(obj)u-boot.ltq.lzma.sfspl
+ endif
++ifdef CONFIG_SYS_BOOT_NORSPL
++ALL-y += $(obj)u-boot.ltq.norspl
++ALL-$(CONFIG_SPL_LZO_SUPPORT) += $(obj)u-boot.ltq.lzo.norspl
++ALL-$(CONFIG_SPL_LZMA_SUPPORT) += $(obj)u-boot.ltq.lzma.norspl
++endif
+ endif
+ 
+ LDSCRIPT := $(TOPDIR)/$(CPUDIR)/$(SOC)/u-boot.lds
+diff --git a/arch/mips/cpu/mips32/vrx200/cpu.c b/arch/mips/cpu/mips32/vrx200/cpu.c
+deleted file mode 100644
+index 92d8660c73eb4658ecd144dca39617444fb11396..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/vrx200/cpu.c
++++ /dev/null
+@@ -1,76 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <common.h>
+-#include <asm/lantiq/clk.h>
+-#include <asm/lantiq/chipid.h>
+-#include <asm/lantiq/reset.h>
+-#include <asm/arch/cpu.h>
+-
+-#include <asm/mipsregs.h>
+-
+-int arch_cpu_init(void)
+-{
+-	ltq_pmu_init();
+-	ltq_ebu_init();
+-
+-	return 0;
+-}
+-
+-void ltq_chip_print_info(void)
+-{
+-	char buf[32];
+-
+-	printf("SoC:   Lantiq %s v1.%u\n", ltq_chip_partnum_str(),
+-		ltq_chip_version_get());
+-	printf("CPU:   %s MHz\n", strmhz(buf, ltq_get_cpu_clock()));
+-	printf("IO:    %s MHz\n", strmhz(buf, ltq_get_io_region_clock()));
+-	printf("BUS:   %s MHz\n", strmhz(buf, ltq_get_bus_clock()));
+-	printf("BOOT:  %s\n", ltq_boot_select_str());
+-#if 0
+-	printf("CP0_CONFIG:   %08x\n", read_c0_config());
+-	printf("CP0_CONFIG1:  %08x\n", read_c0_config1());
+-	printf("CP0_CONFIG2:  %08x\n", read_c0_config2());
+-	printf("CP0_CONFIG3:  %08x\n", read_c0_config3());
+-	printf("CP0_CONFIG6:  %08x\n", read_c0_config6());
+-	printf("CP0_CONFIG7:  %08x\n", read_c0_config7());
+-	printf("CP0_STATUS:   %08x\n", read_c0_status());
+-	printf("CP0_PRID:     %08x\n", read_c0_prid());
+-#endif
+-}
+-
+-void _machine_restart(void)
+-{
+-	ltq_reset_activate(LTQ_RESET_CORE);
+-}
+-
+-const char *ltq_boot_select_str(void)
+-{
+-	enum ltq_boot_select boot = ltq_boot_select();
+-
+-	switch (boot) {
+-	case LTQ_BOOT_NOR_NO_BOOTROM:
+-		return "NOR (no BootROM)";
+-	case LTQ_BOOT_RGMII1:
+-		return "RGMII1";
+-	case LTQ_BOOT_NOR:
+-		return "NOR";
+-	case LTQ_BOOT_UART_NO_EEPROM:
+-		return "UART (no EEPROM)";
+-	case LTQ_BOOT_PCI:
+-		return "PCI";
+-	case LTQ_BOOT_UART:
+-		return "UART";
+-	case LTQ_BOOT_SPI:
+-		return "SPI";
+-	case LTQ_BOOT_NAND:
+-		return "NAND";
+-	default:
+-		printf("Unknown boot select: %d\n", boot);
+-		return "";
+-	}
+-}
+diff --git a/arch/mips/cpu/mips32/vrx200/ebu.c b/arch/mips/cpu/mips32/vrx200/ebu.c
+index ffd10148ee44ed8a7a5ac8839a457b0890f0c7b7..d4047e7c51eb3b67fb1a1fee5829ce29dfd04209 100644
+--- a/arch/mips/cpu/mips32/vrx200/ebu.c
++++ b/arch/mips/cpu/mips32/vrx200/ebu.c
+@@ -9,34 +9,31 @@
+ #include <asm/arch/soc.h>
+ #include <asm/lantiq/io.h>
+ 
+-#define EBU_CON_0_RST_VAL		0x8001D7FF
+-#define EBU_CON_1_RST_VAL		0x40F295
+-
+ #define EBU_ADDRSEL_MASK(mask)		((mask & 0xf) << 4)
+ #define EBU_ADDRSEL_REGEN		(1 << 0)
+ 
+ #define EBU_CON_WRDIS			(1 << 31)
+-#define EBU_CON_AGEN_DEMUX		(0x00 << 24)
+-#define EBU_CON_AGEN_MUX		(0x10 << 24)
++#define EBU_CON_AGEN_DEMUX		(0x0 << 24)
++#define EBU_CON_AGEN_MUX		(0x2 << 24)
+ #define EBU_CON_SETUP			(1 << 22)
+-#define EBU_CON_WAIT_DIS		(0x00 << 20)
+-#define EBU_CON_WAIT_ASYNC		(0x01 << 20)
+-#define EBU_CON_WAIT_SYNC		(0x10 << 20)
++#define EBU_CON_WAIT_DIS		(0x0 << 20)
++#define EBU_CON_WAIT_ASYNC		(0x1 << 20)
++#define EBU_CON_WAIT_SYNC		(0x2 << 20)
+ #define EBU_CON_WINV			(1 << 19)
+-#define EBU_CON_PW_8BIT			(0x00 << 16)
+-#define EBU_CON_PW_16BIT		(0x01 << 16)
++#define EBU_CON_PW_8BIT			(0x0 << 16)
++#define EBU_CON_PW_16BIT		(0x1 << 16)
+ #define EBU_CON_ALEC(cycles)		((cycles & 0x3) << 14)
+-#define EBU_CON_BCGEN_CS		(0x00 << 12)
+-#define EBU_CON_BCGEN_INTEL		(0x01 << 12)
+-#define EBU_CON_BCGEN_MOTOROLA		(0x10 << 12)
++#define EBU_CON_BCGEN_CS		(0x0 << 12)
++#define EBU_CON_BCGEN_INTEL		(0x1 << 12)
++#define EBU_CON_BCGEN_MOTOROLA		(0x2 << 12)
+ #define EBU_CON_WAITWRC(cycles)		((cycles & 0x7) << 8)
+ #define EBU_CON_WAITRDC(cycles)		((cycles & 0x3) << 6)
+ #define EBU_CON_HOLDC(cycles)		((cycles & 0x3) << 4)
+ #define EBU_CON_RECOVC(cycles)		((cycles & 0x3) << 2)
+-#define EBU_CON_CMULT_1			0x00
+-#define EBU_CON_CMULT_4			0x01
+-#define EBU_CON_CMULT_8			0x10
+-#define EBU_CON_CMULT_16		0x11
++#define EBU_CON_CMULT_1			0x0
++#define EBU_CON_CMULT_4			0x1
++#define EBU_CON_CMULT_8			0x2
++#define EBU_CON_CMULT_16		0x3
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_NOR_FLASH)
+ #define ebu_region0_enable		1
+diff --git a/arch/mips/cpu/mips32/vrx200/lowlevel_init.S b/arch/mips/cpu/mips32/vrx200/lowlevel_init.S
+deleted file mode 100644
+index cc352698f7a344f02f748be6c4b13bdabe5b66f5..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/vrx200/lowlevel_init.S
++++ /dev/null
+@@ -1,21 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <asm/asm.h>
+-#include <asm/regdef.h>
+-
+-NESTED(lowlevel_init, 0, ra)
+-	move	t8, ra
+-
+-	la	t7, ltq_cgu_init
+-	jalr	t7
+-
+-	la	t7, ltq_mem_init
+-	jalr	t7
+-
+-	jr	t8
+-	END(lowlevel_init)
+diff --git a/arch/mips/cpu/mips32/vrx200/rcu.c b/arch/mips/cpu/mips32/vrx200/rcu.c
+index b56d490b82b32695da67636011f7bfa0d8e9e678..6e240c09e1df9aa7eb4a173b7206de8cbe8f8034 100644
+--- a/arch/mips/cpu/mips32/vrx200/rcu.c
++++ b/arch/mips/cpu/mips32/vrx200/rcu.c
+@@ -8,8 +8,8 @@
+ #include <common.h>
+ #include <asm/lantiq/io.h>
+ #include <asm/lantiq/reset.h>
++#include <asm/lantiq/cpu.h>
+ #include <asm/arch/soc.h>
+-#include <asm/arch/cpu.h>
+ 
+ #define LTQ_RCU_RD_GPHY0	(1 << 31)	/* GPHY0 */
+ #define LTQ_RCU_RD_SRST		(1 << 30)	/* Global SW Reset */
+@@ -134,17 +134,36 @@ int ltq_reset_deactivate(enum ltq_reset_modules module)
+ enum ltq_boot_select ltq_boot_select(void)
+ {
+ 	u32 stat;
+-	unsigned ret;
++	unsigned int bootstrap;
+ 
+ 	/*
+ 	 * Boot select value is built from bits 20-17 and bit 12.
+ 	 * The bit sequence is read as 4-2-1-0-3.
+ 	 */
+ 	stat = ltq_readl(&ltq_rcu_regs->stat);
+-	ret = ((stat & LTQ_RCU_STAT_BOOT_H) << 4) |
++	bootstrap = ((stat & LTQ_RCU_STAT_BOOT_H) << 4) |
+ 		((stat & LTQ_RCU_STAT_BOOT_MASK) >> LTQ_RCU_STAT_BOOT_SHIFT);
+ 
+-	return ret;
++	switch (bootstrap) {
++	case 0:
++		return BOOT_NOR_NO_BOOTROM;
++	case 1:
++		return BOOT_RGMII1;
++	case 2:
++		return BOOT_NOR;
++	case 4:
++		return BOOT_UART_NO_EEPROM;
++	case 6:
++		return BOOT_PCI;
++	case 8:
++		return BOOT_UART;
++	case 10:
++		return BOOT_SPI;
++	case 12:
++		return BOOT_NAND;
++	default:
++		return BOOT_UNKNOWN;
++	}
+ }
+ 
+ void ltq_rcu_gphy_boot(unsigned int id, ulong addr)
+diff --git a/arch/mips/cpu/mips32/vrx200/spl_sram/Makefile b/arch/mips/cpu/mips32/vrx200/spl_sram/Makefile
+deleted file mode 100644
+index 1b728752221a16ea2e61dd9c74a6f6128c4142a4..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/vrx200/spl_sram/Makefile
++++ /dev/null
+@@ -1,22 +0,0 @@
+-#
+-# This file is released under the terms of GPL v2 and any later version.
+-# See the file COPYING in the root directory of the source tree for details.
+-#
+-# Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+-#
+-
+-include $(TOPDIR)/config.mk
+-
+-SOBJS	:= start.o
+-SRCS	:= $(SOBJS:.o=.S)
+-OBJS	:= $(addprefix $(obj),$(SOBJS))
+-
+-#########################################################################
+-
+-# defines $(obj).depend target
+-include $(SRCTREE)/rules.mk
+-
+-sinclude $(obj).depend
+-
+-#########################################################################
+diff --git a/arch/mips/cpu/mips32/vrx200/spl_sram/start.S b/arch/mips/cpu/mips32/vrx200/spl_sram/start.S
+deleted file mode 100644
+index b9bfc8bf697a4ee1a1c8281c5a2d8fda8564bac4..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/vrx200/spl_sram/start.S
++++ /dev/null
+@@ -1,133 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2003 Wolfgang Denk, wd@denx.de
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <config.h>
+-#include <asm/regdef.h>
+-#include <asm/mipsregs.h>
+-
+-#define S_PRIdCoID	16		/* Company ID (R) */
+-#define M_PRIdCoID	(0xff << S_PRIdCoID)
+-#define S_PRIdImp	8		/* Implementation ID (R) */
+-#define M_PRIdImp	(0xff << S_PRIdImp)
+-
+-#define K_CacheAttrCWTnWA	0	/* Cacheable, write-thru, no write allocate */
+-#define K_CacheAttrCWTWA	1	/* Cacheable, write-thru, write allocate */
+-#define K_CacheAttrU		2	/* Uncached */
+-#define K_CacheAttrC		3	/* Cacheable */
+-#define K_CacheAttrCN		3	/* Cacheable, non-coherent */
+-#define K_CacheAttrCCE		4	/* Cacheable, coherent, exclusive */
+-#define K_CacheAttrCCS		5	/* Cacheable, coherent, shared */
+-#define K_CacheAttrCCU		6	/* Cacheable, coherent, update */
+-#define K_CacheAttrUA		7	/* Uncached accelerated */
+-
+-#define S_ConfigK23		28	/* Kseg2/3 coherency algorithm (FM MMU only) (R/W) */
+-#define M_ConfigK23		(0x7 << S_ConfigK23)
+-#define W_ConfigK23		3
+-#define S_ConfigKU		25	/* Kuseg coherency algorithm (FM MMU only) (R/W) */
+-#define M_ConfigKU		(0x7 << S_ConfigKU)
+-#define W_ConfigKU		3
+-
+-#define S_ConfigMM		18	/* Merge mode (implementation specific) */
+-#define M_ConfigMM		(0x1 << S_ConfigMM)
+-
+-#define S_StatusBEV		22	/* Enable Boot Exception Vectors (R/W) */
+-#define M_StatusBEV		(0x1 << S_StatusBEV)
+-
+-#define S_StatusFR		26	/* Enable 64-bit FPRs (R/W) */
+-#define M_StatusFR		(0x1 << S_StatusFR)
+-
+-#define S_ConfigK0		0	/* Kseg0 coherency algorithm (R/W) */
+-#define M_ConfigK0		(0x7 << S_ConfigK0)
+-
+-#define CONFIG0_MIPS32_64_MSK	0x8000ffff
+-#define STATUS_MIPS32_64_MSK	0xfffcffff
+-
+-#define STATUS_MIPS34K		0
+-#define CONFIG0_MIPS34K		((K_CacheAttrCN << S_ConfigK23) |\
+-				(K_CacheAttrCN << S_ConfigKU) |\
+-				(M_ConfigMM))
+-
+-#define STATUS_MIPS32_64	(M_StatusBEV | M_StatusFR)
+-#define CONFIG0_MIPS32_64	(K_CacheAttrCN << S_ConfigK0)
+-
+-	.set noreorder
+-
+-	.globl _start
+-	.text
+-_start:
+-	/* Init Timer */
+-	mtc0	zero, CP0_COUNT
+-	mtc0	zero, CP0_COMPARE
+-
+-#if 1
+-	/* Setup MIPS34K specifics (implementation dependent fields) */
+-	mfc0	t0, CP0_CONFIG
+-	li	t1, CONFIG0_MIPS32_64_MSK
+-	and	t0, t1
+-	li	t1, CONFIG0_MIPS34K | CONFIG0_MIPS32_64
+-	or	t0, t1
+-	mtc0	t0, CP0_CONFIG
+-
+-	mfc0	t0, CP0_STATUS
+-	li	t1, STATUS_MIPS32_64_MSK
+-	and	t0, t1
+-	li	t1, STATUS_MIPS34K | STATUS_MIPS32_64
+-	or	t0, t1
+-	mtc0	t0, CP0_STATUS
+-#endif
+-
+-#if 0
+-	/* Disable caches */
+-	li	t0, CONF_CM_UNCACHED
+-	mtc0	t0, CP0_CONFIG
+-#endif
+-
+-	/* Initialize $gp */
+-	bal	1f
+-	 nop
+-	.word	_gp
+-1:
+-	lw	gp, 0(ra)
+-
+-	/* Initialize any external memory */
+-	la	t9, lowlevel_init
+-	jalr	t9
+-	 nop
+-
+-	/* Initialize caches... */
+-#if 1
+-	la	t9, mips_cache_reset
+-	jalr	t9
+-	 nop
+-#endif
+-
+-#if 0
+-	/* ... and enable them */
+-	li	t0, CONFIG_SYS_MIPS_CACHE_MODE
+-	mtc0	t0, CP0_CONFIG
+-#endif
+-
+-	/* Clear BSS */
+-	la	t1, __bss_start
+-	la	t2, __bss_end
+-	sub	t1, 4
+-1:
+-	addi	t1, 4
+-	bltl	t1, t2, 1b
+-	 sw	zero, 0(t1)
+-
+-	/*
+-	 * Setup stack pointer at end of SRAM space,
+-	 * force alignment on 16 byte boundary
+-	 */
+-	li	t0, ((CONFIG_SYS_SRAM_BASE + CONFIG_SYS_SRAM_SIZE - 1) & ~0xF)
+-	la	sp, 0(t0)
+-
+-	la	t9, spl_lantiq_init
+-	jr	t9
+-	 nop
+diff --git a/arch/mips/include/asm/arch-danube/config.h b/arch/mips/include/asm/arch-danube/config.h
+index 90f27f441e10ccd76c77f0d57c8fdfb8d6cd4553..2e37947912e4189451f121483350444925972a49 100644
+--- a/arch/mips/include/asm/arch-danube/config.h
++++ b/arch/mips/include/asm/arch-danube/config.h
+@@ -59,6 +59,10 @@
+ #define CONFIG_SYS_LOAD_ADDR		0x81000000
+ #define CONFIG_SYS_INIT_SP_OFFSET	0x4000
+ 
++/* SRAM */
++#define CONFIG_SYS_SRAM_BASE		0xBE180000
++#define CONFIG_SYS_SRAM_SIZE		0x10000
++
+ /* ASC/UART driver and console */
+ #define CONFIG_LANTIQ_SERIAL
+ #define CONFIG_SYS_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200 }
+@@ -105,12 +109,44 @@
+ #define CONFIG_CMD_NET
+ #endif
+ 
++#define CONFIG_SPL_MAX_SIZE		(32 * 1024)
++#define CONFIG_SPL_BSS_MAX_SIZE		(8 * 1024)
++#define CONFIG_SPL_STACK_MAX_SIZE	(8 * 1024)
++#define CONFIG_SPL_MALLOC_MAX_SIZE	(32 * 1024)
++/*#define CONFIG_SPL_STACK_BSS_IN_SRAM*/
++
++#if defined(CONFIG_SPL_STACK_BSS_IN_SRAM)
++#define CONFIG_SPL_STACK_BASE		(CONFIG_SYS_SRAM_BASE + \
++					CONFIG_SPL_MAX_SIZE + \
++					CONFIG_SPL_STACK_MAX_SIZE - 1)
++#define CONFIG_SPL_BSS_BASE	  	(CONFIG_SPL_STACK_BASE + 1)
++#define CONFIG_SPL_MALLOC_BASE		(CONFIG_SYS_SDRAM_BASE + \
++					CONFIG_SYS_INIT_SP_OFFSET)
++#else
++#define CONFIG_SPL_STACK_BASE		(CONFIG_SYS_SDRAM_BASE + \
++					CONFIG_SYS_INIT_SP_OFFSET + \
++					CONFIG_SPL_STACK_MAX_SIZE - 1)
++#define CONFIG_SPL_BSS_BASE		(CONFIG_SPL_STACK_BASE + 1)
++#define CONFIG_SPL_MALLOC_BASE		(CONFIG_SPL_BSS_BASE + \
++					CONFIG_SPL_BSS_MAX_SIZE)
++#endif
++
+ #if defined(CONFIG_SYS_BOOT_RAM)
+ #define CONFIG_SYS_TEXT_BASE		0xa0100000
+ #define CONFIG_SKIP_LOWLEVEL_INIT
+ #define CONFIG_SYS_DISABLE_CACHE
+-#else
++#endif
++
++#if defined(CONFIG_SYS_BOOT_NOR)
+ #define CONFIG_SYS_TEXT_BASE		0xB0000000
++#endif
++
++#if defined(CONFIG_SYS_BOOT_NORSPL)
++#define CONFIG_SYS_TEXT_BASE		0x80100000
++#define CONFIG_SPL_TEXT_BASE		0xB0000000
++#endif
++
++#if defined(CONFIG_SYS_BOOT_NOR) || defined(CONFIG_SYS_BOOT_NORSPL)
+ #define CONFIG_SYS_XWAY_EBU_BOOTCFG	0x688C688C
+ #define CONFIG_XWAY_SWAP_BYTES
+ #endif
+diff --git a/arch/mips/include/asm/arch-danube/cpu.h b/arch/mips/include/asm/arch-danube/cpu.h
+deleted file mode 100644
+index 0ea7b8b2f8fb393ae006fbedc8ee06f5354b42e5..0000000000000000000000000000000000000000
+--- a/arch/mips/include/asm/arch-danube/cpu.h
++++ /dev/null
+@@ -1,14 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#ifndef __DANUBE_CPU_H__
+-#define __DANUBE_CPU_H__
+-
+-extern void ltq_ebu_init(void);
+-extern void ltq_pmu_init(void);
+-
+-#endif /* __DANUBE_CPU_H__ */
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 234263b29a680938351c8b09af16ee88c6e7e4f3..723f4b8a920cd5a9b6f881230a7715dbb904bbf3 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -69,7 +69,7 @@
+ #define CONFIG_SYS_MEMTEST_START	0x81000000
+ #define CONFIG_SYS_MEMTEST_END		0x82000000
+ #define CONFIG_SYS_LOAD_ADDR		0x81000000
+-#define CONFIG_SYS_INIT_SP_OFFSET	0x4000
++#define CONFIG_SYS_INIT_SP_OFFSET	(32 * 1024)
+ 
+ /* SRAM */
+ #define CONFIG_SYS_SRAM_BASE		0xBE220000
+@@ -133,49 +133,49 @@
+ #define CONFIG_CMD_NET
+ #endif
+ 
+-#if defined(CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH) && defined(CONFIG_SYS_BOOT_SFSPL)
+-#define CONFIG_LTQ_SPL_SRAM
+-#define CONFIG_SPL_SPI_SUPPORT
+-#define CONFIG_SPL_SPI_FLASH_SUPPORT
++#define CONFIG_SPL_MAX_SIZE		(32 * 1024)
++#define CONFIG_SPL_BSS_MAX_SIZE		(8 * 1024)
++#define CONFIG_SPL_STACK_MAX_SIZE	(8 * 1024)
++#define CONFIG_SPL_MALLOC_MAX_SIZE	(32 * 1024)
++#define CONFIG_SPL_STACK_BSS_IN_SRAM
++
++#if defined(CONFIG_SPL_STACK_BSS_IN_SRAM)
++#define CONFIG_SPL_STACK_BASE		(CONFIG_SYS_SRAM_BASE + \
++					CONFIG_SPL_MAX_SIZE + \
++					CONFIG_SPL_STACK_MAX_SIZE - 1)
++#define CONFIG_SPL_BSS_BASE	  	(CONFIG_SPL_STACK_BASE + 1)
++#define CONFIG_SPL_MALLOC_BASE		(CONFIG_SYS_SDRAM_BASE + \
++					CONFIG_SYS_INIT_SP_OFFSET)
++#else
++#define CONFIG_SPL_STACK_BASE		(CONFIG_SYS_SDRAM_BASE + \
++					CONFIG_SYS_INIT_SP_OFFSET + \
++					CONFIG_SPL_STACK_MAX_SIZE - 1)
++#define CONFIG_SPL_BSS_BASE		(CONFIG_SPL_STACK_BASE + 1)
++#define CONFIG_SPL_MALLOC_BASE		(CONFIG_SPL_BSS_BASE + \
++					CONFIG_SPL_BSS_MAX_SIZE)
+ #endif
+ 
+-#if defined(CONFIG_LTQ_SPL_SRAM)
+-#define CONFIG_SPL
+-#define CONFIG_SPL_LIBGENERIC_SUPPORT
+-#define CONFIG_SPL_GPIO_SUPPORT
+-#define CONFIG_SPL_TEXT_BASE		0xBE220000
+-#define CONFIG_SPL_START_S_PATH		"arch/mips/cpu/mips32/vrx200/spl_sram"
+-#define CONFIG_SPL_MALLOC_BASE		CONFIG_SYS_SDRAM_BASE
+-#define CONFIG_SPL_MALLOC_SIZE		(64 * 1024)
++#if defined(CONFIG_SYS_BOOT_RAM)
++#define CONFIG_SYS_TEXT_BASE		0x80100000
++#define CONFIG_SKIP_LOWLEVEL_INIT
++#define CONFIG_SYS_DISABLE_CACHE
+ #endif
+ 
+-#if defined(CONFIG_LTQ_SPL_DEBUG)
+-#define CONFIG_SPL_SERIAL_SUPPORT
+-#define CONFIG_SPL_LIBCOMMON_SUPPORT
++#if defined(CONFIG_SYS_BOOT_NOR)
++#define CONFIG_SYS_TEXT_BASE		0xB0000000
+ #endif
+ 
+-#if defined(CONFIG_LTQ_SPL_COMP_LZMA)
+-#define CONFIG_LZMA
+-#define CONFIG_SPL_LZMA_SUPPORT
++#if defined(CONFIG_SYS_BOOT_SFSPL)
++#define CONFIG_SYS_TEXT_BASE		0x80100000
++#define CONFIG_SPL_TEXT_BASE		0xBE220000
+ #endif
+ 
+-#if defined(CONFIG_LTQ_SPL_COMP_LZO)
+-#define CONFIG_LZO
+-#define CONFIG_SPL_LZO_SUPPORT
++#if defined(CONFIG_SYS_BOOT_NORSPL)
++#define CONFIG_SYS_TEXT_BASE		0x80100000
++#define CONFIG_SPL_TEXT_BASE		0xB0000000
+ #endif
+ 
+-#if defined(CONFIG_SYS_BOOT_RAM)
+-#define CONFIG_SYS_TEXT_BASE		0xA0100000
+-#define CONFIG_SKIP_LOWLEVEL_INIT
+-#define CONFIG_SYS_DISABLE_CACHE
+-#elif defined(CONFIG_SYS_BOOT_EVA)
+-#define CONFIG_SYS_TEXT_BASE		0x80100000
+-#define CONFIG_SKIP_LOWLEVEL_INIT
+-#elif defined(CONFIG_SYS_BOOT_SFSPL)
+-#define CONFIG_SYS_TEXT_BASE		0x80100000
+-#define CONFIG_SKIP_LOWLEVEL_INIT
+-#else
+-#define CONFIG_SYS_TEXT_BASE		0xB0000000
++#if defined(CONFIG_SYS_BOOT_NOR) || defined(CONFIG_SYS_BOOT_NORSPL)
+ #define CONFIG_SYS_XWAY_EBU_BOOTCFG	0x688C688C
+ #define CONFIG_XWAY_SWAP_BYTES
+ #endif
+diff --git a/arch/mips/include/asm/arch-vrx200/cpu.h b/arch/mips/include/asm/arch-vrx200/cpu.h
+deleted file mode 100644
+index 8dd674dd427dabd0f21d2ba048f4949ec72d3c41..0000000000000000000000000000000000000000
+--- a/arch/mips/include/asm/arch-vrx200/cpu.h
++++ /dev/null
+@@ -1,30 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#ifndef __VRX200_CPU_H__
+-#define __VRX200_CPU_H__
+-
+-enum ltq_boot_select {
+-	LTQ_BOOT_NOR_NO_BOOTROM = 0,
+-	LTQ_BOOT_RGMII1 = 1,
+-	LTQ_BOOT_NOR = 2,
+-	LTQ_BOOT_UART_NO_EEPROM = 4,
+-	LTQ_BOOT_PCI = 6,
+-	LTQ_BOOT_UART = 8,
+-	LTQ_BOOT_SPI = 10,
+-	LTQ_BOOT_NAND = 12,
+-};
+-
+-extern void ltq_ebu_init(void);
+-extern void ltq_pmu_init(void);
+-extern void ltq_pll_init(void);
+-extern void ltq_dcdc_init(unsigned int dig_ref);
+-
+-extern enum ltq_boot_select ltq_boot_select(void);
+-extern const char *ltq_boot_select_str(void);
+-
+-#endif /* __VRX200_CPU_H__ */
+diff --git a/arch/mips/include/asm/lantiq/config.h b/arch/mips/include/asm/lantiq/config.h
+index f1cb22ddbeb8d483791614d4b9bbcd65c964de5b..7fc2da61603149ea614a3022a8d74b998eb88a4e 100644
+--- a/arch/mips/include/asm/lantiq/config.h
++++ b/arch/mips/include/asm/lantiq/config.h
+@@ -15,7 +15,7 @@
+ #define CONFIG_SYS_BOOTPARAMS_LEN	128*1024
+ 
+ /* Command line */
+-#define CONFIG_SYS_PROMPT		CONFIG_IDENT_STRING " # "
++#define CONFIG_SYS_PROMPT		CONFIG_MACH_TYPE " # "
+ #define CONFIG_SYS_CBSIZE		512
+ #define CONFIG_SYS_PBSIZE		(CONFIG_SYS_CBSIZE + \
+ 					sizeof(CONFIG_SYS_PROMPT)+16)
+@@ -27,12 +27,49 @@
+  * Enable advanced console features on demand to reduce
+  * flash and RAM footprint
+  */
+-#ifdef CONFIG_LTQ_ADVANCED_CONSOLE
++#if defined(CONFIG_LTQ_ADVANCED_CONSOLE)
+ #define CONFIG_SYS_LONGHELP
+ #define CONFIG_AUTO_COMPLETE
+ #define CONFIG_CMDLINE_EDITING
+ #endif
+ 
++/* SPI flash SPL */
++#if defined(CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH) && defined(CONFIG_SYS_BOOT_SFSPL)
++#define CONFIG_SPL
++#define CONFIG_SPL_SPI_SUPPORT
++#define CONFIG_SPL_SPI_FLASH_SUPPORT
++#endif
++
++#if defined(CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH) && defined(CONFIG_SYS_BOOT_NORSPL)
++#define CONFIG_SPL
++#endif
++
++/* Common SPL */
++#if defined(CONFIG_SPL)
++#define CONFIG_SKIP_LOWLEVEL_INIT
++#define CONFIG_SPL_LIBGENERIC_SUPPORT
++#define CONFIG_SPL_GPIO_SUPPORT
++#define CONFIG_SPL_START_S_PATH		\
++		"arch/mips/cpu/mips32/lantiq-common"
++#define CONFIG_SPL_LDSCRIPT		\
++		"arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds"
++#endif
++
++#if defined(CONFIG_LTQ_SPL_CONSOLE)
++#define CONFIG_SPL_SERIAL_SUPPORT
++#define CONFIG_SPL_LIBCOMMON_SUPPORT
++#endif
++
++#if defined(CONFIG_LTQ_SPL_COMP_LZMA)
++#define CONFIG_LZMA
++#define CONFIG_SPL_LZMA_SUPPORT
++#endif
++
++#if defined(CONFIG_LTQ_SPL_COMP_LZO)
++#define CONFIG_LZO
++#define CONFIG_SPL_LZO_SUPPORT
++#endif
++
+ /* Basic commands */
+ #define CONFIG_CMD_BDI
+ #define CONFIG_CMD_EDITENV
+@@ -76,13 +113,20 @@
+ 	" machtype=" CONFIG_MACH_TYPE "\0"
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_NOR_FLASH)
+-#define CONFIG_ENV_UPDATE_UBOOT_NOR					\
+-	"update-uboot-nor=tftpboot u-boot.bin && "				\
++#define CONFIG_ENV_WRITE_UBOOT_NOR					\
++	"write-uboot-nor="						\
+ 	"protect off " MK_STR(CONFIG_SYS_FLASH_BASE) " +$filesize && "	\
+ 	"erase " MK_STR(CONFIG_SYS_FLASH_BASE) " +$filesize && "	\
+ 	"cp.b $fileaddr " MK_STR(CONFIG_SYS_FLASH_BASE) " $filesize\0"
++
++#define CONFIG_ENV_LOAD_UBOOT_NOR					\
++	"load-uboot-nor=tftpboot u-boot.bin\0"				\
++	"load-uboot-norspl=tftpboot u-boot.ltq.norspl\0"		\
++	"load-uboot-norspl-lzo=tftpboot u-boot.ltq.lzo.norspl\0"	\
++	"load-uboot-norspl-lzma=tftpboot u-boot.ltq.lzma.norspl\0"
+ #else
+-#define CONFIG_ENV_UPDATE_UBOOT_NOR
++#define CONFIG_ENV_WRITE_UBOOT_NOR
++#define CONFIG_ENV_LOAD_UBOOT_NOR
+ #endif
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_SPI_FLASH)
+@@ -90,8 +134,20 @@
+ 	"sf-probe=sf probe " MK_STR(CONFIG_ENV_SPI_CS) " "	\
+ 	MK_STR(CONFIG_ENV_SPI_MAX_HZ) " "			\
+ 	MK_STR(CONFIG_ENV_SPI_MODE) " \0"
++
++#define CONFIG_ENV_WRITE_UBOOT_SF				\
++	"write-uboot-sf="					\
++	"run sf-probe && sf erase 0 +$filesize && "		\
++	"sf write $fileaddr 0 $filesize\0"
++
++#define CONFIG_ENV_LOAD_UBOOT_SF					\
++	"load-uboot-sfspl=tftpboot u-boot.ltq.sfspl\0"			\
++	"load-uboot-sfspl-lzo=tftpboot u-boot.ltq.lzo.sfspl\0"		\
++	"load-uboot-sfspl-lzma=tftpboot u-boot.ltq.lzma.sfspl\0"
+ #else
+ #define CONFIG_ENV_SF_PROBE
++#define CONFIG_ENV_WRITE_UBOOT_SF
++#define CONFIG_ENV_LOAD_UBOOT_SF
+ #endif
+ 
+ #define CONFIG_ENV_LANTIQ_DEFAULTS	\
+@@ -101,7 +157,10 @@
+ 	CONFIG_ENV_ADDIP		\
+ 	CONFIG_ENV_ADDETH		\
+ 	CONFIG_ENV_ADDMACHTYPE		\
+-	CONFIG_ENV_UPDATE_UBOOT_NOR	\
+-	CONFIG_ENV_SF_PROBE
++	CONFIG_ENV_WRITE_UBOOT_NOR	\
++	CONFIG_ENV_LOAD_UBOOT_NOR	\
++	CONFIG_ENV_SF_PROBE		\
++	CONFIG_ENV_WRITE_UBOOT_SF	\
++	CONFIG_ENV_LOAD_UBOOT_SF
+ 
+ #endif /* __LANTIQ_CONFIG_H__ */
+diff --git a/arch/mips/include/asm/lantiq/cpu.h b/arch/mips/include/asm/lantiq/cpu.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..14215046df08b2d2d37de4a31d524c3cc9a494ba
+--- /dev/null
++++ b/arch/mips/include/asm/lantiq/cpu.h
+@@ -0,0 +1,34 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#ifndef __LANTIQ_CPU_H__
++#define __LANTIQ_CPU_H__
++
++enum ltq_boot_select {
++	BOOT_NOR,
++	BOOT_NOR_NO_BOOTROM,
++	BOOT_UART,
++	BOOT_UART_NO_EEPROM,
++	BOOT_SPI,
++	BOOT_NAND,
++	BOOT_PCI,
++	BOOT_MII0,
++	BOOT_RMII0,
++	BOOT_RGMII1,
++	BOOT_UNKNOWN,
++};
++
++enum ltq_boot_select ltq_boot_select(void);
++const char *ltq_boot_select_str(void);
++
++void ltq_pmu_init(void);
++void ltq_ebu_init(void);
++
++void ltq_pll_init(void);
++void ltq_dcdc_init(unsigned int dig_ref);
++
++#endif /* __LANTIQ_CPU_H__ */
+diff --git a/arch/mips/include/asm/lantiq/pm.h b/arch/mips/include/asm/lantiq/pm.h
+index e17fc62c6194ec18ca4df71129b46e7c03103b28..2f5496e01a4352b022f42fcdf88b138c06c021ce 100644
+--- a/arch/mips/include/asm/lantiq/pm.h
++++ b/arch/mips/include/asm/lantiq/pm.h
+@@ -15,8 +15,8 @@ enum ltq_pm_modules {
+ 	LTQ_PM_SPI,
+ };
+ 
+-extern u32 ltq_pm_map(enum ltq_pm_modules module);
+-extern int ltq_pm_enable(enum ltq_pm_modules module);
+-extern int ltq_pm_disable(enum ltq_pm_modules module);
++u32 ltq_pm_map(enum ltq_pm_modules module);
++int ltq_pm_enable(enum ltq_pm_modules module);
++int ltq_pm_disable(enum ltq_pm_modules module);
+ 
+ #endif /* __LANTIQ_PM_H__ */
+diff --git a/arch/mips/lib/Makefile b/arch/mips/lib/Makefile
+index fbbd842056032c09b2404bc6d0bb053bc52c1034..967e98a52614ff7be05b52e7a8600e6698d5541d 100644
+--- a/arch/mips/lib/Makefile
++++ b/arch/mips/lib/Makefile
+@@ -41,10 +41,6 @@ else
+ COBJS-y	+= bootm.o
+ endif
+ 
+-ifdef CONFIG_SOC_LANTIQ
+-COBJS-$(CONFIG_SPL_BUILD) += spl_lantiq.o
+-endif
+-
+ SRCS	:= $(SOBJS-y:.o=.S) $(COBJS-y:.o=.c)
+ OBJS	:= $(addprefix $(obj),$(SOBJS-y) $(COBJS-y))
+ 
+diff --git a/arch/mips/lib/spl_lantiq.c b/arch/mips/lib/spl_lantiq.c
+deleted file mode 100644
+index ea3dda99b618b4641bd1f9e42f8f7c7f5f1d6232..0000000000000000000000000000000000000000
+--- a/arch/mips/lib/spl_lantiq.c
++++ /dev/null
+@@ -1,322 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <common.h>
+-#include <image.h>
+-#include <spi_flash.h>
+-#include <linux/compiler.h>
+-#include <lzma/LzmaDec.h>
+-#include <linux/lzo.h>
+-#include <asm/mipsregs.h>
+-
+-#ifdef CONFIG_LTQ_SPL_DEBUG
+-#define spl_has_console		1
+-#else
+-#define spl_has_console		0
+-#endif
+-
+-#define spl_debug(fmt, args...)	\
+-	debug_cond(spl_has_console, fmt, ##args)
+-
+-#if defined(CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH) && defined(CONFIG_SYS_BOOT_SFSPL)
+-#define spl_boot_spi_flash	1
+-#else
+-#define spl_boot_spi_flash	0
+-#endif
+-
+-#if defined(CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH) && defined(CONFIG_SYS_BOOT_NORSPL)
+-#define spl_boot_nor_flash	1
+-#else
+-#define spl_boot_nor_flash	0
+-#endif
+-
+-#if defined(CONFIG_LTQ_SPL_COMP_LZMA)
+-#define spl_has_lzma		1
+-#else
+-#define spl_has_lzma		0
+-#endif
+-
+-#if defined(CONFIG_LTQ_SPL_COMP_LZO)
+-#define spl_has_lzo		1
+-#else
+-#define spl_has_lzo		0
+-#endif
+-
+-#define spl_sync()	__asm__ __volatile__("sync");
+-
+-struct spl_image {
+-	ulong data_addr;
+-	ulong load_addr;
+-	ulong entry_addr;
+-	size_t data_size;
+-	size_t load_size;
+-	u8 comp;
+-};
+-
+-extern ulong __image_copy_end;
+-
+-DECLARE_GLOBAL_DATA_PTR;
+-
+-static gd_t gd_data __maybe_unused;
+-
+-/* Emulated malloc area needed for LZMA allocator */
+-static u8 *spl_mem_ptr __maybe_unused;
+-static size_t spl_mem_size __maybe_unused;
+-
+-static void spl_console_init(void)
+-{
+-	if (!spl_has_console)
+-		return;
+-
+-	gd = &gd_data;
+-	barrier();
+-
+-	gd->baudrate = CONFIG_BAUDRATE;
+-	serial_init();
+-	console_init_f();
+-}
+-
+-static int spl_parse_image(const image_header_t *hdr, struct spl_image *spl)
+-{
+-	u32 magic;
+-
+-	magic = image_get_magic(hdr);
+-	if (magic != IH_MAGIC)
+-		return -1;
+-
+-	spl->data_addr += image_get_header_size();
+-	spl->entry_addr = image_get_load(hdr);
+-	spl->data_size = image_get_data_size(hdr);
+-	spl->load_size = spl->data_size;
+-	spl->comp = image_get_comp(hdr);
+-
+-	if (spl->comp == IH_COMP_NONE)
+-		spl->load_addr = spl->entry_addr;
+-	else
+-		spl->load_addr = CONFIG_LOADADDR;
+-
+-	return 0;
+-}
+-
+-static int spl_load_spi_flash(struct spl_image *spl)
+-{
+-	struct spi_flash sf;
+-	image_header_t hdr;
+-	int ret;
+-
+-	/*
+-	 * Image format:
+-	 *
+-	 * - 12 byte non-volatile bootstrap header
+-	 * - SPL binary
+-	 * - 12 byte non-volatile bootstrap header
+-	 * - 64 byte U-Boot mkimage header
+-	 * - U-Boot binary
+-	 */
+-	spl->data_addr = (ulong) &__image_copy_end - CONFIG_SPL_TEXT_BASE + 24;
+-
+-	spl_debug("SPL: probing SPI flash\n");
+-
+-	spi_init();
+-	ret = spi_flash_probe_spl(&sf, CONFIG_SPL_SPI_BUS, CONFIG_SPL_SPI_CS,
+-				CONFIG_SPL_SPI_MAX_HZ, CONFIG_SPL_SPI_MODE);
+-	if (ret)
+-		return ret;
+-
+-	spl_debug("SPL: reading image header at offset %lx\n", spl->data_addr);
+-
+-	ret = spi_flash_read(&sf, spl->data_addr, sizeof(hdr), &hdr);
+-	if (ret)
+-		return ret;
+-
+-	spl_debug("SPL: checking image header at offset %lx\n", spl->data_addr);
+-
+-	ret = spl_parse_image(&hdr, spl);
+-	if (ret)
+-		return ret;
+-
+-	spl_debug("SPL: loading U-Boot to RAM at %08lx\n", spl->load_addr);
+-
+-	ret = spi_flash_read(&sf, spl->data_addr, spl->data_size,
+-				(void *) spl->load_addr);
+-
+-	return ret;
+-}
+-
+-static int spl_load_nor_flash(struct spl_image *spl)
+-{
+-	const image_header_t *hdr;
+-	int ret;
+-
+-	/*
+-	 * Image format:
+-	 *
+-	 * - SPL binary
+-	 * - 64 byte U-Boot mkimage header
+-	 * - U-Boot binary
+-	 */
+-	spl->data_addr = (ulong) &__image_copy_end;
+-	hdr = (const image_header_t *) &__image_copy_end;
+-
+-	spl_debug("SPL: checking image header at address %p\n", hdr);
+-
+-	ret = spl_parse_image(hdr, spl);
+-	if (ret)
+-		return ret;
+-
+-	spl_debug("SPL: loading U-Boot to RAM at %08lx\n", spl->load_addr);
+-
+-	memcpy((void *) spl->load_addr, (const void *) spl->data_addr,
+-		spl->data_size);
+-
+-	return 0;
+-}
+-
+-static int spl_load(struct spl_image *spl)
+-{
+-	int ret;
+-
+-	if (spl_boot_spi_flash)
+-		ret = spl_load_spi_flash(spl);
+-	else if (spl_boot_nor_flash)
+-		ret = spl_load_nor_flash(spl);
+-	else
+-		ret = -1;
+-
+-	return ret;
+-}
+-
+-static void *spl_lzma_alloc(void *p, size_t size)
+-{
+-	u8 *ret;
+-
+-	if (size > spl_mem_size)
+-		return NULL;
+-
+-	ret = spl_mem_ptr;
+-	spl_mem_ptr += size;
+-	spl_mem_size -= size;
+-
+-	return ret;
+-}
+-
+-static void spl_lzma_free(void *p, void *addr)
+-{
+-}
+-
+-static int spl_uncompress_lzma(struct spl_image *spl)
+-{
+-	SRes res;
+-	const Byte *prop = (const Byte *) spl->load_addr;
+-	const Byte *src = (const Byte *) spl->load_addr + LZMA_PROPS_SIZE +
+-							sizeof(uint64_t);
+-	Byte *dest = (Byte *) spl->entry_addr;
+-	SizeT dest_len = 0xFFFFFFFF;
+-	SizeT src_len = spl->data_size - LZMA_PROPS_SIZE;
+-	ELzmaStatus status = 0;
+-	ISzAlloc alloc;
+-
+-	alloc.Alloc = spl_lzma_alloc;
+-	alloc.Free = spl_lzma_free;
+-	spl_mem_ptr = (u8 *) CONFIG_SPL_MALLOC_BASE;
+-	spl_mem_size = CONFIG_SPL_MALLOC_SIZE;
+-
+-	res = LzmaDecode(dest, &dest_len, src, &src_len, prop, LZMA_PROPS_SIZE,
+-		LZMA_FINISH_ANY, &status, &alloc);
+-	if (res != SZ_OK)
+-		return -1;
+-
+-	spl->load_size = dest_len;
+-
+-	return res;
+-}
+-
+-static int spl_uncompress_lzo(struct spl_image *spl)
+-{
+-	size_t len;
+-	int ret;
+-
+-	ret = lzop_decompress(
+-		(const unsigned char*) spl->load_addr, spl->data_size,
+-		(unsigned char *) spl->entry_addr, &len);
+-
+-	spl->load_size = len;
+-
+-	return ret;
+-}
+-
+-static int spl_uncompress(struct spl_image *spl)
+-{
+-	int ret;
+-
+-	if (spl->comp == IH_COMP_NONE)
+-		return 0;
+-
+-	spl_debug("SPL: uncompressing U-Boot at %08lx to %08lx\n",
+-			spl->load_addr, spl->entry_addr);
+-
+-	if (spl->comp == IH_COMP_LZMA && spl_has_lzma)
+-		ret = spl_uncompress_lzma(spl);
+-	else if (spl->comp == IH_COMP_LZO && spl_has_lzo)
+-		ret = spl_uncompress_lzo(spl);
+-	else {
+-		spl_debug("SPL: compression type %u not supported\n",
+-				spl->comp);
+-		ret = -1;
+-	}
+-
+-	return ret;
+-}
+-
+-void __noreturn spl_lantiq_init(void)
+-{
+-	void (*uboot)(void) __noreturn;
+-	struct spl_image spl;
+-	int ret;
+-
+-	spl_console_init();
+-
+-	spl_debug("SPL: initializing\n");
+-
+-#if 0
+-	spl_debug("CP0_CONFIG:   %08x\n", read_c0_config());
+-	spl_debug("CP0_CONFIG1:  %08x\n", read_c0_config1());
+-	spl_debug("CP0_CONFIG2:  %08x\n", read_c0_config2());
+-	spl_debug("CP0_CONFIG3:  %08x\n", read_c0_config3());
+-	spl_debug("CP0_CONFIG6:  %08x\n", read_c0_config6());
+-	spl_debug("CP0_CONFIG7:  %08x\n", read_c0_config7());
+-	spl_debug("CP0_STATUS:   %08x\n", read_c0_status());
+-	spl_debug("CP0_PRID:     %08x\n", read_c0_prid());
+-#endif
+-
+-	board_early_init_f();
+-	timer_init();
+-
+-	memset(&spl, 0, sizeof(spl));
+-
+-	ret = spl_load(&spl);
+-	if (ret)
+-		goto hang;
+-
+-	ret = spl_uncompress(&spl);
+-	if (ret)
+-		goto hang;
+-
+-	spl_debug("SPL: starting U-Boot at %08lx\n", spl.entry_addr);
+-
+-	flush_cache(spl.entry_addr, spl.load_size);
+-	spl_sync();
+-
+-	uboot = (void *) spl.entry_addr;
+-	uboot();
+-
+-hang:
+-	spl_debug("SPL: cannot start U-Boot\n");
+-
+-	for (;;)
+-		;
+-}
+diff --git a/board/avm/fb3370/Makefile b/board/avm/fb3370/Makefile
+deleted file mode 100644
+index 321154f8cfb9b732fe5498515f3903fd9439c70a..0000000000000000000000000000000000000000
+--- a/board/avm/fb3370/Makefile
++++ /dev/null
+@@ -1,29 +0,0 @@
+-#
+-# This file is released under the terms of GPL v2 and any later version.
+-# See the file COPYING in the root directory of the source tree for details.
+-#
+-# Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+-#
+-
+-include $(TOPDIR)/config.mk
+-
+-LIB	= $(obj)lib$(BOARD).o
+-
+-COBJS	= $(BOARD).o
+-
+-SRCS	:= $(SOBJS:.o=.S) $(COBJS:.o=.c)
+-OBJS	:= $(addprefix $(obj),$(COBJS))
+-SOBJS	:= $(addprefix $(obj),$(SOBJS))
+-
+-$(LIB):	$(obj).depend $(OBJS) $(SOBJS)
+-	$(call cmd_link_o_target, $(OBJS) $(SOBJS))
+-
+-#########################################################################
+-
+-# defines $(obj).depend target
+-include $(SRCTREE)/rules.mk
+-
+-sinclude $(obj).depend
+-
+-#########################################################################
+diff --git a/board/avm/fb3370/config.mk b/board/avm/fb3370/config.mk
+deleted file mode 100644
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..0000000000000000000000000000000000000000
+--- a/board/avm/fb3370/config.mk
++++ /dev/null
+@@ -1,8 +0,0 @@
+-#
+-# This file is released under the terms of GPL v2 and any later version.
+-# See the file COPYING in the root directory of the source tree for details.
+-#
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+-#
+-
+-PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/avm/fb3370/ddr_settings.h b/board/avm/fb3370/ddr_settings.h
+deleted file mode 100644
+index 4aa301ad73575f33e3da49543df74b568ca13562..0000000000000000000000000000000000000000
+--- a/board/avm/fb3370/ddr_settings.h
++++ /dev/null
+@@ -1,70 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2007-2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
+-#define	MC_CCR02_VALUE	0x1010000
+-#define	MC_CCR03_VALUE	0x100
+-#define	MC_CCR04_VALUE	0x1000000
+-#define	MC_CCR05_VALUE	0x1000101
+-#define	MC_CCR06_VALUE	0x1000100
+-#define	MC_CCR07_VALUE	0x1010000
+-#define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x0
+-#define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000401
+-#define	MC_CCR12_VALUE	0x30000
+-#define	MC_CCR13_VALUE	0x202
+-#define	MC_CCR14_VALUE	0x7080A0F
+-#define	MC_CCR15_VALUE	0x2040F
+-#define	MC_CCR16_VALUE	0x40000
+-#define	MC_CCR17_VALUE	0x70102
+-#define	MC_CCR18_VALUE	0x4020002
+-#define	MC_CCR19_VALUE	0x30302
+-#define	MC_CCR20_VALUE	0x8000700
+-#define	MC_CCR21_VALUE	0x40F020A
+-#define	MC_CCR22_VALUE	0x0
+-#define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401B04
+-#define	MC_CCR25_VALUE	0x0
+-#define	MC_CCR26_VALUE	0x0
+-#define	MC_CCR27_VALUE	0x6420000
+-#define	MC_CCR28_VALUE	0x0
+-#define	MC_CCR29_VALUE	0x0
+-#define	MC_CCR30_VALUE	0x798
+-#define	MC_CCR31_VALUE	0x0
+-#define	MC_CCR32_VALUE	0x0
+-#define	MC_CCR33_VALUE	0x650000
+-#define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1D445D
+-#define	MC_CCR36_VALUE	0xC8
+-#define	MC_CCR37_VALUE	0xC351
+-#define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x141F04
+-#define	MC_CCR40_VALUE	0x142704
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
+-#define	MC_CCR47_VALUE	0x0
+-#define	MC_CCR48_VALUE	0x0
+-#define	MC_CCR49_VALUE	0x0
+-#define	MC_CCR50_VALUE	0x0
+-#define	MC_CCR51_VALUE	0x0
+-#define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7800301
+-#define	MC_CCR58_VALUE	0x7800301
+-#define	MC_CCR59_VALUE	0x7800301
+-#define	MC_CCR60_VALUE	0x7800301
+-#define	MC_CCR61_VALUE	0x4
+diff --git a/board/avm/fb3370/fb3370.c b/board/avm/fb3370/fb3370.c
+deleted file mode 100644
+index 35afcf6e37d3bc0e96091c95a0db380883db492a..0000000000000000000000000000000000000000
+--- a/board/avm/fb3370/fb3370.c
++++ /dev/null
+@@ -1,104 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <common.h>
+-#include <spi.h>
+-#include <asm/gpio.h>
+-#include <asm/lantiq/eth.h>
+-#include <asm/lantiq/chipid.h>
+-#include <asm/arch/gphy.h>
+-#include <asm/arch/cpu.h>
+-
+-static void gpio_init(void)
+-{
+-	/* SPI/CS output (low-active) for serial flash */
+-	gpio_direction_output(10, 1);
+-}
+-
+-int board_early_init_f(void)
+-{
+-	gpio_init();
+-	ltq_dcdc_init(0x7F);
+-
+-	return 0;
+-}
+-
+-int checkboard(void)
+-{
+-	puts("Board: " CONFIG_BOARD_NAME "\n");
+-	ltq_chip_print_info();
+-
+-	return 0;
+-}
+-
+-static const struct ltq_eth_port_config eth_port_config[] = {
+-	/* GMAC0: external Lantiq PEF7071 10/100/1000 PHY for LAN port 0 */
+-	{ 0, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+-	/* GMAC1: external Lantiq PEF7071 10/100/1000 PHY for LAN port 1 */
+-	{ 1, 0x1, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
+-	/* GMAC2: internal GPHY0 with 10/100/1000 firmware for LAN port 2 */
+-	{ 2, 0x11, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
+-	/* GMAC3: unused */
+-	{ 3, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
+-	/* GMAC4: internal GPHY1 with 10/100/1000 firmware for LAN port 3 */
+-	{ 4, 0x13, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
+-	/* GMAC5: WLAN? */
+-	{ 5, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
+-};
+-
+-static const struct ltq_eth_board_config eth_board_config = {
+-	.ports = eth_port_config,
+-	.num_ports = ARRAY_SIZE(eth_port_config),
+-};
+-
+-int board_eth_init(bd_t * bis)
+-{
+-	const enum ltq_gphy_clk clk = LTQ_GPHY_CLK_25MHZ_PLL0;
+-	const ulong fw_addr = 0x80FF0000;
+-
+-	ltq_gphy_phy11g_a1x_load(fw_addr);
+-
+-	ltq_cgu_gphy_clk_src(clk);
+-
+-	ltq_rcu_gphy_boot(0, fw_addr);
+-	ltq_rcu_gphy_boot(1, fw_addr);
+-
+-	return ltq_eth_initialize(&eth_board_config);
+-}
+-
+-int spi_cs_is_valid(unsigned int bus, unsigned int cs)
+-{
+-	if (bus)
+-		return 0;
+-
+-	if (cs == 4)
+-		return 1;
+-
+-	return 0;
+-}
+-
+-void spi_cs_activate(struct spi_slave *slave)
+-{
+-	switch (slave->cs) {
+-	case 4:
+-		gpio_set_value(10, 0);
+-		break;
+-	default:
+-		break;
+-	}
+-}
+-
+-void spi_cs_deactivate(struct spi_slave *slave)
+-{
+-	switch (slave->cs) {
+-	case 4:
+-		gpio_set_value(10, 1);
+-		break;
+-	default:
+-		break;
+-	}
+-}
+diff --git a/board/gigaset/sx76x/Makefile b/board/gigaset/sx76x/Makefile
+deleted file mode 100644
+index 321154f8cfb9b732fe5498515f3903fd9439c70a..0000000000000000000000000000000000000000
+--- a/board/gigaset/sx76x/Makefile
++++ /dev/null
+@@ -1,29 +0,0 @@
+-#
+-# This file is released under the terms of GPL v2 and any later version.
+-# See the file COPYING in the root directory of the source tree for details.
+-#
+-# Copyright (C) 2000-2011 Wolfgang Denk, DENX Software Engineering, wd@denx.de
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+-#
+-
+-include $(TOPDIR)/config.mk
+-
+-LIB	= $(obj)lib$(BOARD).o
+-
+-COBJS	= $(BOARD).o
+-
+-SRCS	:= $(SOBJS:.o=.S) $(COBJS:.o=.c)
+-OBJS	:= $(addprefix $(obj),$(COBJS))
+-SOBJS	:= $(addprefix $(obj),$(SOBJS))
+-
+-$(LIB):	$(obj).depend $(OBJS) $(SOBJS)
+-	$(call cmd_link_o_target, $(OBJS) $(SOBJS))
+-
+-#########################################################################
+-
+-# defines $(obj).depend target
+-include $(SRCTREE)/rules.mk
+-
+-sinclude $(obj).depend
+-
+-#########################################################################
+diff --git a/board/gigaset/sx76x/config.mk b/board/gigaset/sx76x/config.mk
+deleted file mode 100644
+index 2dbfa9d56c2ef7f5340db7c114174c83c0633658..0000000000000000000000000000000000000000
+--- a/board/gigaset/sx76x/config.mk
++++ /dev/null
+@@ -1,8 +0,0 @@
+-#
+-# This file is released under the terms of GPL v2 and any later version.
+-# See the file COPYING in the root directory of the source tree for details.
+-#
+-# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+-#
+-
+-PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/gigaset/sx76x/ddr_settings.h b/board/gigaset/sx76x/ddr_settings.h
+deleted file mode 100644
+index fc587afef109aea86562555b3f78198ea836a75c..0000000000000000000000000000000000000000
+--- a/board/gigaset/sx76x/ddr_settings.h
++++ /dev/null
+@@ -1,56 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * generated with lantiq_ram_extract_magic.awk
+- *
+- * Copyright (C) 2011 Luka Perkov <uboot@lukaperkov.net>
+- */
+-
+-#define MC_DC00_VALUE	0x1B1B
+-#define MC_DC01_VALUE	0x0
+-#define MC_DC02_VALUE	0x0
+-#define MC_DC03_VALUE	0x0
+-#define MC_DC04_VALUE	0x0
+-#define MC_DC05_VALUE	0x200
+-#define MC_DC06_VALUE	0x605
+-#define MC_DC07_VALUE	0x303
+-#define MC_DC08_VALUE	0x202
+-#define MC_DC09_VALUE	0x70A
+-#define MC_DC10_VALUE	0x203
+-#define MC_DC11_VALUE	0xC02
+-#define MC_DC12_VALUE	0x1C8
+-#define MC_DC13_VALUE	0x1
+-#define MC_DC14_VALUE	0x0
+-#define MC_DC15_VALUE	0xF3E
+-#define MC_DC16_VALUE	0xC800
+-#define MC_DC17_VALUE	0xD
+-#define MC_DC18_VALUE	0x300
+-#define MC_DC19_VALUE	0x200
+-#define MC_DC20_VALUE	0xA04
+-#define MC_DC21_VALUE	0xF00
+-#define MC_DC22_VALUE	0xF0F
+-#define MC_DC23_VALUE	0x0
+-#define MC_DC24_VALUE	0x63
+-#define MC_DC25_VALUE	0x0
+-#define MC_DC26_VALUE	0x100
+-#define MC_DC27_VALUE	0x0
+-#define MC_DC28_VALUE	0x514
+-#define MC_DC29_VALUE	0x2D89
+-#define MC_DC30_VALUE	0x8300
+-#define MC_DC31_VALUE	0x2002
+-#define MC_DC32_VALUE	0x0
+-#define MC_DC33_VALUE	0x0
+-#define MC_DC34_VALUE	0x0
+-#define MC_DC35_VALUE	0x0
+-#define MC_DC36_VALUE	0x0
+-#define MC_DC37_VALUE	0x0
+-#define MC_DC38_VALUE	0x0
+-#define MC_DC39_VALUE	0x0
+-#define MC_DC40_VALUE	0x0
+-#define MC_DC41_VALUE	0x0
+-#define MC_DC42_VALUE	0x0
+-#define MC_DC43_VALUE	0x0
+-#define MC_DC44_VALUE	0x0
+-#define MC_DC45_VALUE	0x500
+-#define MC_DC46_VALUE	0x0
+diff --git a/board/gigaset/sx76x/sx76x.c b/board/gigaset/sx76x/sx76x.c
+deleted file mode 100644
+index 554eee9d4e0f23d05c8096e3a5101a7ac028fa59..0000000000000000000000000000000000000000
+--- a/board/gigaset/sx76x/sx76x.c
++++ /dev/null
+@@ -1,66 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Luka Perkov <uboot@lukaperkov.net>
+- */
+-
+-#include <common.h>
+-#include <switch.h>
+-#include <asm/gpio.h>
+-#include <asm/lantiq/eth.h>
+-#include <asm/lantiq/reset.h>
+-#include <asm/lantiq/chipid.h>
+-
+-static void gpio_init(void)
+-{
+-	/* Activate reset line of ADM6996I switch */
+-	gpio_direction_output(19, 0);
+-}
+-
+-int board_early_init_f(void)
+-{
+-	gpio_init();
+-
+-	return 0;
+-}
+-
+-int checkboard(void)
+-{
+-	puts("Board: " CONFIG_BOARD_NAME "\n");
+-	ltq_chip_print_info();
+-
+-	return 0;
+-}
+-
+-static const struct ltq_eth_port_config eth_port_config[] = {
+-	/* MAC0: Lantiq ADM6996I switch */
+-	{ 0, 0x0, LTQ_ETH_PORT_SWITCH, PHY_INTERFACE_MODE_RMII },
+-};
+-
+-static const struct ltq_eth_board_config eth_board_config = {
+-	.ports = eth_port_config,
+-	.num_ports = ARRAY_SIZE(eth_port_config),
+-};
+-
+-int board_eth_init(bd_t *bis)
+-{
+-	return ltq_eth_initialize(&eth_board_config);
+-}
+-
+-static struct switch_device adm6996i_dev = {
+-	.name = "adm6996i",
+-	.cpu_port = 5,
+-	.port_mask = 0xF,
+-};
+-
+-int board_switch_init(void)
+-{
+-	/* Deactivate reset line of ADM6996I switch */
+-	gpio_set_value(19, 1);
+-
+-	/* ADM6996I needs some time to come out of reset */
+-	__udelay(50000);
+-
+-	return switch_device_register(&adm6996i_dev);
+-}
+diff --git a/board/lantiq/easy80920/easy80920.c b/board/lantiq/easy80920/easy80920.c
+index 88556870038682fc15ea38e84dfbe59bcdf1c3ec..659f5258983068c4b1ca90293305c77dc6ecdf11 100644
+--- a/board/lantiq/easy80920/easy80920.c
++++ b/board/lantiq/easy80920/easy80920.c
+@@ -10,8 +10,8 @@
+ #include <asm/gpio.h>
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
++#include <asm/lantiq/cpu.h>
+ #include <asm/arch/gphy.h>
+-#include <asm/arch/cpu.h>
+ 
+ #if defined(CONFIG_SPL_BUILD)
+ #define do_gpio_init	1
+@@ -21,6 +21,10 @@
+ #define do_gpio_init	1
+ #define do_pll_init	0
+ #define do_dcdc_init	1
++#elif defined(CONFIG_SYS_BOOT_NOR)
++#define do_gpio_init	1
++#define do_pll_init	1
++#define do_dcdc_init	1
+ #else
+ #define do_gpio_init	0
+ #define do_pll_init	0
+@@ -29,8 +33,19 @@
+ 
+ static void gpio_init(void)
+ {
+-	/* SPI/CS output (low-active) for serial flash */
++	/* SPI CS 0.4 to serial flash */
+ 	gpio_direction_output(10, 1);
++
++	/* EBU.FL_CS1 as output for NAND CE */
++	gpio_set_altfunc(23, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A23 as output for NAND CLE */
++	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A24 as output for NAND ALE */
++	gpio_set_altfunc(13, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* GPIO 3.0 as input for NAND Ready Busy */
++	gpio_set_altfunc(48, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
++	/* GPIO 3.1 as output for NAND Read */
++	gpio_set_altfunc(49, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ }
+ 
+ int board_early_init_f(void)
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index d66f7a589cdaaa90459512f84d30e1615d496f49..589dea2ccf46d2e662e75e6776b2e1336b49b7c1 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -10,8 +10,8 @@
+ #include <asm/gpio.h>
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
++#include <asm/lantiq/cpu.h>
+ #include <asm/arch/gphy.h>
+-#include <asm/arch/cpu.h>
+ #include <sas/controlfile.h>
+ 
+ #if defined(CONFIG_SPL_BUILD)
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index 9d54e68fa3b4d9bb5e4f38e9793d23160d452f8c..c8633c013695a5549a3c476c15b064adada86059 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -10,8 +10,8 @@
+ #include <asm/gpio.h>
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
++#include <asm/lantiq/cpu.h>
+ #include <asm/arch/gphy.h>
+-#include <asm/arch/cpu.h>
+ #include <sas/controlfile.h>
+ 
+ #if defined(CONFIG_SPL_BUILD)
+diff --git a/board/sphairon/vrx_g1/ddr_settings.h b/board/sphairon/vrx_g1/ddr_settings.h
+index 5ec21c03565717be445cd7f1fecd245bfcad1e59..7b77fa8888bbdb47ba83200c756c9d1c0d4996c2 100644
+--- a/board/sphairon/vrx_g1/ddr_settings.h
++++ b/board/sphairon/vrx_g1/ddr_settings.h
+@@ -8,15 +8,15 @@
+ #define	MC_CCR00_VALUE	0x101
+ #define	MC_CCR01_VALUE	0x1000100
+ #define	MC_CCR02_VALUE	0x1010000
+-#define	MC_CCR03_VALUE	0x100
++#define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+ #define	MC_CCR05_VALUE	0x1000101
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x0
++#define	MC_CCR09_VALUE	0x1000000
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000401
++#define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401B04
++#define	MC_CCR24_VALUE	0x4401503
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,12 +40,12 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1D445D
++#define	MC_CCR35_VALUE	0x1536b0
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x141F04
+-#define	MC_CCR40_VALUE	0x142704
++#define	MC_CCR39_VALUE	0x142404
++#define	MC_CCR40_VALUE	0x142604
+ #define	MC_CCR41_VALUE	0x141b42
+ #define	MC_CCR42_VALUE	0x141b42
+ #define	MC_CCR43_VALUE	0x566504
+@@ -62,8 +62,8 @@
+ #define	MC_CCR54_VALUE	0xF3014B27
+ #define	MC_CCR55_VALUE	0xF3014B27
+ #define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7800301
+-#define	MC_CCR58_VALUE	0x7800301
+-#define	MC_CCR59_VALUE	0x7800301
+-#define	MC_CCR60_VALUE	0x7800301
++#define	MC_CCR57_VALUE	0x7C00301
++#define	MC_CCR58_VALUE	0x7C00301
++#define	MC_CCR59_VALUE	0x7C00301
++#define	MC_CCR60_VALUE	0x7C00301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/vrx_g1/vrx_g1.c b/board/sphairon/vrx_g1/vrx_g1.c
+index 6542019296cde00d3023f28c827035b5fd7d4933..94ef3f2acb5a6ee2f99e7b9f0d2cc4c9ff7ba39e 100644
+--- a/board/sphairon/vrx_g1/vrx_g1.c
++++ b/board/sphairon/vrx_g1/vrx_g1.c
+@@ -10,12 +10,34 @@
+ #include <asm/gpio.h>
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
++#include <asm/lantiq/cpu.h>
+ #include <asm/arch/gphy.h>
+-#include <asm/arch/cpu.h>
++#include <sas/controlfile.h>
+ 
+-static void gpio_init(void)
++#if defined(CONFIG_SPL_BUILD)
++#define do_gpio_init	1
++#define do_pll_init	1
++#define do_dcdc_init	0
++#elif defined(CONFIG_SYS_BOOT_RAM)
++#define do_gpio_init	1
++#define do_pll_init	0
++#define do_dcdc_init	1
++#else
++#define do_gpio_init	0
++#define do_pll_init	0
++#define do_dcdc_init	1
++#endif
++
++static inline void gpio_init(void)
+ {
+-	/* SPI/CS output (low-active) for serial flash */
++	/* GPIO button WLAN enable (low-active) */
++	gpio_direction_input(45);
++	/* GPIO button SW restart (low-active) */
++	gpio_direction_input(44);
++	/* GPIO button board reset (low-active) */
++	gpio_direction_input(46);
++
++	/* SPI CS 0.4 to serial flash */
+ 	gpio_direction_output(10, 1);
+ 
+ 	/* xMII1.MII1_CRS connected to external KSZ8031 PHY */
+@@ -24,27 +46,38 @@ static void gpio_init(void)
+ 	/* COSIC modem reset, low-active, must be asserted at startup */
+ 	gpio_direction_output(14, 0);
+ 
+-	/* Ralink iNIC WLAN reset, low-active, asserted at startup */
+-	gpio_direction_output(15, 0);
+-
+-	/* Ralink iNIC WLAN power, disabled at startup */
+-	gpio_direction_output(37, 0);
+-
+ 	/* USB port0 power enable, disabled at startup */
+ 	gpio_direction_output(41, 0);
+-
+ 	/* USB port1 power enable, disabled at startup */
+ 	gpio_direction_output(33, 0);
++
++	/* EBU.FL_CS1 as output for NAND CE */
++	gpio_set_altfunc(23, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A23 as output for NAND CLE */
++	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A24 as output for NAND ALE */
++	gpio_set_altfunc(13, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* GPIO 3.0 as input for NAND Ready Busy */
++	gpio_set_altfunc(48, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
++	/* GPIO 3.1 as output for NAND Read */
++	gpio_set_altfunc(49, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++
++	/* Ralink iNIC WLAN reset, low-active, asserted at startup */
++	gpio_direction_output(15, 0);
++	/* Ralink iNIC WLAN power, disabled at startup */
++	gpio_direction_output(37, 0);
+ }
+ 
+ int board_early_init_f(void)
+ {
+-#if defined(CONFIG_SPL_BUILD)
+-	gpio_init();
+-	ltq_pll_init();
+-#else
+-	ltq_dcdc_init(0x7F);
+-#endif
++	if (do_gpio_init)
++		gpio_init();
++
++	if (do_pll_init)
++		ltq_pll_init();
++
++	if (do_dcdc_init)
++		ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }
+@@ -61,8 +94,8 @@ static const struct ltq_eth_port_config eth_port_config[] = {
+ 	/* GMAC0: Ralink iNIC */
+ 	{ 0, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
+ #ifdef CONFIG_SPH_ETH_HARDWARE_WORKAROUND
+-	/* GMAC1: not useable */
+-	{ 1, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
++	/* GMAC1: external KSZ8031 10/100 PHY for WANoE port */
++	{ 1, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RMII },
+ 	/* GMAC2: internal GPHY0 with 10/100/1000 firmware for LAN port 3 */
+ 	{ 2, 0x11, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
+ 	/* GMAC3: not useable */
+@@ -149,3 +182,9 @@ void spi_cs_deactivate(struct spi_slave *slave)
+ 		break;
+ 	}
+ }
++
++int sas_cf_check_board(void)
++{
++	/* check if reset button is pressed */
++	return 0 == gpio_get_value(46);
++}
+diff --git a/boards.cfg b/boards.cfg
+index 9efd1ec9563b45d24f36ff54cf78e29de36779c4..19f4656d248e7faaf9121b9ac16e709fd69fd347 100644
+--- a/boards.cfg
++++ b/boards.cfg
+@@ -422,19 +422,16 @@ dbau1550_el                  mips        mips32      dbau1x00            -
+ gth2                         mips        mips32      -                   -              au1x00
+ pb1000                       mips        mips32      pb1x00              -              au1x00      pb1x00:PB1000
+ easy50712_nor                mips        mips32      easy50712           lantiq         danube      easy50712:SYS_BOOT_NOR
++easy50712_norspl             mips        mips32      easy50712           lantiq         danube      easy50712:SYS_BOOT_NORSPL
+ easy50712_ram                mips        mips32      easy50712           lantiq         danube      easy50712:SYS_BOOT_RAM
+-gigasx76x_nor                mips        mips32      sx76x               gigaset        danube      sx76x:SYS_BOOT_NOR
+-gigasx76x_ram                mips        mips32      sx76x               gigaset        danube      sx76x:SYS_BOOT_RAM
+ tl7201_nor                   mips        mips32      tl7201              sphairon       danube      tl7201:SYS_BOOT_NOR
+ tl7201_ram                   mips        mips32      tl7201              sphairon       danube      tl7201:SYS_BOOT_RAM
+ incaip                       mips        mips32      incaip              -              incaip
+ incaip_100MHz                mips        mips32      incaip              -              incaip      incaip:CPU_CLOCK_RATE=100000000
+ incaip_133MHz                mips        mips32      incaip              -              incaip      incaip:CPU_CLOCK_RATE=133000000
+ incaip_150MHz                mips        mips32      incaip              -              incaip      incaip:CPU_CLOCK_RATE=150000000
+-fb3370_ram                   mips        mips32      fb3370              avm            vrx200      fb3370:SYS_BOOT_RAM
+-fb3370_eva                   mips        mips32      fb3370              avm            vrx200      fb3370:SYS_BOOT_EVA
+-fb3370_sfspl                 mips        mips32      fb3370              avm            vrx200      fb3370:SYS_BOOT_SFSPL
+ easy80920_nor                mips        mips32      easy80920           lantiq         vrx200      easy80920:SYS_BOOT_NOR
++easy80920_norspl             mips        mips32      easy80920           lantiq         vrx200      easy80920:SYS_BOOT_NORSPL
+ easy80920_ram                mips        mips32      easy80920           lantiq         vrx200      easy80920:SYS_BOOT_RAM
+ easy80920_sfspl              mips        mips32      easy80920           lantiq         vrx200      easy80920:SYS_BOOT_SFSPL
+ isdn_sip_gw_ram              mips        mips32      isdn_sip_gw         sphairon       vrx200      isdn_sip_gw:SYS_BOOT_RAM
+diff --git a/include/configs/easy50712.h b/include/configs/easy50712.h
+index 95938fb175196132fa40bed469ed03ecf88e9e68..9cbae84594da100b69dd803b81bfdf375e7fb255 100644
+--- a/include/configs/easy50712.h
++++ b/include/configs/easy50712.h
+@@ -8,10 +8,9 @@
+ #ifndef __CONFIG_H
+ #define __CONFIG_H
+ 
+-#define CONFIG_IDENT_STRING	"EASY50712"
++#define CONFIG_MACH_TYPE	"EASY50712"
++#define CONFIG_IDENT_STRING	" "CONFIG_MACH_TYPE
+ #define CONFIG_BOARD_NAME	"Lantiq EASY50712 Danube Reference Board"
+-#define CONFIG_MACH_TYPE	CONFIG_IDENT_STRING
+-#define CONFIG_BOARD_LANTIQ_EASY50712
+ 
+ /* Configure SoC */
+ #define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+@@ -23,17 +22,15 @@
+ #define CONFIG_LTQ_SUPPORT_SPI_FLASH
+ #define CONFIG_SPI_FLASH_ATMEL		/* Have an AT45DB321D serial flash */
+ 
++#define CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH	/* Build NOR flash SPL */
++
++#define CONFIG_LTQ_SPL_COMP_LZO
++#define CONFIG_LTQ_SPL_CONSOLE
++
+ /* Switch devices */
+ #define CONFIG_SWITCH_MULTI
+ #define CONFIG_SWITCH_ADM6996I
+ 
+-/* MTD devices */
+-#define CONFIG_MTD_DEVICE
+-#define CONFIG_MTD_PARTITIONS
+-#define CONFIG_FLASH_CFI_MTD
+-#define CONFIG_SPI_FLASH_MTD
+-#define CONFIG_CMD_MTD
+-
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		0
+ #define CONFIG_ENV_SPI_CS		2
+@@ -44,13 +41,18 @@
+ #define CONFIG_ENV_IS_IN_FLASH
+ #define CONFIG_ENV_OVERWRITE
+ #define CONFIG_ENV_OFFSET		(256 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
++#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
++#elif defined(CONFIG_SYS_BOOT_NORSPL)
++#define CONFIG_ENV_IS_IN_FLASH
++#define CONFIG_ENV_OVERWRITE
++#define CONFIG_ENV_OFFSET		(128 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(64 * 1024)
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
+ #endif
+ 
++#define CONFIG_ENV_SIZE			(8 * 1024)
++
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+ 
+ /* Console */
+@@ -66,14 +68,11 @@
+ #include <asm/lantiq/config.h>
+ #include <asm/arch/config.h>
+ 
+-/* Pull in additional Sphairon board config options */
+-#include <configs/sphairon_env.h>
++#define CONFIG_ENV_UPDATE_UBOOT_NOR					\
++	"update-uboot-nor=run load-uboot-norspl-lzo write-uboot-nor\0"
+ 
+ #define CONFIG_EXTRA_ENV_SETTINGS	\
+ 	CONFIG_ENV_LANTIQ_DEFAULTS	\
+-	CONFIG_ENV_SPHAIRON_GENERIC
+-
+-/* Default flash layout */
+-#define CONFIG_SPHAIRON_FLASHLAYOUT	"pss"
++	CONFIG_ENV_UPDATE_UBOOT_NOR
+ 
+ #endif /* __CONFIG_H */
+diff --git a/include/configs/easy80920.h b/include/configs/easy80920.h
+index ca663a2b66da1e9b849a772bd8f7868beaa50ddf..8a0837759c722dbaa7ae02958ddece74f85e468d 100644
+--- a/include/configs/easy80920.h
++++ b/include/configs/easy80920.h
+@@ -8,10 +8,9 @@
+ #ifndef __CONFIG_H
+ #define __CONFIG_H
+ 
+-#define CONFIG_IDENT_STRING	"EASY80920"
++#define CONFIG_MACH_TYPE	"EASY80920"
++#define CONFIG_IDENT_STRING	" "CONFIG_MACH_TYPE
+ #define CONFIG_BOARD_NAME	"Lantiq EASY80920 VRX200 Family Board"
+-#define CONFIG_MACH_TYPE	CONFIG_IDENT_STRING
+-#define CONFIG_BOARD_LANTIQ_EASY80920
+ 
+ /* Configure SoC */
+ #define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+@@ -23,23 +22,21 @@
+ #define CONFIG_LTQ_SUPPORT_SPI_FLASH
+ #define CONFIG_SPI_FLASH_MACRONIX	/* Have a MX29LV620 serial flash */
+ 
++#define CONFIG_LTQ_SUPPORT_NAND_FLASH
++
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+ #define CONFIG_SPL_SPI_CS		4
+ #define CONFIG_SPL_SPI_MAX_HZ		25000000
+ #define CONFIG_SPL_SPI_MODE		0
++
++#define CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH	/* Build NOR flash SPL */
++
+ #define CONFIG_LTQ_SPL_COMP_LZO
+-#define CONFIG_LTQ_SPL_DEBUG
++#define CONFIG_LTQ_SPL_CONSOLE
+ 
+ #define CONFIG_SYS_DRAM_PROBE
+ 
+-/* MTD devices */
+-#define CONFIG_MTD_DEVICE
+-#define CONFIG_MTD_PARTITIONS
+-#define CONFIG_FLASH_CFI_MTD
+-#define CONFIG_SPI_FLASH_MTD
+-#define CONFIG_CMD_MTD
+-
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+ #define CONFIG_ENV_SPI_CS		CONFIG_SPL_SPI_CS
+@@ -49,20 +46,24 @@
+ #if defined(CONFIG_SYS_BOOT_NOR)
+ #define CONFIG_ENV_IS_IN_FLASH
+ #define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(320 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
++#define CONFIG_ENV_OFFSET		(384 * 1024)
++#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
++#elif defined(CONFIG_SYS_BOOT_NORSPL)
++#define CONFIG_ENV_IS_IN_FLASH
++#define CONFIG_ENV_OVERWRITE
++#define CONFIG_ENV_OFFSET		(192 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(64 * 1024)
+ #elif defined(CONFIG_SYS_BOOT_SFSPL)
+ #define CONFIG_ENV_IS_IN_SPI_FLASH
+ #define CONFIG_ENV_OVERWRITE
+ #define CONFIG_ENV_OFFSET		(192 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(64 * 1024)
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
+ #endif
+ 
++#define CONFIG_ENV_SIZE			(8 * 1024)
++
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+ 
+ /* Console */
+@@ -78,20 +79,15 @@
+ #include <asm/lantiq/config.h>
+ #include <asm/arch/config.h>
+ 
+-/* Pull in additional Sphairon board config options */
+-#include <configs/sphairon_env.h>
++#define CONFIG_ENV_UPDATE_UBOOT_NOR					\
++	"update-uboot-nor=run load-uboot-norspl-lzo write-uboot-nor\0"
+ 
+ #define CONFIG_ENV_UPDATE_UBOOT_SF					\
+-	"update-uboot-sf=tftpboot u-boot.ltq.lzo.sfspl && "		\
+-	"run sf-probe; sf erase 0 +$filesize; "				\
+-	"sf write $fileaddr 0 $filesize\0"
++	"update-uboot-sf=run load-uboot-sfspl-lzo write-uboot-sf\0"
+ 
+ #define CONFIG_EXTRA_ENV_SETTINGS	\
+ 	CONFIG_ENV_LANTIQ_DEFAULTS	\
+-	CONFIG_ENV_UPDATE_UBOOT_SF	\
+-	CONFIG_ENV_SPHAIRON_GENERIC
+-
+-/* Default flash layout */
+-#define CONFIG_SPHAIRON_FLASHLAYOUT	"pss"
++	CONFIG_ENV_UPDATE_UBOOT_NOR	\
++	CONFIG_ENV_UPDATE_UBOOT_SF
+ 
+ #endif /* __CONFIG_H */
+diff --git a/include/configs/fb3370.h b/include/configs/fb3370.h
+deleted file mode 100644
+index 225c144d07d9f5c564b7dd24fac5dd5619859d11..0000000000000000000000000000000000000000
+--- a/include/configs/fb3370.h
++++ /dev/null
+@@ -1,72 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#ifndef __CONFIG_H
+-#define __CONFIG_H
+-
+-#define CONFIG_IDENT_STRING	"FB3370"
+-#define CONFIG_BOARD_NAME	"AVM FritzBox 3370"
+-#define CONFIG_MACH_TYPE	CONFIG_IDENT_STRING
+-#define CONFIG_BOARD_AVM_FB3370
+-
+-/* Configure SoC */
+-#define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+-
+-#define CONFIG_LTQ_SUPPORT_ETHERNET	/* Enable ethernet */
+-
+-#define CONFIG_LTQ_SUPPORT_SPI_FLASH
+-#define CONFIG_SPI_FLASH_MACRONIX	/* Have a MX29LV620 serial flash */
+-
+-#define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+-#define CONFIG_SPL_SPI_BUS		0
+-#define CONFIG_SPL_SPI_CS		4
+-#define CONFIG_SPL_SPI_MAX_HZ		25000000
+-#define CONFIG_SPL_SPI_MODE		0
+-#define CONFIG_LTQ_SPL_COMP_LZO
+-
+-/* Environment */
+-#define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+-#define CONFIG_ENV_SPI_CS		CONFIG_SPL_SPI_CS
+-#define CONFIG_ENV_SPI_MAX_HZ		CONFIG_SPL_SPI_MAX_HZ
+-#define CONFIG_ENV_SPI_MODE		CONFIG_SPL_SPI_MODE
+-
+-#if defined(CONFIG_SYS_BOOT_SFSPL)
+-#define CONFIG_ENV_IS_IN_SPI_FLASH
+-#define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(192 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+-#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
+-#else
+-#define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
+-#endif
+-
+-#define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+-
+-/* Console */
+-#define CONFIG_LTQ_ADVANCED_CONSOLE
+-#define CONFIG_BAUDRATE			115200
+-#define CONFIG_CONSOLE_ASC		1
+-#define CONFIG_CONSOLE_DEV		"ttyLTQ1"
+-
+-/* Commands */
+-#define CONFIG_CMD_PING
+-
+-/* Pull in default board configs for Lantiq XWAY VRX200 */
+-#include <asm/lantiq/config.h>
+-#include <asm/arch/config.h>
+-
+-#define CONFIG_ENV_UPDATE_UBOOT_SF					\
+-	"update-uboot-sf=tftpboot u-boot.ltq.lzo.sfspl && "		\
+-	"run sf-probe; sf erase 0 +$filesize; "				\
+-	"sf write $fileaddr 0 $filesize\0"
+-
+-#define CONFIG_EXTRA_ENV_SETTINGS	\
+-	CONFIG_ENV_LANTIQ_DEFAULTS	\
+-	CONFIG_ENV_UPDATE_UBOOT_SF
+-
+-#endif /* __CONFIG_H */
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index 96b11533d6c100ab0aa9a33076ef4fdb854fa275..75efb2065e672f2b291149205e4daf679328f879 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -8,10 +8,9 @@
+ #ifndef __CONFIG_H
+ #define __CONFIG_H
+ 
+-#define CONFIG_IDENT_STRING	"SPHISDNSIPGW"
++#define CONFIG_MACH_TYPE	"SPHISDNSIPGW"
++#define CONFIG_IDENT_STRING	" "CONFIG_MACH_TYPE
+ #define CONFIG_BOARD_NAME	"Sphairon ISDN SIP Gateway"
+-#define CONFIG_MACH_TYPE	CONFIG_IDENT_STRING
+-#define CONFIG_BOARD_SPH_ISDN_SIP_GATEWAY
+ 
+ /* Configure SoC */
+ #define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+@@ -32,7 +31,7 @@
+ #define CONFIG_SPL_SPI_MAX_HZ		25000000
+ #define CONFIG_SPL_SPI_MODE		0
+ #define CONFIG_LTQ_SPL_COMP_LZO
+-#define CONFIG_LTQ_SPL_DEBUG
++#define CONFIG_LTQ_SPL_CONSOLE
+ 
+ #define CONFIG_SYS_DRAM_PROBE
+ 
+@@ -41,7 +40,7 @@
+ #define CONFIG_MTD_PARTITIONS
+ #define CONFIG_SPI_FLASH_MTD
+ #define CONFIG_CMD_MTD
+-#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=ifx_nand"
++#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=nand-xway"
+ 
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+@@ -52,14 +51,17 @@
+ #if defined(CONFIG_SYS_BOOT_SFSPL)
+ #define CONFIG_ENV_IS_IN_SPI_FLASH
+ #define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(256 * 1024)
++#define CONFIG_ENV_OFFSET		(512 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(256 * 1024)
+ 
+ #define MTDPARTS_DEFAULT		\
+-	"mtdparts=spi0.4:256k(uboot_fix),256k(uboot_cfg),256k(uboot_update)"
++	"mtdparts=spi0.4:512k(uboot_fix),256k(uboot_cfg)"
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
++
++#define MTDPARTS_DEFAULT		"mtdparts="
+ #endif
++
+ #define CONFIG_ENV_SIZE			(8 * 1024)
+ 
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+@@ -81,9 +83,7 @@
+ #include <configs/sphairon_env.h>
+ 
+ #define CONFIG_ENV_UPDATE_UBOOT_SF					\
+-	"update-uboot-sf=tftpboot u-boot.ltq.lzo.sfspl && "		\
+-	"run sf-probe; sf erase 0 +$filesize; "				\
+-	"sf write $fileaddr 0 $filesize\0"
++	"update-uboot-sf=run load-uboot-sfspl-lzo write-uboot-sf\0"
+ 
+ #define CONFIG_EXTRA_ENV_SETTINGS	\
+ 	CONFIG_ENV_LANTIQ_DEFAULTS	\
+@@ -92,5 +92,6 @@
+ 
+ /* Default flash layout */
+ #define CONFIG_SPHAIRON_FLASHLAYOUT	"pss"
++#define CONFIG_SPHAIRON_NO_UBOOT_UPDATE
+ 
+ #endif /* __CONFIG_H */
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index 889d22200888bd26f70b9d251383b7c9db3b516a..fd518b2ddec80698052f937ef822f662b9d3c9fb 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -2,16 +2,15 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #ifndef __CONFIG_H
+ #define __CONFIG_H
+ 
+-#define CONFIG_IDENT_STRING	"SPHSL550X"
++#define CONFIG_MACH_TYPE	"SPHSL550X"
++#define CONFIG_IDENT_STRING	" "CONFIG_MACH_TYPE
+ #define CONFIG_BOARD_NAME	"Sphairon Speedlink 550x IAD"
+-#define CONFIG_MACH_TYPE	CONFIG_IDENT_STRING
+-#define CONFIG_BOARD_SPH_SL550X
+ 
+ /* Configure SoC */
+ #define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+@@ -32,7 +31,7 @@
+ #define CONFIG_SPL_SPI_MAX_HZ		25000000
+ #define CONFIG_SPL_SPI_MODE		0
+ #define CONFIG_LTQ_SPL_COMP_LZO
+-#define CONFIG_LTQ_SPL_DEBUG
++#define CONFIG_LTQ_SPL_CONSOLE
+ 
+ #define CONFIG_SYS_DRAM_PROBE
+ 
+@@ -41,7 +40,7 @@
+ #define CONFIG_MTD_PARTITIONS
+ #define CONFIG_SPI_FLASH_MTD
+ #define CONFIG_CMD_MTD
+-#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=ifx_nand"
++#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=nand-xway"
+ 
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+@@ -52,14 +51,17 @@
+ #if defined(CONFIG_SYS_BOOT_SFSPL)
+ #define CONFIG_ENV_IS_IN_SPI_FLASH
+ #define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(256 * 1024)
++#define CONFIG_ENV_OFFSET		(512 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(256 * 1024)
+ 
+ #define MTDPARTS_DEFAULT		\
+-	"mtdparts=spi0.4:256k(uboot_fix),256k(uboot_cfg),256k(uboot_update)"
++	"mtdparts=spi0.4:512k(uboot_fix),256k(uboot_cfg)"
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
++
++#define MTDPARTS_DEFAULT		"mtdparts="
+ #endif
++
+ #define CONFIG_ENV_SIZE			(8 * 1024)
+ 
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+@@ -81,9 +83,7 @@
+ #include <configs/sphairon_env.h>
+ 
+ #define CONFIG_ENV_UPDATE_UBOOT_SF					\
+-	"update-uboot-sf=tftpboot u-boot.ltq.lzo.sfspl && "		\
+-	"run sf-probe; sf erase 0 +$filesize; "				\
+-	"sf write $fileaddr 0 $filesize\0"
++	"update-uboot-sf=run load-uboot-sfspl-lzo write-uboot-sf\0"
+ 
+ #define CONFIG_EXTRA_ENV_SETTINGS	\
+ 	CONFIG_ENV_LANTIQ_DEFAULTS	\
+@@ -92,5 +92,6 @@
+ 
+ /* Default flash layout */
+ #define CONFIG_SPHAIRON_FLASHLAYOUT	"pss"
++#define CONFIG_SPHAIRON_NO_UBOOT_UPDATE
+ 
+ #endif /* __CONFIG_H */
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index e2999e1221abde131e00ed6d1dd9fda60929536a..ba0a6daef352ea6259d3374d0a15c4d6c1523585 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -22,6 +22,10 @@
+ #define CONFIG_CMD_SPI
+ #endif
+ 
++#define CONFIG_CMD_UBI
++#define CONFIG_CMD_UBIFS
++#define CONFIG_RBTREE
++
+ /* Image booting */
+ #define CONFIG_SPHAIRON_SCAN_STEP_SIZE		0x2000
+ #define CONFIG_BOOTDELAY			3
+diff --git a/include/configs/sx76x.h b/include/configs/sx76x.h
+deleted file mode 100644
+index 753c9120cffd60c99d058e98e5acab3ec9655daa..0000000000000000000000000000000000000000
+--- a/include/configs/sx76x.h
++++ /dev/null
+@@ -1,58 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Luka Perkov <uboot@lukaperkov.net>
+- */
+-
+-#ifndef __CONFIG_H
+-#define __CONFIG_H
+-
+-#define CONFIG_IDENT_STRING	"sx76x"
+-#define CONFIG_BOARD_NAME	"Gigaset sx76x"
+-#define CONFIG_MACH_TYPE	"GIGASX76X"
+-#define CONFIG_BOARD_GIGASET_SX76X
+-
+-/* Configure SoC */
+-#define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+-
+-#define CONFIG_LTQ_SUPPORT_ETHERNET	/* Enable ethernet */
+-
+-#define CONFIG_LTQ_SUPPORT_NOR_FLASH	/* Have a parallel NOR flash */
+-
+-/* Switch devices */
+-#define CONFIG_SWITCH_MULTI
+-#define CONFIG_SWITCH_ADM6996I
+-
+-/* Environment */
+-#if defined(CONFIG_SYS_BOOT_NOR)
+-#define CONFIG_ENV_IS_IN_FLASH
+-#define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(256 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+-#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
+-#else
+-#define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
+-#endif
+-
+-#define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+-
+-/* Commands */
+-#define CONFIG_CMD_LOADB
+-#define CONFIG_CMD_PING
+-
+-/* Console */
+-#define CONFIG_LTQ_ADVANCED_CONSOLE
+-#define CONFIG_BAUDRATE			115200
+-#define CONFIG_CONSOLE_ASC		1
+-#define CONFIG_CONSOLE_DEV		"ttyLTQ1"
+-
+-/* Pull in default board configs for Lantiq XWAY Danube */
+-#include <asm/lantiq/config.h>
+-#include <asm/arch/config.h>
+-
+-#define CONFIG_EXTRA_ENV_SETTINGS	\
+-	CONFIG_ENV_LANTIQ_DEFAULTS
+-
+-#endif /* __CONFIG_H */
+diff --git a/include/configs/vrx_g1.h b/include/configs/vrx_g1.h
+index 702b6d1c6a0fc3360609c0501c4260c9f2b361c0..c210f303b4e8279629fdff1c9e6d3c642e7ab2e6 100644
+--- a/include/configs/vrx_g1.h
++++ b/include/configs/vrx_g1.h
+@@ -8,10 +8,9 @@
+ #ifndef __CONFIG_H
+ #define __CONFIG_H
+ 
+-#define CONFIG_IDENT_STRING	"SPHVRXG1"
++#define CONFIG_MACH_TYPE	"SPHVRXG1"
++#define CONFIG_IDENT_STRING	" "CONFIG_MACH_TYPE
+ #define CONFIG_BOARD_NAME	"Sphairon VRX288 G1 Board"
+-#define CONFIG_MACH_TYPE	CONFIG_IDENT_STRING
+-#define CONFIG_BOARD_SPH_VRX_G1
+ 
+ /* Configure SoC */
+ #define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
+@@ -19,8 +18,10 @@
+ #define CONFIG_LTQ_SUPPORT_ETHERNET	/* Enable ethernet */
+ 
+ #define CONFIG_LTQ_SUPPORT_SPI_FLASH
+-#define CONFIG_SPI_FLASH_MACRONIX	/* Have a MX29LV620 serial flash */
+-#define CONFIG_SPI_FLASH_4BYTE_ADDRESSING
++#define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
++#define CONFIG_SPI_FLASH_4BYTE_MODE
++
++#define CONFIG_LTQ_SUPPORT_NAND_FLASH
+ 
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+@@ -28,12 +29,16 @@
+ #define CONFIG_SPL_SPI_MAX_HZ		25000000
+ #define CONFIG_SPL_SPI_MODE		0
+ #define CONFIG_LTQ_SPL_COMP_LZO
++#define CONFIG_LTQ_SPL_CONSOLE
++
++#define CONFIG_SYS_DRAM_PROBE
+ 
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+ #define CONFIG_SPI_FLASH_MTD
+ #define CONFIG_CMD_MTD
++#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=ifx_nand"
+ 
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+@@ -44,14 +49,19 @@
+ #if defined(CONFIG_SYS_BOOT_SFSPL)
+ #define CONFIG_ENV_IS_IN_SPI_FLASH
+ #define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(192 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+-#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
++#define CONFIG_ENV_OFFSET		(256 * 1024)
++#define CONFIG_ENV_SECT_SIZE		(256 * 1024)
++
++#define MTDPARTS_DEFAULT		\
++	"mtdparts=spi0.4:256k(uboot_fix),256k(uboot_cfg),256k(uboot_update)"
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
++
++#define MTDPARTS_DEFAULT		"mtdparts="
+ #endif
+ 
++#define CONFIG_ENV_SIZE			(8 * 1024)
++
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+ 
+ /* Console */
+@@ -74,9 +84,7 @@
+ #include <configs/sphairon_env.h>
+ 
+ #define CONFIG_ENV_UPDATE_UBOOT_SF					\
+-	"update-uboot-sf=tftpboot u-boot.ltq.lzo.sfspl && "		\
+-	"run sf-probe; sf erase 0 +$filesize; "				\
+-	"sf write $fileaddr 0 $filesize\0"
++	"update-uboot-sf=run load-uboot-sfspl-lzo write-uboot-sf\0"
+ 
+ #define CONFIG_EXTRA_ENV_SETTINGS	\
+ 	CONFIG_ENV_LANTIQ_DEFAULTS	\
+diff --git a/include/sas/flashlayout.h b/include/sas/flashlayout.h
+index 67f587a7f631f5a17703f59b09a28c9e4f84063f..2ac74a4df83e9c42451e596f895d3c49f8a3e66c 100644
+--- a/include/sas/flashlayout.h
++++ b/include/sas/flashlayout.h
+@@ -44,6 +44,16 @@ sas_flash_layout_is_mirrored(enum sas_flash_layout_type layout)
+ }
+ 
+ static inline int
++sas_flash_layout_has_uboot_update_part(void)
++{
++#ifdef CONFIG_SPHAIRON_NO_UBOOT_UPDATE
++	return 0;
++#else
++	return 1;
++#endif
++}
++
++static inline int
+ sas_flash_layout_has_image_parts(enum sas_flash_layout_type layout)
+ {
+ 	switch (layout) {
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index 0191579242139acd9fe97b54053984cfc1a0b3b3..4e0392457ade1420e5d18649e0e42eff24b17e54 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -79,9 +79,11 @@ int sas_flash_layout_static_init(void)
+ 	if (err)
+ 		return 1;
+ 
+-	err = sas_flash_layout_static_part_init(SAS_PART_UBOOT_UPDATE);
+-	if (err)
+-		return 1;
++	if (sas_flash_layout_has_uboot_update_part()) {
++		err = sas_flash_layout_static_part_init(SAS_PART_UBOOT_UPDATE);
++		if (err)
++			return 1;
++	}
+ 
+ 	return 0;
+ }
+@@ -212,7 +214,12 @@ void sas_flash_layout_print(void)
+ 
+ unsigned long sas_flash_layout_dynamic_offset(void)
+ {
+-	return 2 * UBOOT_ENV_OFFSET + UBOOT_ENV_SECT_SIZE;
++	unsigned long offset = UBOOT_ENV_OFFSET + UBOOT_ENV_SECT_SIZE;
++
++	if (sas_flash_layout_has_uboot_update_part())
++		offset += UBOOT_ENV_OFFSET;
++
++	return offset;
+ }
+ 
+ struct sas_flash_partition *sas_flash_layout_image_partition(unsigned int index)

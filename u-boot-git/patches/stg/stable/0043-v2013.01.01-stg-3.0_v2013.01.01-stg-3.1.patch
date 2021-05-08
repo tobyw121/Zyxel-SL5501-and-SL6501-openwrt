@@ -1,0 +1,482 @@
+diff --git a/Makefile b/Makefile
+index 15550e79116c620a10e145df75e523ce957b4330..14fc9e6f819aefebd1d81870b53380136d2d6197 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 01
+ SUBLEVEL = 01
+-EXTRAVERSION = -stg-3.0
++EXTRAVERSION = -stg-3.1
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/README b/README
+index e45c83753fae036c31f67dca138f883b5c3d3ab6..2ae65b8340b63a8d1dc19325978f561307341533 100644
+--- a/README
++++ b/README
+@@ -510,6 +510,12 @@ The following options need to be configured:
+ 		expect it to be in bytes, others in MB.
+ 		Define CONFIG_MEMSIZE_IN_BYTES to make it in bytes.
+ 
++		CONFIG_DISABLE_ENV_INIT		[relevant for MIPS only]
++
++		Disable initialization of traditional environment variables
++		passed to Linux. Modern kernels only use variables from command
++		line.
++
+ 		CONFIG_OF_LIBFDT
+ 
+ 		New kernel versions are expecting firmware settings to be
+diff --git a/arch/mips/include/asm/config.h b/arch/mips/include/asm/config.h
+index 049c44eaf84de0ce67d86afcf0cd016d4bd6c407..6ddc3494c6bee9dbaa6d45e1ddb3802c314b97f7 100644
+--- a/arch/mips/include/asm/config.h
++++ b/arch/mips/include/asm/config.h
+@@ -21,4 +21,7 @@
+ #ifndef _ASM_CONFIG_H_
+ #define _ASM_CONFIG_H_
+ 
++#define CONFIG_LMB
++#define CONFIG_SYS_BOOT_RAMDISK_HIGH
++
+ #endif
+diff --git a/arch/mips/lib/bootm.c b/arch/mips/lib/bootm.c
+index a36154a892c1ea687b5148772d1d384da664712d..ee0078bfb96babffd16ffc1c8045d3552c49fd17 100644
+--- a/arch/mips/lib/bootm.c
++++ b/arch/mips/lib/bootm.c
+@@ -33,23 +33,172 @@ DECLARE_GLOBAL_DATA_PTR;
+ #define	LINUX_MAX_ENVS		256
+ #define	LINUX_MAX_ARGS		256
+ 
++#ifdef CONFIG_DISABLE_ENV_INIT
++#define need_linux_env		0
++#else
++#define need_linux_env		1
++#endif
++
+ static int linux_argc;
+ static char **linux_argv;
++static char *linux_argp;
+ 
+ static char **linux_env;
+ static char *linux_env_p;
+ static int linux_env_idx;
+ 
+-static void linux_params_init(ulong start, char *commandline);
+-static void linux_env_set(char *env_name, char *env_val);
++static ulong arch_get_sp(void)
++{
++	ulong ret;
+ 
+-static void boot_prep_linux(bootm_headers_t *images)
++	__asm__ __volatile__("move %0, $sp" : "=r"(ret) : );
++
++	return ret;
++}
++
++void arch_lmb_reserve(struct lmb *lmb)
+ {
+-	char *commandline = getenv("bootargs");
+-	char env_buf[12];
+-	char *cp;
++	ulong sp;
++
++	/*
++	* Booting a (Linux) kernel image
++	*
++	* Allocate space for command line and board info - the
++	* address should be as high as possible within the reach of
++	* the kernel (see CONFIG_SYS_BOOTMAPSZ settings), but in unused
++	* memory, which means far enough below the current stack
++	* pointer.
++	*/
++	sp = arch_get_sp();
++	debug("## Current stack ends at 0x%08lx\n", sp);
++
++	/* adjust sp by 4K to be safe */
++	sp -= 4096;
++	lmb_reserve(lmb, sp, CONFIG_SYS_SDRAM_BASE + gd->ram_size - sp);
++}
++
++static void linux_cmdline_init(void)
++{
++	linux_argc = 1;
++	linux_argv = (char **) UNCACHED_SDRAM(gd->bd->bi_boot_params);
++	linux_argv[0] = 0;
++	linux_argp = (char *) (linux_argv + LINUX_MAX_ARGS);
++}
++
++static void linux_cmdline_set(const char *value, size_t len)
++{
++	linux_argv[linux_argc] = linux_argp;
++	memcpy(linux_argp, value, len);
++	linux_argp[len] = 0;
++
++	linux_argp += len + 1;
++	linux_argc++;
++}
++
++static void linux_cmdline_dump(void)
++{
++#ifdef DEBUG
++	int i;
++
++	printf("## cmdline argv at 0x%p, argp at 0x%p\n",
++		linux_argv, linux_argp);
++
++	for (i = 1; i < linux_argc; i++)
++		printf("   arg %03d: %s\n", i, linux_argv[i]);
++#endif
++}
++
++static void boot_cmdline_linux(bootm_headers_t *images)
++{
++	const char *bootargs, *next, *quote;
++	char buf[12];
++	unsigned int mem = gd->ram_size >> 20;
++	ulong rd_start, rd_size;
++
++	linux_cmdline_init();
++
++	/* append mem */
++	sprintf(buf, "mem=%uM", mem);
++	linux_cmdline_set(buf, strlen(buf));
++
++	/* append rd_start and rd_size */
++	rd_start = images->initrd_start;
++	rd_size = images->initrd_end - images->initrd_start;
++
++	if (rd_size) {
++		sprintf(buf, "rd_start=0x%08lX", rd_start);
++		linux_cmdline_set(buf, strlen(buf));
++		sprintf(buf, "rd_size=0x%lX", rd_size);
++		linux_cmdline_set(buf, strlen(buf));
++	}
++
++	bootargs = getenv("bootargs");
++	if (!bootargs)
++		return;
++
++	next = bootargs;
++
++	while (bootargs && *bootargs && linux_argc < LINUX_MAX_ARGS) {
++		quote = strchr(bootargs, '"');
++		next = strchr(bootargs, ' ');
++
++		while (next && quote && quote < next) {
++			/* we found a left quote before the next blank
++			 * now we have to find the matching right quote
++			 */
++			next = strchr(quote + 1, '"');
++			if (next) {
++				quote = strchr(next + 1, '"');
++				next = strchr(next + 1, ' ');
++			}
++		}
++
++		if (!next)
++			next = bootargs + strlen(bootargs);
++
++		linux_cmdline_set(bootargs, next - bootargs);
++
++		if (*next)
++			next++;
++
++		bootargs = next;
++	}
++
++	linux_cmdline_dump();
++}
++
++static void linux_env_init(void)
++{
++	linux_env = (char **) (((ulong) linux_argp + 15) & ~15);
++	linux_env[0] = 0;
++	linux_env_p = (char *) (linux_env + LINUX_MAX_ENVS);
++	linux_env_idx = 0;
++}
++
++static void linux_env_set(const char *env_name, const char *env_val)
++{
++	if (linux_env_idx < LINUX_MAX_ENVS - 1) {
++		linux_env[linux_env_idx] = linux_env_p;
++
++		strcpy(linux_env_p, env_name);
++		linux_env_p += strlen(env_name);
++
++		strcpy(linux_env_p, "=");
++		linux_env_p += 1;
++
++		strcpy(linux_env_p, env_val);
++		linux_env_p += strlen(env_val);
+ 
+-	linux_params_init(UNCACHED_SDRAM(gd->bd->bi_boot_params), commandline);
++		linux_env_p++;
++		linux_env[++linux_env_idx] = 0;
++	}
++}
++
++static void boot_prep_linux_legacy(bootm_headers_t *images)
++{
++	char env_buf[12];
++	const char *cp;
++	ulong rd_start, rd_size;
+ 
+ #ifdef CONFIG_MEMSIZE_IN_BYTES
+ 	sprintf(env_buf, "%lu", (ulong)gd->ram_size);
+@@ -60,12 +209,17 @@ static void boot_prep_linux(bootm_headers_t *images)
+ 		(ulong)(gd->ram_size >> 20));
+ #endif /* CONFIG_MEMSIZE_IN_BYTES */
+ 
++	rd_start = UNCACHED_SDRAM(images->initrd_start);
++	rd_size = images->initrd_end - images->initrd_start;
++
++	linux_env_init();
++
+ 	linux_env_set("memsize", env_buf);
+ 
+-	sprintf(env_buf, "0x%08X", (uint) UNCACHED_SDRAM(images->rd_start));
++	sprintf(env_buf, "0x%08lX", rd_start);
+ 	linux_env_set("initrd_start", env_buf);
+ 
+-	sprintf(env_buf, "0x%X", (uint) (images->rd_end - images->rd_start));
++	sprintf(env_buf, "0x%lX", rd_size);
+ 	linux_env_set("initrd_size", env_buf);
+ 
+ 	sprintf(env_buf, "0x%08X", (uint) (gd->bd->bi_flashstart));
+@@ -83,31 +237,39 @@ static void boot_prep_linux(bootm_headers_t *images)
+ 		linux_env_set("eth1addr", cp);
+ }
+ 
+-static void boot_jump_linux(bootm_headers_t *images)
++static void boot_prep_linux(bootm_headers_t *images)
+ {
+-	void (*theKernel) (int, char **, char **, int *);
++	if (need_linux_env)
++		boot_prep_linux_legacy(images);
++}
+ 
+-	/* find kernel entry point */
+-	theKernel = (void (*)(int, char **, char **, int *))images->ep;
++static void boot_jump_linux(bootm_headers_t *images)
++{
++	typedef void __noreturn (*kernel_entry_t)(int, ulong, ulong, ulong);
++	kernel_entry_t kernel = (kernel_entry_t) images->ep;
+ 
+-	debug("## Transferring control to Linux (at address %08lx) ...\n",
+-		(ulong) theKernel);
++	debug("## Transferring control to Linux (at address %p) ...\n", kernel);
+ 
+ 	bootstage_mark(BOOTSTAGE_ID_RUN_OS);
+ 
+ 	/* we assume that the kernel is in place */
+ 	printf("\nStarting kernel ...\n\n");
+ 
+-	theKernel(linux_argc, linux_argv, linux_env, 0);
++	kernel(linux_argc, (ulong)linux_argv, (ulong)linux_env, 0);
+ }
+ 
+ int do_bootm_linux(int flag, int argc, char * const argv[],
+ 			bootm_headers_t *images)
+ {
+ 	/* No need for those on MIPS */
+-	if (flag & BOOTM_STATE_OS_BD_T || flag & BOOTM_STATE_OS_CMDLINE)
++	if (flag & BOOTM_STATE_OS_BD_T)
+ 		return -1;
+ 
++	if (flag & BOOTM_STATE_OS_CMDLINE) {
++		boot_cmdline_linux(images);
++		return 0;
++	}
++
+ 	if (flag & BOOTM_STATE_OS_PREP) {
+ 		boot_prep_linux(images);
+ 		return 0;
+@@ -118,76 +280,10 @@ int do_bootm_linux(int flag, int argc, char * const argv[],
+ 		return 0;
+ 	}
+ 
++	boot_cmdline_linux(images);
+ 	boot_prep_linux(images);
+ 	boot_jump_linux(images);
+ 
+ 	/* does not return */
+ 	return 1;
+ }
+-
+-static void linux_params_init(ulong start, char *line)
+-{
+-	char *next, *quote, *argp;
+-
+-	linux_argc = 1;
+-	linux_argv = (char **) start;
+-	linux_argv[0] = 0;
+-	argp = (char *) (linux_argv + LINUX_MAX_ARGS);
+-
+-	next = line;
+-
+-	while (line && *line && linux_argc < LINUX_MAX_ARGS) {
+-		quote = strchr(line, '"');
+-		next = strchr(line, ' ');
+-
+-		while (next && quote && quote < next) {
+-			/* we found a left quote before the next blank
+-			 * now we have to find the matching right quote
+-			 */
+-			next = strchr(quote + 1, '"');
+-			if (next) {
+-				quote = strchr(next + 1, '"');
+-				next = strchr(next + 1, ' ');
+-			}
+-		}
+-
+-		if (!next)
+-			next = line + strlen(line);
+-
+-		linux_argv[linux_argc] = argp;
+-		memcpy(argp, line, next - line);
+-		argp[next - line] = 0;
+-
+-		argp += next - line + 1;
+-		linux_argc++;
+-
+-		if (*next)
+-			next++;
+-
+-		line = next;
+-	}
+-
+-	linux_env = (char **) (((ulong) argp + 15) & ~15);
+-	linux_env[0] = 0;
+-	linux_env_p = (char *) (linux_env + LINUX_MAX_ENVS);
+-	linux_env_idx = 0;
+-}
+-
+-static void linux_env_set(char *env_name, char *env_val)
+-{
+-	if (linux_env_idx < LINUX_MAX_ENVS - 1) {
+-		linux_env[linux_env_idx] = linux_env_p;
+-
+-		strcpy(linux_env_p, env_name);
+-		linux_env_p += strlen(env_name);
+-
+-		strcpy(linux_env_p, "=");
+-		linux_env_p += 1;
+-
+-		strcpy(linux_env_p, env_val);
+-		linux_env_p += strlen(env_val);
+-
+-		linux_env_p++;
+-		linux_env[++linux_env_idx] = 0;
+-	}
+-}
+diff --git a/common/cmd_bootm.c b/common/cmd_bootm.c
+index 1b8a8c15610f68954643f967081d61ca8eee0e74..221187f77c02f0ff102deb689e019b4d8639624a 100644
+--- a/common/cmd_bootm.c
++++ b/common/cmd_bootm.c
+@@ -1055,7 +1055,7 @@ static char bootm_help_text[] =
+ 	"issued in the order below (it's ok to not issue all sub-commands):\n"
+ 	"\tstart [addr [arg ...]]\n"
+ 	"\tloados  - load OS image\n"
+-#if defined(CONFIG_PPC) || defined(CONFIG_M68K) || defined(CONFIG_SPARC)
++#if defined(CONFIG_SYS_BOOT_RAMDISK_HIGH)
+ 	"\tramdisk - relocate initrd, set env initrd_start/initrd_end\n"
+ #endif
+ #if defined(CONFIG_OF_LIBFDT)
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index c00f6af56e8c7c2b80c25b515d42a8ea7cfd76da..dcb25207eaa3c7b767bd214c6581e97347887f06 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -26,6 +26,8 @@
+ #define CONFIG_CMD_UBIFS
+ #define CONFIG_RBTREE
+ 
++#define CONFIG_FIT
++
+ /* Image booting */
+ #define CONFIG_SPHAIRON_SCAN_STEP_SIZE		0x2000
+ #define CONFIG_BOOTDELAY			3
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index c2a6dd7c36c10ff15ada8cea805dfd608e04f56e..32812bedd59b9a1ce1fe1df86042fbab67bc3e5f 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -211,7 +211,7 @@ static void sas_env_fs_args_init(int active_image,
+ 	sas_env_fs_arg_set("defconfig", servicefs_src);
+ }
+ 
+-static void sas_env_linux_fixup(ulong loadaddr)
++static void sas_env_console_init(ulong loadaddr)
+ {
+ 	const image_header_t *hdr = (const image_header_t *)loadaddr;
+ 	const char *consoledev;
+@@ -255,12 +255,22 @@ static void sas_env_compat_set(int *save_env)
+ 	sas_setenv("uboot_builddate", U_BOOT_DATE " " U_BOOT_TIME, save_env);
+ }
+ 
++static void sas_env_bootargs_add(const char *value)
++{
++	sas_run_command("setenv bootargs $bootargs %s", value);
++}
++
+ static void sas_env_bootargs_init(int ptest_mode)
+ {
+-	if (ptest_mode)
+-		setenv("ptest", "ptest=1");
++	sas_env_bootargs_add("console=$consoledev,$baudrate");
++	sas_env_bootargs_add("ip=$ipaddr:$serverip::::$netdev:off");
++	sas_env_bootargs_add("ethaddr=$ethaddr");
++	sas_env_bootargs_add("machtype=" CONFIG_MACH_TYPE);
++	sas_env_bootargs_add("$kernelcmdline $mtdparts $flash_layout");
++	sas_env_bootargs_add("$rootfs $servicefs $defconfig");
+ 
+-	sas_run_command("run addconsole addeth addip addmachtype addbootargs");
++	if (ptest_mode)
++		sas_env_bootargs_add("ptest=1");
+ }
+ 
+ static void sas_env_save(int status)
+@@ -272,10 +282,33 @@ static void sas_env_save(int status)
+ static int sas_bootm(ulong addr)
+ {
+ #if 0
+-	printf("\nbootm %08lx\n\n", addr);
++	printf("\nbootm start %08lx\n", addr);
++	puts("bootm loados\n");
++	puts("bootm ramdisk\n");
++	puts("bootm cmdline\n");
++	puts("bootm prep\n");
++	puts("bootm go\n");
+ 	return 0;
+ #else
+-	return sas_run_command("bootm %08lx", addr);
++	int ret;
++
++	ret = sas_run_command("bootm start %08lx", addr);
++	if (ret)
++		return ret;
++
++	ret = sas_run_command("bootm loados");
++	if (ret)
++		return ret;
++
++	ret = sas_run_command("bootm ramdisk");
++	if (ret)
++		return ret;
++
++	sas_run_command("bootm cmdline");
++	sas_run_command("bootm prep");
++	sas_run_command("bootm go");
++
++	return 0;
+ #endif
+ }
+ 
+@@ -465,7 +498,7 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 	}
+ 
+ 	/* Handle transient env variables */
+-	sas_env_linux_fixup(loadaddr);
++	sas_env_console_init(loadaddr);
+ 	sas_env_fs_args_init(active_image, rootfs, servicefs);
+ 	sas_env_bootargs_init(ptest_mode);
+ 

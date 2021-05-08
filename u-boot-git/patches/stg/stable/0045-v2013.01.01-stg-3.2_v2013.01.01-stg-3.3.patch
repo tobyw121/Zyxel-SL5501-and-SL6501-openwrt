@@ -1,0 +1,139 @@
+diff --git a/Makefile b/Makefile
+index 12df144674451ac54edc8de88c154b46e9f480aa..63c3ca052f83157a333b4968fee5d2aa2f732298 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 01
+ SUBLEVEL = 01
+-EXTRAVERSION = -stg-3.2
++EXTRAVERSION = -stg-3.3
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index a11ed521beea1857de44e36c3e3c5dda2b14f876..2049bfdf49c5b0da14ad79d6c85ca28621ca2e63 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -222,3 +222,24 @@ int sas_cf_check_board(void)
+ 	/* check if reset button is pressed */
+ 	return 0 == gpio_get_value(46);
+ }
++
++void sas_cf_led_action(enum sas_cf_state state)
++{
++	switch (state) {
++	case CF_STARTED:
++		/* LED Power green on */
++		gpio_set_value(78, 0);
++		break;
++	case CF_FINISHED:
++		/* LED Power green off */
++		gpio_set_value(78, 1);
++		break;
++	case CF_FAILED:
++		/* LED Power green off */
++		gpio_set_value(78, 1);
++		/* MGM LED red on */
++		gpio_set_value(74, 0);
++		break;
++	}
++	return;
++}
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index 0f64dbbda62629ec5c3426334bfd4cc1f302cd36..67a73b09f0139f1ca88c5d40c349175cb640d42f 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -181,3 +181,24 @@ int sas_cf_check_board(void)
+ 	/* check if reset button is pressed */
+ 	return 0 == gpio_get_value(47);
+ }
++
++void sas_cf_led_action(enum sas_cf_state state)
++{
++	switch (state) {
++	case CF_STARTED:
++		/* LED Power green on */
++		gpio_direction_output(3, 0);
++		break;
++	case CF_FINISHED:
++		/* LED Power green off */
++		gpio_direction_output(3, 1);
++		break;
++	case CF_FAILED:
++		/* LED Info red on */
++		gpio_direction_output(21, 0);
++		/* LED Power green off */
++		gpio_direction_output(3, 0);
++		break;
++	}
++	return;
++}
+diff --git a/include/sas/controlfile.h b/include/sas/controlfile.h
+index 0aee2ea309ab91a8d79be89fc78ef1c7f80a113b..6ba14f548af9534dc928c49919a605567e1a38ff 100644
+--- a/include/sas/controlfile.h
++++ b/include/sas/controlfile.h
+@@ -18,5 +18,6 @@ int sas_cf_check_board(void);
+ void sas_cf_status_board(enum sas_cf_state state);
+ void sas_cf_run(void);
+ int sas_cf_is_active(void);
++void sas_cf_led_action(enum sas_cf_state state);
+ 
+ #endif /* __SAS_CONTROLFILE_H__ */
+diff --git a/lib/sphairon/controlfile.c b/lib/sphairon/controlfile.c
+index 0906fab99dad4e5aae04da0ea023600fe47a5c6b..7326320a204c8e2046878ef364a7eb7c1a621602 100644
+--- a/lib/sphairon/controlfile.c
++++ b/lib/sphairon/controlfile.c
+@@ -16,23 +16,31 @@ __weak int sas_cf_check_board(void)
+ 	return 0;
+ }
+ 
+-__weak void sas_cf_status_board(enum sas_cf_state state)
++void sas_cf_status_board(enum sas_cf_state state)
+ {
+ 	puts("control file ");
+ 
+ 	switch (state) {
+ 	case CF_STARTED:
+ 		puts("started\n");
++		sas_cf_led_action(CF_STARTED);
+ 		break;
+ 	case CF_FINISHED:
+ 		puts("finished\n");
++		sas_cf_led_action(CF_FINISHED);
+ 		break;
+ 	case CF_FAILED:
+ 		puts("failed\n");
++		sas_cf_led_action(CF_FAILED);
+ 		break;
+ 	}
+ }
+ 
++__weak void sas_cf_led_action(enum sas_cf_state state)
++{
++	return;
++}
++
+ static int sas_cf_debounce(unsigned long interval)
+ {
+ 	unsigned long timebase = get_timer(0);
+@@ -55,8 +63,6 @@ void sas_cf_run(void)
+ 	if (!status)
+ 		return;
+ 
+-	sas_cf_status_board(CF_STARTED);
+-
+ 	setenv("bootcmd", "sas_controlfile");
+ 	setenv("bootdelay", "2");
+ }
+@@ -69,7 +75,10 @@ int sas_cf_is_active(void)
+ 		return 0;
+ 
+ 	if (!strcmp(bootcmd, "sas_controlfile"))
++	{
++		sas_cf_status_board(CF_STARTED);
+ 		return 1;
++	}
+ 
+ 	return 0;
+ }

@@ -1,0 +1,1947 @@
+diff --git a/Makefile b/Makefile
+index 106c691353c07a0c1125ea7b7a8a2f57a0a24641..102a1c610068e1b9e166bdc0ef9d9b9152c24dcc 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.29
++EXTRAVERSION = -stg-1.30
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/danube/Makefile b/arch/mips/cpu/mips32/danube/Makefile
+index a72f102e5d28d40cdce56a5bd7ea4c91b4fcfa3a..e9fb7e0e5fd9cb0306e1e4325bbf8614dd72ed61 100644
+--- a/arch/mips/cpu/mips32/danube/Makefile
++++ b/arch/mips/cpu/mips32/danube/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/config.mk
+ 
+ LIB	= $(obj)lib$(SOC).o
+ 
+-COBJS-y	+= cgu.o chipid.o cpu.o ebu.o gpio.o mem.o pmu.o rcu.o
++COBJS-y	+= cgu.o chipid.o cpu.o ebu.o mem.o pmu.o rcu.o
+ SOBJS-y	+= cgu_init.o mem_init.o lowlevel_init.o
+ 
+ COBJS	:= $(COBJS-y)
+diff --git a/arch/mips/cpu/mips32/danube/gpio.c b/arch/mips/cpu/mips32/danube/gpio.c
+deleted file mode 100644
+index 96c23865f1c60d11dbf0e48b1cbaaaf6bfda9dc9..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/danube/gpio.c
++++ /dev/null
+@@ -1,148 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <common.h>
+-#include <asm/arch/soc.h>
+-#include <asm/arch/gpio.h>
+-#include <asm/lantiq/io.h>
+-
+-struct ltq_gpio_port_regs {
+-	u32	out;
+-	u32	in;
+-	u32	dir;
+-	u32	altsel0;
+-	u32	altsel1;
+-	u32	od;
+-	u32	stoff;
+-	u32	pudsel;
+-	u32	puden;
+-	u32	rsvd1[3];
+-};
+-
+-struct ltq_gpio_regs {
+-	u32				rsvd[4];
+-	struct ltq_gpio_port_regs	ports[2];
+-};
+-
+-static struct ltq_gpio_regs *ltq_gpio_regs =
+-	(struct ltq_gpio_regs *) CKSEG1ADDR(LTQ_GPIO_BASE);
+-
+-int gpio_request(unsigned gpio, const char *label)
+-{
+-	return 0;
+-}
+-
+-int gpio_free(unsigned gpio)
+-{
+-	return 0;
+-}
+-
+-int gpio_direction_input(unsigned gpio)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	/*
+-	 * Reset open drain and altsel configs to workaround improper
+-	 * reset values or unwanted modifications by BootROM
+-	 */
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-
+-	/* Switch to input */
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-
+-	return 0;
+-}
+-
+-int gpio_direction_output(unsigned gpio, int value)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	/*
+-	 * Reset open drain and altsel configs to workaround improper
+-	 * reset values or unwanted modifications by BootROM
+-	 */
+-	ltq_setbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-
+-	if (value)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-
+-	/* Switch to output */
+-	ltq_setbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-
+-	return 0;
+-}
+-
+-int gpio_get_value(unsigned gpio)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-	u32 val;
+-
+-	val = ltq_readl(&ltq_gpio_regs->ports[port].in);
+-
+-	return val & (1 << pin) ? 1 : 0;
+-}
+-
+-int gpio_set_value(unsigned gpio, int value)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	if (value)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-
+-	return 0;
+-}
+-
+-int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	if (altsel0)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-
+-	if (altsel1)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-
+-	if (dir) {
+-		ltq_setbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-		ltq_setbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-	} else {
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-	}
+-
+-	return 0;
+-}
+-
+-int gpio_set_opendrain(unsigned gpio, int od)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	if (od)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-
+-	return 0;
+-}
+diff --git a/arch/mips/cpu/mips32/vrx200/Makefile b/arch/mips/cpu/mips32/vrx200/Makefile
+index c36364692e3b2ff78807f91a97a5da535cc3a0c7..8cb2187300d5dfb9305f3646f57adf94ea77294a 100644
+--- a/arch/mips/cpu/mips32/vrx200/Makefile
++++ b/arch/mips/cpu/mips32/vrx200/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/config.mk
+ 
+ LIB	= $(obj)lib$(SOC).o
+ 
+-COBJS-y	+= cgu.o chipid.o cpu.o dcdc.o ebu.o gphy.o gpio.o mem.o pmu.o rcu.o
++COBJS-y	+= cgu.o chipid.o cpu.o dcdc.o ebu.o gphy.o mem.o pmu.o rcu.o
+ SOBJS-y	+= cgu_init.o mem_init.o lowlevel_init.o
+ SOBJS-y	+= gphy_fw.o
+ 
+diff --git a/arch/mips/cpu/mips32/vrx200/gpio.c b/arch/mips/cpu/mips32/vrx200/gpio.c
+deleted file mode 100644
+index 1c0d6ebe2f0a71558e8193b1b55a167da834fcff..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/vrx200/gpio.c
++++ /dev/null
+@@ -1,148 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
+- */
+-
+-#include <common.h>
+-#include <asm/arch/soc.h>
+-#include <asm/arch/gpio.h>
+-#include <asm/lantiq/io.h>
+-
+-struct ltq_gpio_port_regs {
+-	u32	out;
+-	u32	in;
+-	u32	dir;
+-	u32	altsel0;
+-	u32	altsel1;
+-	u32	od;
+-	u32	stoff;
+-	u32	pudsel;
+-	u32	puden;
+-	u32	rsvd1[3];
+-};
+-
+-struct ltq_gpio_regs {
+-	u32				rsvd[4];
+-	struct ltq_gpio_port_regs	ports[3];
+-};
+-
+-static struct ltq_gpio_regs *ltq_gpio_regs =
+-	(struct ltq_gpio_regs *) CKSEG1ADDR(LTQ_GPIO_BASE);
+-
+-int gpio_request(unsigned gpio, const char *label)
+-{
+-	return 0;
+-}
+-
+-int gpio_free(unsigned gpio)
+-{
+-	return 0;
+-}
+-
+-int gpio_direction_input(unsigned gpio)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	/*
+-	 * Reset open drain and altsel configs to workaround improper
+-	 * reset values or unwanted modifications by BootROM
+-	 */
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-
+-	/* Switch to input */
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-
+-	return 0;
+-}
+-
+-int gpio_direction_output(unsigned gpio, int value)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	/*
+-	 * Reset open drain and altsel configs to workaround improper
+-	 * reset values or unwanted modifications by BootROM
+-	 */
+-	ltq_setbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-	ltq_clrbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-
+-	if (value)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-
+-	/* Switch to output */
+-	ltq_setbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-
+-	return 0;
+-}
+-
+-int gpio_get_value(unsigned gpio)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-	u32 val;
+-
+-	val = ltq_readl(&ltq_gpio_regs->ports[port].in);
+-
+-	return val & (1 << pin) ? 1 : 0;
+-}
+-
+-int gpio_set_value(unsigned gpio, int value)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	if (value)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].out, (1 << pin));
+-
+-	return 0;
+-}
+-
+-int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	if (altsel0)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].altsel0, (1 << pin));
+-
+-	if (altsel1)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].altsel1, (1 << pin));
+-
+-	if (dir) {
+-		ltq_setbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-		ltq_setbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-	} else {
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].dir, (1 << pin));
+-	}
+-
+-	return 0;
+-}
+-
+-int gpio_set_opendrain(unsigned gpio, int od)
+-{
+-	unsigned port = gpio_to_port(gpio);
+-	unsigned pin = gpio_to_pin(gpio);
+-
+-	if (od)
+-		ltq_setbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-	else
+-		ltq_clrbits(&ltq_gpio_regs->ports[port].od, (1 << pin));
+-
+-	return 0;
+-}
+diff --git a/arch/mips/include/asm/arch-danube/config.h b/arch/mips/include/asm/arch-danube/config.h
+index 1eea72420919962c8754affde2e1520abcb46e45..bf7e838b337935a4b14b75785b8a18b68c77271a 100644
+--- a/arch/mips/include/asm/arch-danube/config.h
++++ b/arch/mips/include/asm/arch-danube/config.h
+@@ -63,6 +63,10 @@
+ #define CONFIG_LANTIQ_SERIAL
+ #define CONFIG_SYS_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200 }
+ 
++/* GPIO */
++#define CONFIG_LANTIQ_GPIO
++#define CONFIG_SYS_GPIO_MAX_BANKS	2
++
+ /* FLASH driver */
+ #if defined(CONFIG_LTQ_SUPPORT_NOR_FLASH)
+ #define CONFIG_SYS_MAX_FLASH_BANKS	1
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 47034c2631bf020e68ed1037d460f851c924b7ea..6b16a793f9a4b740b65f288cf6c53d0b0cad1218 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -78,6 +78,11 @@
+ #define CONFIG_LANTIQ_SERIAL
+ #define CONFIG_SYS_BAUDRATE_TABLE	{ 9600, 19200, 38400, 57600, 115200 }
+ 
++/* GPIO */
++#define CONFIG_LANTIQ_GPIO
++#define CONFIG_SYS_GPIO_MAX_BANKS	3
++#define CONFIG_SYS_GPIO_BANK3
++
+ /* FLASH driver */
+ #if defined(CONFIG_LTQ_SUPPORT_NOR_FLASH)
+ #define CONFIG_SYS_MAX_FLASH_BANKS	1
+@@ -128,6 +133,7 @@
+ #if defined(CONFIG_LTQ_SPL_SRAM)
+ #define CONFIG_SPL
+ #define CONFIG_SPL_LIBGENERIC_SUPPORT
++#define CONFIG_SPL_GPIO_SUPPORT
+ #define CONFIG_SPL_TEXT_BASE		0xBE220000
+ #define CONFIG_SPL_START_S_PATH		"arch/mips/cpu/mips32/vrx200/spl_sram"
+ #define CONFIG_SPL_MALLOC_BASE		CONFIG_SYS_SDRAM_BASE
+diff --git a/arch/mips/include/asm/lantiq/gpio.h b/arch/mips/include/asm/lantiq/gpio.h
+index d464ad6b99083650c2c4d05625c4ca3588039351..120ad660429f5467eedb7adc51885c5eb9e01be7 100644
+--- a/arch/mips/include/asm/lantiq/gpio.h
++++ b/arch/mips/include/asm/lantiq/gpio.h
+@@ -36,6 +36,11 @@ static inline int gpio_to_pin(unsigned gpio)
+ 	return gpio & 0xF;
+ }
+ 
++static inline int gpio_to_bit(unsigned gpio)
++{
++	return 1 << gpio_to_pin(gpio);
++}
++
+ static inline int gpio_to_gpio(unsigned port, unsigned pin)
+ {
+ 	return (port << 4) | (pin & 0xF);
+diff --git a/board/lantiq/easy80920/easy80920.c b/board/lantiq/easy80920/easy80920.c
+index dad15cd2d79294cc972641b4ef46eeae48318b75..88556870038682fc15ea38e84dfbe59bcdf1c3ec 100644
+--- a/board/lantiq/easy80920/easy80920.c
++++ b/board/lantiq/easy80920/easy80920.c
+@@ -13,6 +13,20 @@
+ #include <asm/arch/gphy.h>
+ #include <asm/arch/cpu.h>
+ 
++#if defined(CONFIG_SPL_BUILD)
++#define do_gpio_init	1
++#define do_pll_init	1
++#define do_dcdc_init	0
++#elif defined(CONFIG_SYS_BOOT_RAM)
++#define do_gpio_init	1
++#define do_pll_init	0
++#define do_dcdc_init	1
++#else
++#define do_gpio_init	0
++#define do_pll_init	0
++#define do_dcdc_init	1
++#endif
++
+ static void gpio_init(void)
+ {
+ 	/* SPI/CS output (low-active) for serial flash */
+@@ -21,8 +35,14 @@ static void gpio_init(void)
+ 
+ int board_early_init_f(void)
+ {
+-	gpio_init();
+-	ltq_dcdc_init(0x7F);
++	if (do_gpio_init)
++		gpio_init();
++
++	if (do_pll_init)
++		ltq_pll_init();
++
++	if (do_dcdc_init)
++		ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/gpio/Makefile b/drivers/gpio/Makefile
+index d50ac3bfefd12b70dd898a4a1d18ae25b8b1f99d..43ce9e334a036f6d370fbadc29ab29e5df107dd7 100644
+--- a/drivers/gpio/Makefile
++++ b/drivers/gpio/Makefile
+@@ -27,6 +27,7 @@ LIB 	:= $(obj)libgpio.o
+ 
+ COBJS-$(CONFIG_AT91_GPIO)	+= at91_gpio.o
+ COBJS-$(CONFIG_KIRKWOOD_GPIO)	+= kw_gpio.o
++COBJS-$(CONFIG_LANTIQ_GPIO)	+= lantiq_gpio.o
+ COBJS-$(CONFIG_MARVELL_GPIO)	+= mvgpio.o
+ COBJS-$(CONFIG_MARVELL_MFP)	+= mvmfp.o
+ COBJS-$(CONFIG_MXC_GPIO)	+= mxc_gpio.o
+diff --git a/drivers/gpio/lantiq_gpio.c b/drivers/gpio/lantiq_gpio.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..de49bceb48077855d62f397571d8267472e87248
+--- /dev/null
++++ b/drivers/gpio/lantiq_gpio.c
+@@ -0,0 +1,215 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#include <common.h>
++#include <asm/arch/soc.h>
++#include <asm/arch/gpio.h>
++#include <asm/lantiq/io.h>
++
++struct ltq_gpio_port_regs {
++	__be32	out;
++	__be32	in;
++	__be32	dir;
++	__be32	altsel0;
++	__be32	altsel1;
++	__be32	od;
++	__be32	stoff;
++	__be32	pudsel;
++	__be32	puden;
++	__be32	rsvd1[3];
++};
++
++struct ltq_gpio_regs {
++	u32				rsvd[4];
++	struct ltq_gpio_port_regs	ports[CONFIG_SYS_GPIO_MAX_BANKS];
++};
++
++struct ltq_gpio3_regs {
++	u32	rsvd0[13];
++	__be32	od;
++	__be32	pudsel;
++	__be32	puden;
++	u32	rsvd1[9];
++	__be32	altsel1;
++	u32	rsvd2[14];
++	__be32	out;
++	__be32	in;
++	__be32	dir;
++	__be32	altsel0;
++};
++
++static struct ltq_gpio_regs *ltq_gpio_regs =
++	(struct ltq_gpio_regs *) CKSEG1ADDR(LTQ_GPIO_BASE);
++
++static struct ltq_gpio3_regs *ltq_gpio3_regs =
++	(struct ltq_gpio3_regs *) CKSEG1ADDR(LTQ_GPIO_BASE);
++
++static int is_gpio_bank3(unsigned int port)
++{
++#ifdef CONFIG_SYS_GPIO_BANK3
++	return port == 3;
++#else
++	return 0;
++#endif
++}
++
++int gpio_request(unsigned gpio, const char *label)
++{
++	return 0;
++}
++
++int gpio_free(unsigned gpio)
++{
++	return 0;
++}
++
++int gpio_direction_input(unsigned gpio)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_od = &ltq_gpio_regs->ports[port].od;
++	const void *gpio_altsel0 = &ltq_gpio_regs->ports[port].altsel0;
++	const void *gpio_altsel1 = &ltq_gpio_regs->ports[port].altsel1;
++	const void *gpio_dir = &ltq_gpio_regs->ports[port].dir;
++
++	if (is_gpio_bank3(port)) {
++		gpio_od = &ltq_gpio3_regs->od;
++		gpio_altsel0 = &ltq_gpio3_regs->altsel0;
++		gpio_altsel1 = &ltq_gpio3_regs->altsel1;
++		gpio_dir = &ltq_gpio3_regs->dir;
++	}
++
++	/*
++	 * Reset open drain and altsel configs to workaround improper
++	 * reset values or unwanted modifications by BootROM
++	 */
++	ltq_clrbits(gpio_od, gpio_to_bit(gpio));
++	ltq_clrbits(gpio_altsel0, gpio_to_bit(gpio));
++	ltq_clrbits(gpio_altsel1, gpio_to_bit(gpio));
++
++	/* Switch to input */
++	ltq_clrbits(gpio_dir, gpio_to_bit(gpio));
++
++	return 0;
++}
++
++int gpio_direction_output(unsigned gpio, int value)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_od = &ltq_gpio_regs->ports[port].od;
++	const void *gpio_altsel0 = &ltq_gpio_regs->ports[port].altsel0;
++	const void *gpio_altsel1 = &ltq_gpio_regs->ports[port].altsel1;
++	const void *gpio_dir = &ltq_gpio_regs->ports[port].dir;
++	const void *gpio_out = &ltq_gpio_regs->ports[port].out;
++
++	if (is_gpio_bank3(port)) {
++		gpio_od = &ltq_gpio3_regs->od;
++		gpio_altsel0 = &ltq_gpio3_regs->altsel0;
++		gpio_altsel1 = &ltq_gpio3_regs->altsel1;
++		gpio_dir = &ltq_gpio3_regs->dir;
++		gpio_out = &ltq_gpio3_regs->out;
++	}
++
++	/*
++	 * Reset open drain and altsel configs to workaround improper
++	 * reset values or unwanted modifications by BootROM
++	 */
++	ltq_setbits(gpio_od, gpio_to_bit(gpio));
++	ltq_clrbits(gpio_altsel0, gpio_to_bit(gpio));
++	ltq_clrbits(gpio_altsel1, gpio_to_bit(gpio));
++
++	if (value)
++		ltq_setbits(gpio_out, gpio_to_bit(gpio));
++	else
++		ltq_clrbits(gpio_out, gpio_to_bit(gpio));
++
++	/* Switch to output */
++	ltq_setbits(gpio_dir, gpio_to_bit(gpio));
++
++	return 0;
++}
++
++int gpio_get_value(unsigned gpio)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_in = &ltq_gpio_regs->ports[port].in;
++	u32 val;
++
++	if (is_gpio_bank3(port))
++		gpio_in = &ltq_gpio3_regs->in;
++
++	val = ltq_readl(gpio_in);
++
++	return !!(val & gpio_to_bit(gpio));
++}
++
++int gpio_set_value(unsigned gpio, int value)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_out = &ltq_gpio_regs->ports[port].out;
++
++	if (is_gpio_bank3(port))
++		gpio_out = &ltq_gpio3_regs->out;
++
++	if (value)
++		ltq_setbits(gpio_out, gpio_to_bit(gpio));
++	else
++		ltq_clrbits(gpio_out, gpio_to_bit(gpio));
++
++	return 0;
++}
++
++int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_od = &ltq_gpio_regs->ports[port].od;
++	const void *gpio_altsel0 = &ltq_gpio_regs->ports[port].altsel0;
++	const void *gpio_altsel1 = &ltq_gpio_regs->ports[port].altsel1;
++	const void *gpio_dir = &ltq_gpio_regs->ports[port].dir;
++
++	if (is_gpio_bank3(port)) {
++		gpio_od = &ltq_gpio3_regs->od;
++		gpio_altsel0 = &ltq_gpio3_regs->altsel0;
++		gpio_altsel1 = &ltq_gpio3_regs->altsel1;
++		gpio_dir = &ltq_gpio3_regs->dir;
++	}
++
++	if (altsel0)
++		ltq_setbits(gpio_altsel0, gpio_to_bit(gpio));
++	else
++		ltq_clrbits(gpio_altsel0, gpio_to_bit(gpio));
++
++	if (altsel1)
++		ltq_setbits(gpio_altsel1, gpio_to_bit(gpio));
++	else
++		ltq_clrbits(gpio_altsel1, gpio_to_bit(gpio));
++
++	if (dir) {
++		ltq_setbits(gpio_od, gpio_to_bit(gpio));
++		ltq_setbits(gpio_dir, gpio_to_bit(gpio));
++	} else {
++		ltq_clrbits(gpio_od, gpio_to_bit(gpio));
++		ltq_clrbits(gpio_dir, gpio_to_bit(gpio));
++	}
++
++	return 0;
++}
++
++int gpio_set_opendrain(unsigned gpio, int od)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_od = &ltq_gpio_regs->ports[port].od;
++
++	if (is_gpio_bank3(port))
++		gpio_od = &ltq_gpio3_regs->od;
++
++	if (od)
++		ltq_setbits(gpio_od, gpio_to_bit(gpio));
++	else
++		ltq_clrbits(gpio_od, gpio_to_bit(gpio));
++
++	return 0;
++}
+diff --git a/drivers/mtd/spi/atmel.c b/drivers/mtd/spi/atmel.c
+index 006f6d5d04fcb2258b3014fa41a32bdbadd8fb56..e1ce85df76ea3b7a2cb181fa885aa72024808fca 100644
+--- a/drivers/mtd/spi/atmel.c
++++ b/drivers/mtd/spi/atmel.c
+@@ -40,18 +40,6 @@ struct atmel_spi_flash_params {
+ 	const char	*name;
+ };
+ 
+-/* spi_flash needs to be first so upper layers can free() it */
+-struct atmel_spi_flash {
+-	struct spi_flash flash;
+-	const struct atmel_spi_flash_params *params;
+-};
+-
+-static inline struct atmel_spi_flash *
+-to_atmel_spi_flash(struct spi_flash *flash)
+-{
+-	return container_of(flash, struct atmel_spi_flash, flash);
+-}
+-
+ static const struct atmel_spi_flash_params atmel_spi_flash_table[] = {
+ 	{
+ 		.idcode1		= 0x22,
+@@ -156,7 +144,8 @@ static int at45_wait_ready(struct spi_flash *flash, unsigned long timeout)
+  * Assemble the address part of a command for AT45 devices in
+  * non-power-of-two page size mode.
+  */
+-static void at45_build_address(struct atmel_spi_flash *asf, u8 *cmd, u32 offset)
++static void at45_build_address(const struct atmel_spi_flash_params *params,
++				u8 *cmd, u32 offset)
+ {
+ 	unsigned long page_addr;
+ 	unsigned long byte_addr;
+@@ -167,7 +156,7 @@ static void at45_build_address(struct atmel_spi_flash *asf, u8 *cmd, u32 offset)
+ 	 * The "extra" space per page is the power-of-two page size
+ 	 * divided by 32.
+ 	 */
+-	page_shift = asf->params->l2_page_size;
++	page_shift = params->l2_page_size;
+ 	page_size = (1 << page_shift) + (1 << (page_shift - 5));
+ 	page_shift++;
+ 	page_addr = offset / page_size;
+@@ -181,11 +170,11 @@ static void at45_build_address(struct atmel_spi_flash *asf, u8 *cmd, u32 offset)
+ static int dataflash_read_fast_at45(struct spi_flash *flash,
+ 		u32 offset, size_t len, void *buf)
+ {
+-	struct atmel_spi_flash *asf = to_atmel_spi_flash(flash);
++	const struct atmel_spi_flash_params *params = flash->priv;
+ 	u8 cmd[5];
+ 
+ 	cmd[0] = CMD_READ_ARRAY_FAST;
+-	at45_build_address(asf, cmd + 1, offset);
++	at45_build_address(params, cmd + 1, offset);
+ 	cmd[4] = 0x00;
+ 
+ 	return spi_flash_read_common(flash, cmd, sizeof(cmd), buf, len);
+@@ -197,7 +186,7 @@ static int dataflash_read_fast_at45(struct spi_flash *flash,
+ static int dataflash_write_p2(struct spi_flash *flash,
+ 		u32 offset, size_t len, const void *buf)
+ {
+-	struct atmel_spi_flash *asf = to_atmel_spi_flash(flash);
++	const struct atmel_spi_flash_params *params = flash->priv;
+ 	unsigned long page_size;
+ 	u32 addr = offset;
+ 	size_t chunk_len;
+@@ -211,7 +200,7 @@ static int dataflash_write_p2(struct spi_flash *flash,
+ 	 * the other is being programmed into main memory.
+ 	 */
+ 
+-	page_size = (1 << asf->params->l2_page_size);
++	page_size = (1 << params->l2_page_size);
+ 
+ 	ret = spi_claim_bus(flash->spi);
+ 	if (ret) {
+@@ -263,7 +252,7 @@ out:
+ static int dataflash_write_at45(struct spi_flash *flash,
+ 		u32 offset, size_t len, const void *buf)
+ {
+-	struct atmel_spi_flash *asf = to_atmel_spi_flash(flash);
++	const struct atmel_spi_flash_params *params = flash->priv;
+ 	unsigned long page_addr;
+ 	unsigned long byte_addr;
+ 	unsigned long page_size;
+@@ -279,7 +268,7 @@ static int dataflash_write_at45(struct spi_flash *flash,
+ 	 * the other is being programmed into main memory.
+ 	 */
+ 
+-	page_shift = asf->params->l2_page_size;
++	page_shift = params->l2_page_size;
+ 	page_size = (1 << page_shift) + (1 << (page_shift - 5));
+ 	page_shift++;
+ 	page_addr = offset / page_size;
+@@ -338,7 +327,7 @@ out:
+  */
+ static int dataflash_erase_p2(struct spi_flash *flash, u32 offset, size_t len)
+ {
+-	struct atmel_spi_flash *asf = to_atmel_spi_flash(flash);
++	const struct atmel_spi_flash_params *params = flash->priv;
+ 	unsigned long page_size;
+ 
+ 	size_t actual;
+@@ -351,7 +340,7 @@ static int dataflash_erase_p2(struct spi_flash *flash, u32 offset, size_t len)
+ 	 * when possible.
+ 	 */
+ 
+-	page_size = (1 << asf->params->l2_page_size);
++	page_size = (1 << params->l2_page_size);
+ 
+ 	if (offset % page_size || len % page_size) {
+ 		debug("SF: Erase offset/length not multiple of page size\n");
+@@ -397,7 +386,7 @@ out:
+ 
+ static int dataflash_erase_at45(struct spi_flash *flash, u32 offset, size_t len)
+ {
+-	struct atmel_spi_flash *asf = to_atmel_spi_flash(flash);
++	const struct atmel_spi_flash_params *params = flash->priv;
+ 	unsigned long page_addr;
+ 	unsigned long page_size;
+ 	unsigned int page_shift;
+@@ -411,7 +400,7 @@ static int dataflash_erase_at45(struct spi_flash *flash, u32 offset, size_t len)
+ 	 * when possible.
+ 	 */
+ 
+-	page_shift = asf->params->l2_page_size;
++	page_shift = params->l2_page_size;
+ 	page_size = (1 << page_shift) + (1 << (page_shift - 5));
+ 	page_shift++;
+ 	page_addr = offset / page_size;
+@@ -458,12 +447,12 @@ out:
+ 	return ret;
+ }
+ 
+-struct spi_flash *spi_flash_probe_atmel(struct spi_slave *spi, u8 *idcode)
++int spi_flash_probe_atmel(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct atmel_spi_flash_params *params;
++	struct spi_slave *spi = flash->spi;
+ 	unsigned page_size;
+ 	unsigned int family;
+-	struct atmel_spi_flash *asf;
+ 	unsigned int i;
+ 	int ret;
+ 	u8 status;
+@@ -477,18 +466,11 @@ struct spi_flash *spi_flash_probe_atmel(struct spi_slave *spi, u8 *idcode)
+ 	if (i == ARRAY_SIZE(atmel_spi_flash_table)) {
+ 		debug("SF: Unsupported DataFlash ID %02x\n",
+ 				idcode[1]);
+-		return NULL;
+-	}
+-
+-	asf = malloc(sizeof(struct atmel_spi_flash));
+-	if (!asf) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	asf->params = params;
+-	asf->flash.spi = spi;
+-	asf->flash.name = params->name;
++	flash->priv = (void *)params;
++	flash->name = params->name;
+ 
+ 	/* Assuming power-of-two page size initially. */
+ 	page_size = 1 << params->l2_page_size;
+@@ -503,48 +485,44 @@ struct spi_flash *spi_flash_probe_atmel(struct spi_slave *spi, u8 *idcode)
+ 		 */
+ 		ret = spi_flash_cmd(spi, CMD_AT45_READ_STATUS, &status, 1);
+ 		if (ret)
+-			goto err;
++			return -1;
+ 
+ 		debug("SF: AT45 status register: %02x\n", status);
+ 
+ 		if (!(status & AT45_STATUS_P2_PAGE_SIZE)) {
+-			asf->flash.read = dataflash_read_fast_at45;
+-			asf->flash.write = dataflash_write_at45;
+-			asf->flash.erase = dataflash_erase_at45;
++			flash->read = dataflash_read_fast_at45;
++			flash->write = dataflash_write_at45;
++			flash->erase = dataflash_erase_at45;
+ 			page_size += 1 << (params->l2_page_size - 5);
+ 		} else {
+-			asf->flash.read = spi_flash_cmd_read_fast;
+-			asf->flash.write = dataflash_write_p2;
+-			asf->flash.erase = dataflash_erase_p2;
++			flash->read = spi_flash_cmd_read_fast;
++			flash->write = dataflash_write_p2;
++			flash->erase = dataflash_erase_p2;
+ 		}
+ 
+-		asf->flash.page_size = page_size;
+-		asf->flash.sector_size = page_size;
++		flash->page_size = page_size;
++		flash->sector_size = page_size;
+ 		break;
+ 
+ 	case DF_FAMILY_AT26F:
+ 	case DF_FAMILY_AT26DF:
+-		asf->flash.read = spi_flash_cmd_read_fast;
+-		asf->flash.write = spi_flash_cmd_write_multi;
+-		asf->flash.erase = spi_flash_cmd_erase;
+-		asf->flash.page_size = page_size;
+-		asf->flash.sector_size = 4096;
++		flash->read = spi_flash_cmd_read_fast;
++		flash->write = spi_flash_cmd_write_multi;
++		flash->erase = spi_flash_cmd_erase;
++		flash->page_size = page_size;
++		flash->sector_size = 4096;
+ 		/* clear SPRL# bit for locked flash */
+-		spi_flash_cmd_write_status(&asf->flash, 0);
++		spi_flash_cmd_write_status(flash, 0);
+ 		break;
+ 
+ 	default:
+ 		debug("SF: Unsupported DataFlash family %u\n", family);
+-		goto err;
++		return -1;
+ 	}
+ 
+-	asf->flash.size = page_size * params->pages_per_block
++	flash->size = page_size * params->pages_per_block
+ 				* params->blocks_per_sector
+ 				* params->nr_sectors;
+ 
+-	return &asf->flash;
+-
+-err:
+-	free(asf);
+-	return NULL;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/eon.c b/drivers/mtd/spi/eon.c
+index 3b4b10ef1d4d22b6aea7f1d140b4814cfd8c7008..01076cf48e49ffc04c112affb94a4017c34452ef 100644
+--- a/drivers/mtd/spi/eon.c
++++ b/drivers/mtd/spi/eon.c
+@@ -16,7 +16,6 @@
+ struct eon_spi_flash_params {
+ 	u16 idcode;
+ 	u16 nr_sectors;
+-	unsigned use_4byte_addr:1;
+ 	const char *name;
+ };
+ 
+@@ -34,12 +33,11 @@ static const struct eon_spi_flash_params eon_spi_flash_table[] = {
+ 	{
+ 		.idcode = 0x7019,
+ 		.nr_sectors = 8192,
+-		.use_4byte_addr = 1,
+ 		.name = "EN25QH256",
+ 	},
+ };
+ 
+-static int eon_set_4byte_addressing(struct spi_flash *flash, int on)
++static __maybe_unused int eon_set_4byte_mode(struct spi_flash *flash, int on)
+ {
+ 	struct spi_slave *spi = flash->spi;
+ 	u8 cmd = on ? CMD_EN25XX_EN4B : CMD_EN25XX_EX4B;
+@@ -47,10 +45,9 @@ static int eon_set_4byte_addressing(struct spi_flash *flash, int on)
+ 	return spi_flash_cmd(spi, cmd, NULL, 0);
+ }
+ 
+-struct spi_flash *spi_flash_probe_eon(struct spi_slave *spi, u8 *idcode)
++int spi_flash_probe_eon(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct eon_spi_flash_params *params;
+-	struct spi_flash *flash;
+ 	unsigned int i;
+ 	u16 id = idcode[2] | idcode[1] << 8;
+ 
+@@ -62,16 +59,10 @@ struct spi_flash *spi_flash_probe_eon(struct spi_slave *spi, u8 *idcode)
+ 
+ 	if (i == ARRAY_SIZE(eon_spi_flash_table)) {
+ 		debug("SF: Unsupported EON ID %02x\n", idcode[1]);
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	flash = malloc(sizeof(*flash));
+-	if (!flash) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
+-	}
+-
+-	flash->spi = spi;
++	flash->priv = (void *)params;
+ 	flash->name = params->name;
+ 
+ 	flash->write = spi_flash_cmd_write_multi;
+@@ -82,10 +73,11 @@ struct spi_flash *spi_flash_probe_eon(struct spi_slave *spi, u8 *idcode)
+ 	flash->size = 256 * 16
+ 	    * params->nr_sectors;
+ 
+-	if (params->use_4byte_addr)
+-		flash->set_4byte_addressing = eon_set_4byte_addressing;
+-	else
+-		flash->set_4byte_addressing = NULL;
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++	/* 3 address bytes allows maximum addressable memory size of 2^24 */
++	if (flash->size > (1 << 24))
++		flash->set_4byte_mode = eon_set_4byte_mode;
++#endif
+ 
+-	return flash;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/macronix.c b/drivers/mtd/spi/macronix.c
+index 4d70e34b9d9310edd8406f5c4b2fa3a11aa214f3..884f49073de6e5530cd09335f9a520dd85136fe8 100644
+--- a/drivers/mtd/spi/macronix.c
++++ b/drivers/mtd/spi/macronix.c
+@@ -41,7 +41,6 @@
+ struct macronix_spi_flash_params {
+ 	u16 idcode;
+ 	u16 nr_blocks;
+-	unsigned use_4byte_addr:1;
+ 	const char *name;
+ };
+ 
+@@ -84,18 +83,17 @@ static const struct macronix_spi_flash_params macronix_spi_flash_table[] = {
+ 	{
+ 		.idcode = 0x2019,
+ 		.nr_blocks = 512,
+-		.use_4byte_addr = 1,
+ 		.name = "MX25L25635E",
+ 	},
+ 	{
+ 		.idcode = 0x201A,
+ 		.nr_blocks = 1024,
+-		.use_4byte_addr = 1,
+ 		.name = "MX66L51235L",
+ 	},
+ };
+ 
+-static int macronix_set_4byte_addressing(struct spi_flash *flash, int on)
++static __maybe_unused int macronix_set_4byte_mode(struct spi_flash *flash,
++							int on)
+ {
+ 	struct spi_slave *spi = flash->spi;
+ 	u8 cmd = on ? CMD_MX25XX_EN4B : CMD_MX25XX_EX4B;
+@@ -103,10 +101,9 @@ static int macronix_set_4byte_addressing(struct spi_flash *flash, int on)
+ 	return spi_flash_cmd(spi, cmd, NULL, 0);
+ }
+ 
+-struct spi_flash *spi_flash_probe_macronix(struct spi_slave *spi, u8 *idcode)
++int spi_flash_probe_macronix(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct macronix_spi_flash_params *params;
+-	struct spi_flash *flash;
+ 	unsigned int i;
+ 	u16 id = idcode[2] | idcode[1] << 8;
+ 
+@@ -118,16 +115,10 @@ struct spi_flash *spi_flash_probe_macronix(struct spi_slave *spi, u8 *idcode)
+ 
+ 	if (i == ARRAY_SIZE(macronix_spi_flash_table)) {
+ 		debug("SF: Unsupported Macronix ID %04x\n", id);
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	flash = malloc(sizeof(*flash));
+-	if (!flash) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
+-	}
+-
+-	flash->spi = spi;
++	flash->priv = (void *)params;
+ 	flash->name = params->name;
+ 
+ 	flash->write = spi_flash_cmd_write_multi;
+@@ -137,13 +128,14 @@ struct spi_flash *spi_flash_probe_macronix(struct spi_slave *spi, u8 *idcode)
+ 	flash->sector_size = 256 * 16 * 16;
+ 	flash->size = flash->sector_size * params->nr_blocks;
+ 
+-	if (params->use_4byte_addr)
+-		flash->set_4byte_addressing = macronix_set_4byte_addressing;
+-	else
+-		flash->set_4byte_addressing = NULL;
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++	/* 3 address bytes allows maximum addressable memory size of 2^24 */
++	if (flash->size > (1 << 24))
++		flash->set_4byte_mode = macronix_set_4byte_mode;
++#endif
+ 
+ 	/* Clear BP# bits for read-only flash */
+ 	spi_flash_cmd_write_status(flash, 0);
+ 
+-	return flash;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/ramtron.c b/drivers/mtd/spi/ramtron.c
+index 099978149696968452e2851530687f6b358d2c4f..e0d5c55c8b5f6009641a4ec0da83fa124e4a895d 100644
+--- a/drivers/mtd/spi/ramtron.c
++++ b/drivers/mtd/spi/ramtron.c
+@@ -69,17 +69,6 @@ struct ramtron_spi_fram_params {
+ 	const char *name;	/* name for display and/or matching */
+ };
+ 
+-struct ramtron_spi_fram {
+-	struct spi_flash flash;
+-	const struct ramtron_spi_fram_params *params;
+-};
+-
+-static inline struct ramtron_spi_fram *to_ramtron_spi_fram(struct spi_flash
+-							     *flash)
+-{
+-	return container_of(flash, struct ramtron_spi_fram, flash);
+-}
+-
+ /*
+  * table describing supported FRAM chips:
+  * chips without RDID command must have the values 0xff for id1 and id2
+@@ -155,18 +144,18 @@ static const struct ramtron_spi_fram_params ramtron_spi_fram_table[] = {
+ static int ramtron_common(struct spi_flash *flash,
+ 		u32 offset, size_t len, void *buf, u8 command)
+ {
+-	struct ramtron_spi_fram *sn = to_ramtron_spi_fram(flash);
++	const struct ramtron_spi_fram_params *params = flash->priv;
+ 	u8 cmd[4];
+ 	int cmd_len;
+ 	int ret;
+ 
+-	if (sn->params->addr_len == 3 && sn->params->merge_cmd == 0) {
++	if (params->addr_len == 3 && params->merge_cmd == 0) {
+ 		cmd[0] = command;
+ 		cmd[1] = offset >> 16;
+ 		cmd[2] = offset >> 8;
+ 		cmd[3] = offset;
+ 		cmd_len = 4;
+-	} else if (sn->params->addr_len == 2 && sn->params->merge_cmd == 0) {
++	} else if (params->addr_len == 2 && params->merge_cmd == 0) {
+ 		cmd[0] = command;
+ 		cmd[1] = offset >> 8;
+ 		cmd[2] = offset;
+@@ -230,10 +219,9 @@ static int ramtron_erase(struct spi_flash *flash, u32 offset, size_t len)
+  * nore: we are called here with idcode pointing to the first non-0x7f byte
+  * already!
+  */
+-struct spi_flash *spi_fram_probe_ramtron(struct spi_slave *spi, u8 *idcode)
++int spi_fram_probe_ramtron(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct ramtron_spi_fram_params *params;
+-	struct ramtron_spi_fram *sn;
+ 	unsigned int i;
+ #ifdef CONFIG_SPI_FRAM_RAMTRON_NON_JEDEC
+ 	int ret;
+@@ -259,11 +247,11 @@ struct spi_flash *spi_fram_probe_ramtron(struct spi_slave *spi, u8 *idcode)
+ 		 */
+ 		ret = spi_flash_cmd(spi, CMD_READ_STATUS, &sr, 1);
+ 		if (ret)
+-			return NULL;
++			return 0;
+ 
+ 		/* Bits 5,4,0 are fixed 0 for all devices */
+ 		if ((sr & 0x31) != 0x00)
+-			return NULL;
++			return 0;
+ 		/* now find the device */
+ 		for (i = 0; i < ARRAY_SIZE(ramtron_spi_fram_table); i++) {
+ 			params = &ramtron_spi_fram_table[i];
+@@ -281,23 +269,16 @@ struct spi_flash *spi_fram_probe_ramtron(struct spi_slave *spi, u8 *idcode)
+ 	/* arriving here means no method has found a device we can handle */
+ 	debug("SF/ramtron: unsupported device id0=%02x id1=%02x id2=%02x\n",
+ 		idcode[0], idcode[1], idcode[2]);
+-	return NULL;
++	return 0;
+ 
+ found:
+-	sn = malloc(sizeof(*sn));
+-	if (!sn) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
+-	}
+-
+-	sn->params = params;
+-	sn->flash.spi = spi;
+-	sn->flash.name = params->name;
++	flash->priv = (void *)params;
++	flash->name = params->name;
+ 
+-	sn->flash.write = ramtron_write;
+-	sn->flash.read = ramtron_read;
+-	sn->flash.erase = ramtron_erase;
+-	sn->flash.size = params->size;
++	flash->write = ramtron_write;
++	flash->read = ramtron_read;
++	flash->erase = ramtron_erase;
++	flash->size = params->size;
+ 
+-	return &sn->flash;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/spansion.c b/drivers/mtd/spi/spansion.c
+index c5988d2b89f75dcb414bee075fe71cbc6ede485a..6fce2b98423c294d02b5fe8e560ec7b682cc52fe 100644
+--- a/drivers/mtd/spi/spansion.c
++++ b/drivers/mtd/spi/spansion.c
+@@ -41,7 +41,6 @@ struct spansion_spi_flash_params {
+ 	u16 idcode2;
+ 	u16 pages_per_sector;
+ 	u16 nr_sectors;
+-	unsigned use_4byte_addr:1;
+ 	const char *name;
+ };
+ 
+@@ -107,12 +106,26 @@ static const struct spansion_spi_flash_params spansion_spi_flash_table[] = {
+ 		.idcode2 = 0x4d01,
+ 		.pages_per_sector = 256,
+ 		.nr_sectors = 512,
+-		.use_4byte_addr = 1,
+-		.name = "S25FL256S",
++		.name = "S25FL256S_64K",
++	},
++	{
++		.idcode1 = 0x0219,
++		.idcode2 = 0x4d00,
++		.pages_per_sector = 1024,
++		.nr_sectors = 128,
++		.name = "S25FL256S_256K",
++	},
++	{
++		.idcode1 = 0x0220,
++		.idcode2 = 0x4d00,
++		.pages_per_sector = 1024,
++		.nr_sectors = 256,
++		.name = "S25FL512S_256K",
+ 	},
+ };
+ 
+-static int spansion_set_4byte_addressing(struct spi_flash *flash, int on)
++static __maybe_unused int spansion_set_4byte_mode(struct spi_flash *flash,
++							int on)
+ {
+ 	struct spi_slave *spi = flash->spi;
+ 	u8 bar, cmd;
+@@ -133,10 +146,9 @@ static int spansion_set_4byte_addressing(struct spi_flash *flash, int on)
+ 	return spi_flash_cmd_write(spi, &cmd, 1, &bar, 1);
+ }
+ 
+-struct spi_flash *spi_flash_probe_spansion(struct spi_slave *spi, u8 *idcode)
++int spi_flash_probe_spansion(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct spansion_spi_flash_params *params;
+-	struct spi_flash *flash;
+ 	unsigned int i;
+ 	unsigned short jedec, ext_jedec;
+ 
+@@ -153,16 +165,10 @@ struct spi_flash *spi_flash_probe_spansion(struct spi_slave *spi, u8 *idcode)
+ 
+ 	if (i == ARRAY_SIZE(spansion_spi_flash_table)) {
+ 		debug("SF: Unsupported SPANSION ID %04x %04x\n", jedec, ext_jedec);
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	flash = malloc(sizeof(*flash));
+-	if (!flash) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
+-	}
+-
+-	flash->spi = spi;
++	flash->priv = (void *)params;
+ 	flash->name = params->name;
+ 
+ 	flash->write = spi_flash_cmd_write_multi;
+@@ -172,10 +178,11 @@ struct spi_flash *spi_flash_probe_spansion(struct spi_slave *spi, u8 *idcode)
+ 	flash->sector_size = 256 * params->pages_per_sector;
+ 	flash->size = flash->sector_size * params->nr_sectors;
+ 
+-	if (params->use_4byte_addr)
+-		flash->set_4byte_addressing = spansion_set_4byte_addressing;
+-	else
+-		flash->set_4byte_addressing = NULL;
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++	/* 3 address bytes allows maximum addressable memory size of 2^24 */
++	if (flash->size > (1 << 24))
++		flash->set_4byte_mode = spansion_set_4byte_mode;
++#endif
+ 
+-	return flash;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/spi_flash.c b/drivers/mtd/spi/spi_flash.c
+index 2981543a51e5d15288bd8938b34f570a535b15fd..2090f7583f86e0eaaac5f55c163f029cc7f8aad8 100644
+--- a/drivers/mtd/spi/spi_flash.c
++++ b/drivers/mtd/spi/spi_flash.c
+@@ -18,7 +18,7 @@
+ static void spi_flash_addr(struct spi_flash *flash, u32 addr, u8 *cmd, u8 *cmd_len)
+ {
+ 	/* cmd[0] is actual command */
+-	if (spi_flash_has_4byte_addressing(flash)) {
++	if (spi_flash_use_4byte_mode(flash)) {
+ 		cmd[1] = addr >> 24;
+ 		cmd[2] = addr >> 16;
+ 		cmd[3] = addr >> 8;
+@@ -35,7 +35,7 @@ static void spi_flash_addr(struct spi_flash *flash, u32 addr, u8 *cmd, u8 *cmd_l
+ static void spi_flash_page_addr(struct spi_flash *flash, u32 page_addr, u32 byte_addr, u8 *cmd, u8 *cmd_len)
+ {
+ 	/* cmd[0] is actual command */
+-	if (spi_flash_has_4byte_addressing(flash)) {
++	if (spi_flash_use_4byte_mode(flash)) {
+ 		cmd[1] = page_addr >> 16;
+ 		cmd[2] = page_addr >> 8;
+ 		cmd[3] = page_addr >> 0;
+@@ -109,14 +109,6 @@ int spi_flash_cmd_write_multi(struct spi_flash *flash, u32 offset,
+ 		return ret;
+ 	}
+ 
+-	if (spi_flash_has_4byte_addressing(flash)) {
+-		ret = spi_flash_4byte_addressing_enable(flash);
+-		if (ret) {
+-			debug("SF: Unable to set 4-byte addressing\n");
+-			return ret;
+-		}
+-	}
+-
+ 	cmd[0] = CMD_PAGE_PROGRAM;
+ 	for (actual = 0; actual < len; actual += chunk_len) {
+ 		chunk_len = min(len - actual, page_size - byte_addr);
+@@ -150,9 +142,6 @@ int spi_flash_cmd_write_multi(struct spi_flash *flash, u32 offset,
+ 	debug("SF: program %s %zu bytes @ %#x\n",
+ 	      ret ? "failure" : "success", len, offset);
+ 
+-	if (spi_flash_has_4byte_addressing(flash))
+-		spi_flash_4byte_addressing_disable(flash);
+-
+ 	spi_release_bus(flash->spi);
+ 	return ret;
+ }
+@@ -165,19 +154,8 @@ int spi_flash_read_common(struct spi_flash *flash, const u8 *cmd,
+ 
+ 	spi_claim_bus(spi);
+ 
+-	if (spi_flash_has_4byte_addressing(flash)) {
+-		ret = spi_flash_4byte_addressing_enable(flash);
+-		if (ret) {
+-			debug("SF: Unable to set 4-byte addressing\n");
+-			return ret;
+-		}
+-	}
+-
+ 	ret = spi_flash_cmd_read(spi, cmd, cmd_len, data, data_len);
+ 
+-	if (spi_flash_has_4byte_addressing(flash))
+-		spi_flash_4byte_addressing_disable(flash);
+-
+ 	spi_release_bus(spi);
+ 
+ 	return ret;
+@@ -263,14 +241,6 @@ int spi_flash_cmd_erase(struct spi_flash *flash, u32 offset, size_t len)
+ 	start = offset;
+ 	end = start + len;
+ 
+-	if (spi_flash_has_4byte_addressing(flash)) {
+-		ret = spi_flash_4byte_addressing_enable(flash);
+-		if (ret) {
+-			debug("SF: Unable to set 4-byte addressing\n");
+-			return ret;
+-		}
+-	}
+-
+ 	while (offset < end) {
+ 		spi_flash_addr(flash, offset, cmd, &cmd_len);
+ 		offset += erase_size;
+@@ -294,9 +264,6 @@ int spi_flash_cmd_erase(struct spi_flash *flash, u32 offset, size_t len)
+ 	debug("SF: Successfully erased %zu bytes @ %#x\n", len, start);
+ 
+  out:
+-	if (spi_flash_has_4byte_addressing(flash))
+-		spi_flash_4byte_addressing_disable(flash);
+-
+ 	spi_release_bus(flash->spi);
+ 	return ret;
+ }
+@@ -355,7 +322,7 @@ int spi_flash_cmd_write_status(struct spi_flash *flash, u8 sr)
+ static struct {
+ 	const u8 shift;
+ 	const u8 idcode;
+-	struct spi_flash *(*probe) (struct spi_slave *spi, u8 *idcode);
++	int (*probe) (struct spi_flash *flash, u8 *idcode);
+ } flashes[] = {
+ 	/* Keep it sorted by define name */
+ #ifdef CONFIG_SPI_FLASH_ATMEL
+@@ -394,18 +361,18 @@ static struct {
+ };
+ #define IDCODE_LEN (IDCODE_CONT_LEN + IDCODE_PART_LEN)
+ 
+-struct spi_flash *spi_flash_probe(unsigned int bus, unsigned int cs,
+-		unsigned int max_hz, unsigned int spi_mode)
++int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
++			unsigned int cs, unsigned int max_hz,
++			unsigned int spi_mode)
+ {
+ 	struct spi_slave *spi;
+-	struct spi_flash *flash = NULL;
+ 	int ret, i, shift;
+ 	u8 idcode[IDCODE_LEN], *idp;
+ 
+ 	spi = spi_setup_slave(bus, cs, max_hz, spi_mode);
+ 	if (!spi) {
+-		printf("SF: Failed to set up slave\n");
+-		return NULL;
++		debug("SF: Failed to set up slave\n");
++		return -1;
+ 	}
+ 
+ 	ret = spi_claim_bus(spi);
+@@ -414,6 +381,8 @@ struct spi_flash *spi_flash_probe(unsigned int bus, unsigned int cs,
+ 		goto err_claim_bus;
+ 	}
+ 
++	flash->spi = spi;
++
+ 	/* Read the ID codes */
+ 	ret = spi_flash_cmd(spi, CMD_READ_ID, idcode, sizeof(idcode));
+ 	if (ret)
+@@ -434,120 +403,67 @@ struct spi_flash *spi_flash_probe(unsigned int bus, unsigned int cs,
+ 	for (i = 0; i < ARRAY_SIZE(flashes); ++i)
+ 		if (flashes[i].shift == shift && flashes[i].idcode == *idp) {
+ 			/* we have a match, call probe */
+-			flash = flashes[i].probe(spi, idp);
+-			if (flash)
++			ret = flashes[i].probe(flash, idp);
++			if (ret)
+ 				break;
+ 		}
+ 
+-	if (!flash) {
+-		printf("SF: Unsupported manufacturer %02x\n", *idp);
++	if (ret <= 0) {
++		debug("SF: Unsupported manufacturer %02x\n", *idp);
+ 		goto err_manufacturer_probe;
+ 	}
+ 
+-	printf("SF:    %s, page size ", flash->name);
+-	print_size(flash->sector_size, ", total ");
+-	print_size(flash->size, "\n");
+-
++	spi_flash_enable_4byte_mode(flash);
+ 	spi_release_bus(spi);
+ 
+-#ifndef CONFIG_SPI_FLASH_4BYTE_ADDRESSING
+-	flash->set_4byte_addressing = NULL;
+-#endif
+-
+-	return flash;
++	return 0;
+ 
+ err_manufacturer_probe:
+ err_read_id:
+ 	spi_release_bus(spi);
+ err_claim_bus:
+ 	spi_free_slave(spi);
+-	return NULL;
+-}
+ 
+-void spi_flash_free(struct spi_flash *flash)
+-{
+-	spi_free_slave(flash->spi);
+-	free(flash);
++	return ret;
+ }
+ 
+-int spi_flash_probe_spl(struct spi_flash *sf, unsigned int bus, unsigned int cs,
++struct spi_flash *spi_flash_probe(unsigned int bus, unsigned int cs,
+ 		unsigned int max_hz, unsigned int spi_mode)
+ {
+-	struct spi_slave *spi;
+-	u8 idcode[IDCODE_LEN], *idp;
+-	int ret, i, shift, found;
+-
+-	spi = spi_setup_slave(bus, cs, max_hz, spi_mode);
+-	if (!spi)
+-		return -1;
+-
+-	ret = spi_claim_bus(spi);
+-	if (ret)
+-		goto err_claim_bus;
+-
+-	/* Read the ID codes */
+-	ret = spi_flash_cmd(spi, CMD_READ_ID, idcode, sizeof(idcode));
+-	if (ret)
+-		goto err_read_id;
+-
+-	/* count the number of continuation bytes */
+-	for (shift = 0, idp = idcode;
+-	     shift < IDCODE_CONT_LEN && *idp == 0x7f;
+-	     ++shift, ++idp)
+-		continue;
+-
+-	/* search the table for matches in shift and id */
+-	found = 0;
+-	for (i = 0; i < ARRAY_SIZE(flashes); ++i)
+-		if (flashes[i].shift == shift && flashes[i].idcode == *idp) {
+-			found = 1;
+-			break;
+-		}
+-
+-	if (!found)
+-		goto err_manufacturer_probe;
+-
+-	/* workaround: force exit 4-byte mode */
+-#ifdef CONFIG_SPL_SPI_FLASH_4BYTE_WORKAROUND
+-	if (*idp == 0x01)
+-	{
+-		u8 cmd[2];
+-
+-		cmd[0] = 0x17;
+-		cmd[1] = 0x00;
+-
+-		ret = spi_flash_read_write(spi, cmd, 2, NULL, NULL, 0);
+-		if (ret)
+-			goto err_read_id;
+-
+-	} else if (*idp == 0xc2 || *idp == 0x1c) {
+-		u8 cmd;
+-
+-		cmd = 0xe9;
+-
+-		ret = spi_flash_read_write(spi, &cmd, 1, NULL, NULL, 0);
+-		if (ret)
+-			goto err_read_id;
++	struct spi_flash *flash;
++	int ret;
+ 
++	flash = malloc(sizeof(*flash));
++	if (!flash) {
++		debug("SF: Failed to malloc spi_flash\n");
++		return NULL;
+ 	}
+-#endif
++	memset(flash, 0, sizeof(*flash));
+ 
+-	spi_release_bus(spi);
++	ret = spi_flash_probe_spl(flash, bus, cs, max_hz, spi_mode);
++	if (ret)
++		goto err_probe;
+ 
+-	sf->spi = spi;
+-	sf->read = spi_flash_cmd_read_fast;
+-	sf->set_4byte_addressing = NULL;
++	printf("SF:    %s, page size ", flash->name);
++	print_size(flash->sector_size, ", total ");
++	print_size(flash->size, "\n");
+ 
+-	return 0;
++	return flash;
+ 
+-err_manufacturer_probe:
+-err_read_id:
+-	spi_release_bus(spi);
++err_probe:
++	free(flash);
++	return NULL;
++}
+ 
+-err_claim_bus:
+-	spi_free_slave(spi);
++void spi_flash_free_spl(struct spi_flash *flash)
++{
++	spi_free_slave(flash->spi);
++}
+ 
+-	return ret;
++void spi_flash_free(struct spi_flash *flash)
++{
++	spi_flash_free_spl(flash);
++	free(flash);
+ }
+ 
+ #if defined(CONFIG_NEEDS_MANUAL_RELOC)
+diff --git a/drivers/mtd/spi/spi_flash_internal.h b/drivers/mtd/spi/spi_flash_internal.h
+index 27c197d7bb0301b8b00145faaa6067da18320564..c3116b0dfb755e03061eec38b87f4f1f55530d5b 100644
+--- a/drivers/mtd/spi/spi_flash_internal.h
++++ b/drivers/mtd/spi/spi_flash_internal.h
+@@ -97,22 +97,40 @@ int spi_flash_cmd_wait_ready(struct spi_flash *flash, unsigned long timeout);
+ /* Erase sectors. */
+ int spi_flash_cmd_erase(struct spi_flash *flash, u32 offset, size_t len);
+ 
+-static inline int spi_flash_4byte_addressing_enable(struct spi_flash *flash)
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++static inline int spi_flash_enable_4byte_mode(struct spi_flash *flash)
+ {
+-	return flash->set_4byte_addressing(flash, 1);
++	if (spi_flash_use_4byte_mode(flash))
++		return flash->set_4byte_mode(flash, 1);
++
++	return 0;
++}
++
++static inline int spi_flash_disable_4byte_mode(struct spi_flash *flash)
++{
++	if (spi_flash_use_4byte_mode(flash))
++		return flash->set_4byte_mode(flash, 0);
++
++	return 0;
++}
++#else
++static inline int spi_flash_enable_4byte_mode(struct spi_flash *flash)
++{
++	return 0;
+ }
+ 
+-static inline int spi_flash_4byte_addressing_disable(struct spi_flash *flash)
++static inline int spi_flash_disable_4byte_mode(struct spi_flash *flash)
+ {
+-	return flash->set_4byte_addressing(flash, 0);
++	return 0;
+ }
++#endif
+ 
+ /* Manufacturer-specific probe functions */
+-struct spi_flash *spi_flash_probe_spansion(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_flash_probe_atmel(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_flash_probe_eon(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_flash_probe_macronix(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_flash_probe_sst(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_flash_probe_stmicro(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_flash_probe_winbond(struct spi_slave *spi, u8 *idcode);
+-struct spi_flash *spi_fram_probe_ramtron(struct spi_slave *spi, u8 *idcode);
++int spi_flash_probe_spansion(struct spi_flash *flash, u8 *idcode);
++int spi_flash_probe_atmel(struct spi_flash *flash, u8 *idcode);
++int spi_flash_probe_eon(struct spi_flash *flash, u8 *idcode);
++int spi_flash_probe_macronix(struct spi_flash *flash, u8 *idcode);
++int spi_flash_probe_sst(struct spi_flash *flash, u8 *idcode);
++int spi_flash_probe_stmicro(struct spi_flash *flash, u8 *idcode);
++int spi_flash_probe_winbond(struct spi_flash *flash, u8 *idcode);
++int spi_fram_probe_ramtron(struct spi_flash *flash, u8 *idcode);
+diff --git a/drivers/mtd/spi/sst.c b/drivers/mtd/spi/sst.c
+index ced4f2473f47189c45169638df6b20cb5a500485..a5ca545a7ce97f5efa9b1c24dec8295dbc792583 100644
+--- a/drivers/mtd/spi/sst.c
++++ b/drivers/mtd/spi/sst.c
+@@ -39,11 +39,6 @@ struct sst_spi_flash_params {
+ 	const char *name;
+ };
+ 
+-struct sst_spi_flash {
+-	struct spi_flash flash;
+-	const struct sst_spi_flash_params *params;
+-};
+-
+ static const struct sst_spi_flash_params sst_spi_flash_table[] = {
+ 	{
+ 		.idcode1 = 0x8d,
+@@ -185,11 +180,9 @@ sst_write_wp(struct spi_flash *flash, u32 offset, size_t len, const void *buf)
+ 	return ret;
+ }
+ 
+-struct spi_flash *
+-spi_flash_probe_sst(struct spi_slave *spi, u8 *idcode)
++int spi_flash_probe_sst(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct sst_spi_flash_params *params;
+-	struct sst_spi_flash *stm;
+ 	size_t i;
+ 
+ 	for (i = 0; i < ARRAY_SIZE(sst_spi_flash_table); ++i) {
+@@ -200,31 +193,24 @@ spi_flash_probe_sst(struct spi_slave *spi, u8 *idcode)
+ 
+ 	if (i == ARRAY_SIZE(sst_spi_flash_table)) {
+ 		debug("SF: Unsupported SST ID %02x\n", idcode[1]);
+-		return NULL;
+-	}
+-
+-	stm = malloc(sizeof(*stm));
+-	if (!stm) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	stm->params = params;
+-	stm->flash.spi = spi;
+-	stm->flash.name = params->name;
++	flash->priv = (void *)params;
++	flash->name = params->name;
+ 
+-	if (stm->params->flags & SST_FEAT_WP)
+-		stm->flash.write = sst_write_wp;
++	if (params->flags & SST_FEAT_WP)
++		flash->write = sst_write_wp;
+ 	else
+-		stm->flash.write = spi_flash_cmd_write_multi;
+-	stm->flash.erase = spi_flash_cmd_erase;
+-	stm->flash.read = spi_flash_cmd_read_fast;
+-	stm->flash.page_size = 256;
+-	stm->flash.sector_size = 4096;
+-	stm->flash.size = stm->flash.sector_size * params->nr_sectors;
++		flash->write = spi_flash_cmd_write_multi;
++	flash->erase = spi_flash_cmd_erase;
++	flash->read = spi_flash_cmd_read_fast;
++	flash->page_size = 256;
++	flash->sector_size = 4096;
++	flash->size = flash->sector_size * params->nr_sectors;
+ 
+ 	/* Flash powers up read-only, so clear BP# bits */
+-	spi_flash_cmd_write_status(&stm->flash, 0);
++	spi_flash_cmd_write_status(flash, 0);
+ 
+-	return &stm->flash;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/stmicro.c b/drivers/mtd/spi/stmicro.c
+index 30b626a39f8923a398f575cbbdb70abff2fb35f9..4271fe521586aa4967f20b4e8faf2a8727af630b 100644
+--- a/drivers/mtd/spi/stmicro.c
++++ b/drivers/mtd/spi/stmicro.c
+@@ -112,10 +112,10 @@ static const struct stmicro_spi_flash_params stmicro_spi_flash_table[] = {
+ 	},
+ };
+ 
+-struct spi_flash *spi_flash_probe_stmicro(struct spi_slave *spi, u8 * idcode)
++int spi_flash_probe_stmicro(struct spi_flash *flash, u8 * idcode)
+ {
+ 	const struct stmicro_spi_flash_params *params;
+-	struct spi_flash *flash;
++	struct spi_slave *spi = flash->spi;
+ 	unsigned int i;
+ 	u16 id;
+ 
+@@ -123,13 +123,13 @@ struct spi_flash *spi_flash_probe_stmicro(struct spi_slave *spi, u8 * idcode)
+ 		i = spi_flash_cmd(spi, CMD_M25PXX_RES,
+ 				  idcode, 4);
+ 		if (i)
+-			return NULL;
++			return 0;
+ 		if ((idcode[3] & 0xf0) == 0x10) {
+ 			idcode[0] = 0x20;
+ 			idcode[1] = 0x20;
+ 			idcode[2] = idcode[3] + 1;
+ 		} else
+-			return NULL;
++			return 0;
+ 	}
+ 
+ 	id = ((idcode[1] << 8) | idcode[2]);
+@@ -143,16 +143,10 @@ struct spi_flash *spi_flash_probe_stmicro(struct spi_slave *spi, u8 * idcode)
+ 
+ 	if (i == ARRAY_SIZE(stmicro_spi_flash_table)) {
+ 		debug("SF: Unsupported STMicro ID %04x\n", id);
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	flash = malloc(sizeof(*flash));
+-	if (!flash) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
+-	}
+-
+-	flash->spi = spi;
++	flash->priv = (void *)params;
+ 	flash->name = params->name;
+ 
+ 	flash->write = spi_flash_cmd_write_multi;
+@@ -162,5 +156,5 @@ struct spi_flash *spi_flash_probe_stmicro(struct spi_slave *spi, u8 * idcode)
+ 	flash->sector_size = 256 * params->pages_per_sector;
+ 	flash->size = flash->sector_size * params->nr_sectors;
+ 
+-	return flash;
++	return 1;
+ }
+diff --git a/drivers/mtd/spi/winbond.c b/drivers/mtd/spi/winbond.c
+index f6aab3d32f459d82d0a9e606f4382fe67981160f..375e52744a6934453b6aa97cdf6bb1efc0c08229 100644
+--- a/drivers/mtd/spi/winbond.c
++++ b/drivers/mtd/spi/winbond.c
+@@ -69,10 +69,9 @@ static const struct winbond_spi_flash_params winbond_spi_flash_table[] = {
+ 	},
+ };
+ 
+-struct spi_flash *spi_flash_probe_winbond(struct spi_slave *spi, u8 *idcode)
++int spi_flash_probe_winbond(struct spi_flash *flash, u8 *idcode)
+ {
+ 	const struct winbond_spi_flash_params *params;
+-	struct spi_flash *flash;
+ 	unsigned int i;
+ 
+ 	for (i = 0; i < ARRAY_SIZE(winbond_spi_flash_table); i++) {
+@@ -84,16 +83,10 @@ struct spi_flash *spi_flash_probe_winbond(struct spi_slave *spi, u8 *idcode)
+ 	if (i == ARRAY_SIZE(winbond_spi_flash_table)) {
+ 		debug("SF: Unsupported Winbond ID %02x%02x\n",
+ 				idcode[1], idcode[2]);
+-		return NULL;
++		return 0;
+ 	}
+ 
+-	flash = malloc(sizeof(*flash));
+-	if (!flash) {
+-		debug("SF: Failed to allocate memory\n");
+-		return NULL;
+-	}
+-
+-	flash->spi = spi;
++	flash->priv = (void *)params;
+ 	flash->name = params->name;
+ 
+ 	flash->write = spi_flash_cmd_write_multi;
+@@ -103,5 +96,5 @@ struct spi_flash *spi_flash_probe_winbond(struct spi_slave *spi, u8 *idcode)
+ 	flash->sector_size = 4096;
+ 	flash->size = 4096 * 16 * params->nr_blocks;
+ 
+-	return flash;
++	return 1;
+ }
+diff --git a/include/configs/easy80920.h b/include/configs/easy80920.h
+index d2c76aeb7fd29c7d3e39cd41be08f5dd4e26d932..eb8979fe25466be2e99a462a713abd31304ecb1c 100644
+--- a/include/configs/easy80920.h
++++ b/include/configs/easy80920.h
+@@ -29,6 +29,7 @@
+ #define CONFIG_SPL_SPI_MAX_HZ		25000000
+ #define CONFIG_SPL_SPI_MODE		0
+ #define CONFIG_LTQ_SPL_COMP_LZO
++#define CONFIG_LTQ_SPL_DEBUG
+ 
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index d9ceae0e167c46b0225108fe2d65ab2f2931f413..c27e608bbeccedec8a96bdbc4b28bc1f65499cd2 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -22,8 +22,7 @@
+ #define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
+ #define CONFIG_SPI_FLASH_SPANSION	/* Supports SF25FL256S serial flash */
+ #define CONFIG_SPI_FLASH_EON		/* Supports EN25QH256 serial flash */
+-#define CONFIG_SPI_FLASH_4BYTE_ADDRESSING
+-#define CONFIG_SPL_SPI_FLASH_4BYTE_WORKAROUND
++#define CONFIG_SPI_FLASH_4BYTE_MODE
+ 
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+@@ -48,13 +47,12 @@
+ #if defined(CONFIG_SYS_BOOT_SFSPL)
+ #define CONFIG_ENV_IS_IN_SPI_FLASH
+ #define CONFIG_ENV_OVERWRITE
+-#define CONFIG_ENV_OFFSET		(192 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+-#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
++#define CONFIG_ENV_OFFSET		(256 * 1024)
++#define CONFIG_ENV_SECT_SIZE		(256 * 1024)
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
+ #endif
++#define CONFIG_ENV_SIZE			(8 * 1024)
+ 
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+ 
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index 125760f043124401f2cb7146d8fcf9c2874e87be..37186fef358fa4ae87b9a706dc81b7c6b56d2b06 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -22,7 +22,7 @@
+ #define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
+ #define CONFIG_SPI_FLASH_SPANSION	/* Supports SF25FL256S serial flash */
+ #define CONFIG_SPI_FLASH_EON		/* Supports EN25QH256 serial flash */
+-#define CONFIG_SPI_FLASH_4BYTE_ADDRESSING
++#define CONFIG_SPI_FLASH_4BYTE_MODE
+ 
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+@@ -48,12 +48,11 @@
+ #define CONFIG_ENV_IS_IN_SPI_FLASH
+ #define CONFIG_ENV_OVERWRITE
+ #define CONFIG_ENV_OFFSET		(256 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+-#define CONFIG_ENV_SECT_SIZE		(64 * 1024)
++#define CONFIG_ENV_SECT_SIZE		(256 * 1024)
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
+ #endif
++#define CONFIG_ENV_SIZE			(8 * 1024)
+ 
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+ 
+diff --git a/include/spi_flash.h b/include/spi_flash.h
+index 9930a6740297c20c97d61dbf5fbc09079cbb6aba..417fd54e90a7c80e5b17bd00bfebb1f708581cf2 100644
+--- a/include/spi_flash.h
++++ b/include/spi_flash.h
+@@ -31,6 +31,7 @@ struct spi_flash {
+ 	struct spi_slave *spi;
+ 
+ 	const char	*name;
++	void		*priv;
+ 
+ 	/* Total flash size */
+ 	u32		size;
+@@ -45,16 +46,19 @@ struct spi_flash {
+ 				size_t len, const void *buf);
+ 	int		(*erase)(struct spi_flash *flash, u32 offset,
+ 				size_t len);
+-	int		(*set_4byte_addressing)(struct spi_flash *flash,
+-				int on);
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++	int		(*set_4byte_mode)(struct spi_flash *flash, int on);
++#endif
+ };
+ 
+ struct spi_flash *spi_flash_probe(unsigned int bus, unsigned int cs,
+ 		unsigned int max_hz, unsigned int spi_mode);
+ void spi_flash_free(struct spi_flash *flash);
+ 
+-int spi_flash_probe_spl(struct spi_flash *sf, unsigned int bus, unsigned int cs,
+-		unsigned int max_hz, unsigned int spi_mode);
++int spi_flash_probe_spl(struct spi_flash *flash, unsigned int bus,
++			unsigned int cs, unsigned int max_hz,
++			unsigned int spi_mode);
++void spi_flash_free_spl(struct spi_flash *flash);
+ 
+ static inline int spi_flash_read(struct spi_flash *flash, u32 offset,
+ 		size_t len, void *buf)
+@@ -76,13 +80,13 @@ static inline int spi_flash_erase(struct spi_flash *flash, u32 offset,
+ 
+ void spi_boot(void) __noreturn;
+ 
+-#ifdef CONFIG_SPI_FLASH_4BYTE_ADDRESSING
+-static inline int spi_flash_has_4byte_addressing(struct spi_flash *flash)
++#ifdef CONFIG_SPI_FLASH_4BYTE_MODE
++static inline int spi_flash_use_4byte_mode(struct spi_flash *flash)
+ {
+-	return (NULL != flash->set_4byte_addressing);
++	return (NULL != flash->set_4byte_mode);
+ }
+ #else
+-static inline int spi_flash_has_4byte_addressing(struct spi_flash *flash)
++static inline int spi_flash_use_4byte_mode(struct spi_flash *flash)
+ {
+ 	return 0;
+ }
+diff --git a/lib/sphairon/cmd_sas_test_sf.c b/lib/sphairon/cmd_sas_test_sf.c
+index 7db61e16dd2f717d4787513fde2a19f1113a872d..32871fb35e0bf14a7c4fc4b32a8fe3455281cb43 100644
+--- a/lib/sphairon/cmd_sas_test_sf.c
++++ b/lib/sphairon/cmd_sas_test_sf.c
+@@ -79,7 +79,7 @@ static int do_sas_test_sf(cmd_tbl_t * cmdtp, int flag, int argc, char *const arg
+ 
+ 	print_buffer((ulong)p, p, 4, pattern_len, 0);
+ 
+-	if (!sf->set_4byte_addressing || sf->size <= 0x1000000) {
++	if (!spi_flash_use_4byte_mode(sf) || sf->size <= 0x1000000) {
+ 		puts(">>> Skipping 4-byte addressing test\n");
+ 		ret = 0;
+ 		goto out;
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index 33e3ca3482fce93661847dca8a9debeed86ae79e..aaccb3ff6ac0c49c7a733bd2b79206cd81f13ac7 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -25,8 +25,7 @@
+ #define CONFIG_ENV_SECT_SIZE		0
+ #endif
+ 
+-#define UBOOT_UPDATE_MIN_SIZE		(128 * 1024)
+-#define SYSCFG_MIN_SIZE			(256 * 1024)
++#define SYSCFG_MIN_SIZE			(512 * 1024)
+ 
+ struct sas_layout_map {
+ 	const char name[4];
+@@ -67,6 +66,14 @@ static void sas_flash_layout_default(struct mtd_info *mtd)
+ 					size, offset, 1);
+ 	}
+ 
++	/* uboot_update: size = env offset */
++	if (sas_have_mtd_uboot_update) {
++		offset += size;
++		size = sas_round_size(mtd, CONFIG_ENV_OFFSET);
++		sas_flash_partition_add(mtd, SAS_PART_UBOOT_UPDATE,
++					size, offset, 0);
++	}
++
+ 	sas_flash_layout_offset = offset + size;
+ 	sas_flash_layout = SAS_LAYOUT_BASIC;
+ }

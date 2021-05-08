@@ -1,0 +1,25 @@
+diff --git a/Makefile b/Makefile
+index f3eb323128e0cb2bffb581c441b9ffae4fbaa9d3..3f2617d0f8006efa195d97349dd69d3cbbfc128c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.2
++EXTRAVERSION = -stg-4.3
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index c6d17392324178c74cf6e2417468205760210f4b..547df0fdb2ff49b1613dda467d8bbe5a204ef68f 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -530,6 +530,7 @@ static const char sas_etl_id_strings[][16] = {
+ 	"mac_addr_pool",
+ 	"data_part_size",
+ 	"data_part_loc",
++    "acs_auth"
+ };
+ 
+ const char *sas_etl_id_str(enum sas_etl_id idx)

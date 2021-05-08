@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index b43ccf311c5fe956c24a93da2561fd075f944b68..4598fc69ca67132bbe66874a2adf410d5e09fe9b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.10
++EXTRAVERSION = -stg-4.11
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/drivers/net/phy/lantiq.c b/drivers/net/phy/lantiq.c
+index 4618127c8947eae653636d3bdf1b0791c1220664..f32b99e62aacb3caee1b8dbf40cf632ec34399e5 100644
+--- a/drivers/net/phy/lantiq.c
++++ b/drivers/net/phy/lantiq.c
+@@ -183,7 +183,7 @@ static struct phy_driver xrx_22f_14_driver = {
+ static struct phy_driver pef7071_driver = {
+ 	.name = "Lantiq XWAY PEF7071",
+ 	.uid = 0xd565a400,
+-	.mask = 0xFFFFFFFF,
++	.mask = 0xFFFFFFF8,
+ 	.features = PHY_GBIT_FEATURES,
+ 	.config = ltq_phy_config,
+ 	.startup = ltq_phy_startup,

@@ -1,0 +1,166 @@
+diff --git a/Makefile b/Makefile
+index 658fee26d7fd19deb4ad5a6b1667515651e084dd..40a8562d85ca9114b50c779fad499afb48caf710 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.26
++EXTRAVERSION = -stg-1.27
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/drivers/net/phy/lantiq.c b/drivers/net/phy/lantiq.c
+index a0bb172cf6fc8b5e8f77f3bb9efd9df4797962c0..cb719b4683406eb5d43c199509d56d505341aae6 100644
+--- a/drivers/net/phy/lantiq.c
++++ b/drivers/net/phy/lantiq.c
+@@ -150,8 +150,8 @@ static int ltq_phy_startup(struct phy_device *phydev)
+ 	return 0;
+ }
+ 
+-static struct phy_driver vrx200_11g_13_driver = {
+-	.name = "Lantiq XWAY PHY11G v1.3 and earlier",
++static struct phy_driver xrx_11g_13_driver = {
++	.name = "Lantiq XWAY XRX PHY11G v1.3 and earlier",
+ 	.uid = 0x030260D0,
+ 	.mask = 0xFFFFFFF0,
+ 	.features = PHY_GBIT_FEATURES,
+@@ -160,20 +160,20 @@ static struct phy_driver vrx200_11g_13_driver = {
+ 	.shutdown = genphy_shutdown,
+ };
+ 
+-static struct phy_driver vrx200_11g_14_driver = {
+-	.name = "Lantiq XWAY PHY11G v1.4 and later",
+-	.uid = 0xd565a400,
+-	.mask = 0xFFFFFFF0,
++static struct phy_driver xrx_11g_14_driver = {
++	.name = "Lantiq XWAY XRX PHY11G v1.4 and later",
++	.uid = 0xd565a408,
++	.mask = 0xFFFFFFF8,
+ 	.features = PHY_GBIT_FEATURES,
+ 	.config = ltq_phy_config,
+ 	.startup = ltq_phy_startup,
+ 	.shutdown = genphy_shutdown,
+ };
+ 
+-static struct phy_driver vrx200_22f_14_driver = {
+-	.name = "Lantiq XWAY PHY22F v1.4 and later",
+-	.uid = 0xd565a410,
+-	.mask = 0xFFFFFFF0,
++static struct phy_driver xrx_22f_14_driver = {
++	.name = "Lantiq XWAY XRX PHY22F v1.4 and later",
++	.uid = 0xd565a418,
++	.mask = 0xFFFFFFF8,
+ 	.features = PHY_BASIC_FEATURES,
+ 	.config = ltq_phy_config,
+ 	.startup = ltq_phy_startup,
+@@ -183,15 +183,15 @@ static struct phy_driver vrx200_22f_14_driver = {
+ static struct phy_driver pef7071_driver = {
+ 	.name = "Lantiq XWAY PEF7071",
+ 	.uid = 0xd565a400,
+-	.mask = 0xFFFFFFF0,
++	.mask = 0xFFFFFFFF,
+ 	.features = PHY_GBIT_FEATURES,
+ 	.config = ltq_phy_config,
+ 	.startup = ltq_phy_startup,
+ 	.shutdown = genphy_shutdown,
+ };
+ 
+-static struct phy_driver vrx200_genphy_driver = {
+-	.name = "Generic PHY at Lantiq XWAY VRX200 switch",
++static struct phy_driver xrx_genphy_driver = {
++	.name = "Generic PHY at Lantiq XWAY XRX switch",
+ 	.uid = 0,
+ 	.mask = 0,
+ 	.features = 0,
+@@ -203,37 +203,37 @@ static struct phy_driver vrx200_genphy_driver = {
+ int phy_lantiq_init(void)
+ {
+ #ifdef CONFIG_NEEDS_MANUAL_RELOC
+-	vrx200_11g_13_driver.config = ltq_phy_config;
+-	vrx200_11g_13_driver.startup = ltq_phy_startup;
+-	vrx200_11g_13_driver.shutdown = genphy_shutdown;
+-	vrx200_11g_13_driver.name += gd->reloc_off;
++	xrx_11g_13_driver.config = ltq_phy_config;
++	xrx_11g_13_driver.startup = ltq_phy_startup;
++	xrx_11g_13_driver.shutdown = genphy_shutdown;
++	xrx_11g_13_driver.name += gd->reloc_off;
+ 
+-	vrx200_11g_14_driver.config = ltq_phy_config;
+-	vrx200_11g_14_driver.startup = ltq_phy_startup;
+-	vrx200_11g_14_driver.shutdown = genphy_shutdown;
+-	vrx200_11g_14_driver.name += gd->reloc_off;
++	xrx_11g_14_driver.config = ltq_phy_config;
++	xrx_11g_14_driver.startup = ltq_phy_startup;
++	xrx_11g_14_driver.shutdown = genphy_shutdown;
++	xrx_11g_14_driver.name += gd->reloc_off;
+ 
+-	vrx200_22f_14_driver.config = ltq_phy_config;
+-	vrx200_22f_14_driver.startup = ltq_phy_startup;
+-	vrx200_22f_14_driver.shutdown = genphy_shutdown;
+-	vrx200_22f_14_driver.name += gd->reloc_off;
++	xrx_22f_14_driver.config = ltq_phy_config;
++	xrx_22f_14_driver.startup = ltq_phy_startup;
++	xrx_22f_14_driver.shutdown = genphy_shutdown;
++	xrx_22f_14_driver.name += gd->reloc_off;
+ 
+ 	pef7071_driver.config = ltq_phy_config;
+ 	pef7071_driver.startup = ltq_phy_startup;
+ 	pef7071_driver.shutdown = genphy_shutdown;
+ 	pef7071_driver.name += gd->reloc_off;
+ 
+-	vrx200_genphy_driver.config = genphy_config;
+-	vrx200_genphy_driver.startup = ltq_phy_startup;
+-	vrx200_genphy_driver.shutdown = genphy_shutdown;
+-	vrx200_genphy_driver.name += gd->reloc_off;
++	xrx_genphy_driver.config = genphy_config;
++	xrx_genphy_driver.startup = ltq_phy_startup;
++	xrx_genphy_driver.shutdown = genphy_shutdown;
++	xrx_genphy_driver.name += gd->reloc_off;
+ #endif
+ 
+-	phy_register(&vrx200_11g_13_driver);
+-	phy_register(&vrx200_11g_14_driver);
+-	phy_register(&vrx200_22f_14_driver);
++	phy_register(&xrx_11g_13_driver);
++	phy_register(&xrx_11g_14_driver);
++	phy_register(&xrx_22f_14_driver);
+ 	phy_register(&pef7071_driver);
+-	phy_register(&vrx200_genphy_driver);
++	phy_register(&xrx_genphy_driver);
+ 
+ 	return 0;
+ }
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 68040a32614a640210b58583b96ca454f95f8ebe..66bafc37280d9d0144c36897670e8a05ecf40d89 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -65,6 +65,14 @@ static inline const char * sas_image_src_str(sas_image_src_t image)
+ 	return sas_image_src_strings[image];
+ }
+ 
++static int sas_image_src_set(const char *name, sas_image_src_t image,
++				int *saveenv)
++{
++	assert(image <= SAS_INVALID);
++
++	return sas_setenv(name, sas_image_src_strings[image], saveenv);
++}
++
+ static sas_image_src_t sas_parse_image_src(const char *image,
+ 					sas_image_src_t def_image)
+ {
+@@ -369,8 +377,11 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 	ptest_mode = sas_check_ptest(flash_layout, kernel, rootfs, servicefs);
+ 
+ 	/* Fixup servicefs mode if ptest auto-detection sets ptest_mode to 1 */
+-	if (ptest_mode && servicefs != SAS_PTEST)
++	if (ptest_mode && servicefs != SAS_PTEST) {
+ 		servicefs = SAS_PTEST;
++		if (!servicefs_src)
++			sas_image_src_set("servicefs_src", servicefs, &save_env);
++	}
+ 
+ 	loadaddr = getenv_ulong("loadaddr", 16, 0);
+ 	boot_logic = sas_bootlogic_active(flash_layout, kernel, rootfs,

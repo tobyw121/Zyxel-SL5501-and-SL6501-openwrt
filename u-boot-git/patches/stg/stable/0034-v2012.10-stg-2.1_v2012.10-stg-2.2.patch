@@ -1,0 +1,3632 @@
+diff --git a/Makefile b/Makefile
+index 23b79a9eae9c769fd4c3f7fe5bbd31a2fa8e0cd5..b56fbf2a2341003e843d451fb6921dfb2a0cb086 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.1
++EXTRAVERSION = -stg-2.2
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/common/cmd_mtdparts.c b/common/cmd_mtdparts.c
+index 22688293ae18c822f035398482d4005c85ca259f..47a84f458fe17592450d85f9310c37541e408c0e 100644
+--- a/common/cmd_mtdparts.c
++++ b/common/cmd_mtdparts.c
+@@ -106,6 +106,12 @@
+ #include <onenand_uboot.h>
+ #endif
+ 
++#if defined(CONFIG_LIB_SPHAIRON)
++#define validate_eraseblocks	0
++#else
++#define validate_eraseblocks	1
++#endif
++
+ /* special size referring to all the remaining space in a partition */
+ #define SIZE_REMAINING		0xFFFFFFFF
+ 
+@@ -432,7 +438,10 @@ static int part_validate(struct mtdids *id, struct part_info *part)
+ 	 * Now we need to check if the partition starts and ends on
+ 	 * sector (eraseblock) regions
+ 	 */
+-	return part_validate_eraseblock(id, part);
++	if (validate_eraseblocks)
++		return part_validate_eraseblock(id, part);
++
++	return 0;
+ }
+ 
+ /**
+diff --git a/drivers/mtd/mtdpart.c b/drivers/mtd/mtdpart.c
+index 96dcda2b2ba4a4bfa7226c14a9c9073dacc645fe..0b107f9b071a7fd25b3c129e74a62de5bd32b40b 100644
+--- a/drivers/mtd/mtdpart.c
++++ b/drivers/mtd/mtdpart.c
+@@ -19,6 +19,11 @@
+ #include <linux/mtd/partitions.h>
+ #include <linux/compat.h>
+ 
++#ifdef CONFIG_LIB_SPHAIRON
++#undef printk
++#define printk		debug
++#endif
++
+ /* Our partition linked list */
+ struct list_head mtd_partitions;
+ 
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index ed141452e472a1542b42773dfd15708abfb20612..96b11533d6c100ab0aa9a33076ef4fdb854fa275 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -41,6 +41,7 @@
+ #define CONFIG_MTD_PARTITIONS
+ #define CONFIG_SPI_FLASH_MTD
+ #define CONFIG_CMD_MTD
++#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=ifx_nand"
+ 
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+@@ -53,6 +54,9 @@
+ #define CONFIG_ENV_OVERWRITE
+ #define CONFIG_ENV_OFFSET		(256 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(256 * 1024)
++
++#define MTDPARTS_DEFAULT		\
++	"mtdparts=spi0.4:256k(uboot_fix),256k(uboot_cfg),256k(uboot_update)"
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+ #endif
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index 587c48ec212646ac18d2a2fb8e0f66a6ea800519..889d22200888bd26f70b9d251383b7c9db3b516a 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -41,6 +41,7 @@
+ #define CONFIG_MTD_PARTITIONS
+ #define CONFIG_SPI_FLASH_MTD
+ #define CONFIG_CMD_MTD
++#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=ifx_nand"
+ 
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+@@ -53,6 +54,9 @@
+ #define CONFIG_ENV_OVERWRITE
+ #define CONFIG_ENV_OFFSET		(256 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(256 * 1024)
++
++#define MTDPARTS_DEFAULT		\
++	"mtdparts=spi0.4:256k(uboot_fix),256k(uboot_cfg),256k(uboot_update)"
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+ #endif
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index 2e3630c7f1bda10bf660c06c4f96436fb58c94be..e2999e1221abde131e00ed6d1dd9fda60929536a 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -16,6 +16,7 @@
+ #define CONFIG_CMD_PING
+ #define CONFIG_CMD_MISC
+ #define CONFIG_CMD_ECHO
++#define CONFIG_CMD_MTDPARTS
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_SPI_FLASH)
+ #define CONFIG_CMD_SPI
+diff --git a/include/sas/boot.h b/include/sas/boot.h
+index 3e51f86416618c66b65a202826863e8496b1de76..fec6a68e26ee127da3ebfc9a1f07de36f612361e 100644
+--- a/include/sas/boot.h
++++ b/include/sas/boot.h
+@@ -26,7 +26,7 @@ enum sas_boot_state
+ struct mtd_info;
+ struct sas_flash_partition;
+ 
+-int sas_boot_init(struct mtd_info *mtd, int *save_env);
++void sas_boot_init(void);
+ 
+ int sas_boot_scan_images(void);
+ 
+@@ -50,20 +50,22 @@ int sas_boot_layout_service(const struct sas_flash_partition *part,
+ 				ulong *servicefs_addr, ulong *configfs_addr,
+ 				size_t *erase_len);
+ 
+-void sas_boot_init_mtdparts(unsigned int active_image, int protect_uboot,
+-				char *buf);
++int sas_boot_init_platform_mtdparts(int active_image,
++					enum sas_flash_layout_type layout);
+ 
+-int sas_boot_find_working_image(sas_flash_layout_t layout);
++int sas_boot_init_service_mtdparts(int active_image,
++					enum sas_flash_layout_type layout);
+ 
+-int sas_boot_update_states(unsigned int active_image, int *retry,
+-				int *save_env);
++int sas_boot_init_sysconfig_mtdparts(int active_image,
++					enum sas_flash_layout_type layout);
++
++int sas_boot_find_working_image(enum sas_flash_layout_type layout);
++
++int sas_boot_update_states(int active_image, int *retry, int *save_env);
+ 
+ int sas_boot_load_image(const struct sas_flash_partition *part,
+ 				sas_image_type_t type, ulong addr);
+ 
+-int sas_boot_image_mtd_num(const struct sas_flash_partition *part,
+-				sas_image_type_t type);
+-
+ void sas_boot_print(void);
+ 
+ const char* sas_boot_state_str(enum sas_boot_state state);
+diff --git a/include/sas/controlfile.h b/include/sas/controlfile.h
+index c92bfbf5ba583c0b4481439be6884e96d1e9c714..0991d765dd35d66ef3748d7b8536ed6cc1806bdc 100644
+--- a/include/sas/controlfile.h
++++ b/include/sas/controlfile.h
+@@ -17,5 +17,6 @@ enum sas_cf_state {
+ int sas_cf_check_board(void);
+ void sas_cf_status_board(enum sas_cf_state state);
+ void sas_cf_run(void);
++int sas_cf_is_active(void);
+ 
+ #endif /* __SAS_CONTROLFILE_H__ */
+diff --git a/include/sas/etl.h b/include/sas/etl.h
+index b200e8f4465ef7f3c826e780d81228e92d49daf1..33545e569079cd90a3149b08ebbf971f6d507feb 100644
+--- a/include/sas/etl.h
++++ b/include/sas/etl.h
+@@ -9,17 +9,34 @@
+ #define __SAS_ETL_H__
+ 
+ #include <sas/etl_user.h>
++#include <sas/flashlayout.h>
+ 
+-int sas_etl_init(int *save_env);
++/**
++ * sas_etl_init - initialize ETL subsystem
++ */
++int sas_etl_init(void);
+ 
+-void sas_etl_print(void);
++int sas_etl_flash_read(unsigned long addr);
++int sas_etl_flash_write(unsigned long addr);
++int sas_etl_flash_erase(void);
++int sas_etl_import(unsigned long addr);
++int sas_etl_export(unsigned long addr);
+ 
+-int sas_etl_get_string(unsigned id, char *retval, size_t len,
+-			const char *defval, char fill);
++void sas_etl_env_set_ethaddr(int *save_env);
++void sas_etl_env_save(int *save_env);
+ 
+-int sas_etl_get_ulong(unsigned int id, unsigned long *retval,
+-			unsigned int base, unsigned long defval);
++const char *sas_etl_get_string(enum sas_etl_id idx);
++unsigned long sas_etl_get_ulong(enum sas_etl_id idx);
++void sas_etl_set_string(enum sas_etl_id idx, const char *val);
++void sas_etl_set_ulong(enum sas_etl_id idx, unsigned long val);
++
++void sas_etl_print(void);
++void sas_etl_dump(void);
+ 
+ int sas_etl_version(void);
++enum sas_flash_layout_type sas_etl_flash_layout(void);
++
++const char *sas_etl_id_str(enum sas_etl_id idx);
++enum sas_etl_id sas_etl_id_parse(const char *str);
+ 
+ #endif /* __SAS_ETL_H__ */
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index 6b22e15f27c43b077e7aff393fa2fd4aae51c98a..b42355756d137d31a9e890f224ef96d489430102 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -8,30 +8,33 @@
+ #ifndef __SAS_ETL_USER_H__
+ #define __SAS_ETL_USER_H__
+ 
+-typedef enum
++enum sas_etl_id
+ {
+-	SAS_ETL_HW_VERSION		= 0x01,
+-	SAS_ETL_SERIAL			= 0x02,
+-	SAS_ETL_PROD_DATE		= 0x03,
+-	SAS_ETL_WLAN_MODULE		= 0x04,
+-	SAS_ETL_WLAN_KEY		= 0x05,
+-	SAS_ETL_TRIV_NAME		= 0x06,
+-	SAS_ETL_MAC_ADDR		= 0x07,
+-	SAS_ETL_HW_CFG			= 0x08,
+-	SAS_ETL_HW_CFG2			= 0x09,
+-	SAS_ETL_IDENT_NO		= 0x0A,
+-	SAS_ETL_CUSTOMER		= 0x0B,
+-	SAS_ETL_BASE_PLATFORM		= 0x0C,
+-	SAS_ETL_WPS_PIN			= 0x0D,
+-	SAS_ETL_LEDCFG			= 0x0E,
+-	SAS_ETL_WLANCFG			= 0x0F,
+-	SAS_ETL_WLAN_SSID		= 0x10,
+-	SAS_ETL_FLASH_LAYOUT		= 0x11,
+-	SAS_ETL_EXTRA_SPACE_SIZE	= 0x12,
+-	SAS_ETL_JFFS_IMAGES		= 0x13,
+-	SAS_ETL_SERIAL_EXTRA		= 0x14,
+-	SAS_ETL_SHDSL_LINES		= 0x15
+-} sas_etl_id_t;
++	SAS_ETL_HW_VERSION		= 1,
++	SAS_ETL_SERIAL			= 2,
++	SAS_ETL_PROD_DATE		= 3,
++	SAS_ETL_WLAN_MODULE		= 4,
++	SAS_ETL_WLAN_KEY		= 5,
++	SAS_ETL_TRIV_NAME		= 6,
++	SAS_ETL_MAC_ADDR		= 7,
++	SAS_ETL_HW_CFG			= 8,
++	SAS_ETL_HW_CFG2			= 9,
++	SAS_ETL_IDENT_NO		= 10,
++	SAS_ETL_CUSTOMER		= 11,
++	SAS_ETL_BASE_PLATFORM		= 12,
++	SAS_ETL_WPS_PIN			= 13,
++	SAS_ETL_LEDCFG			= 14,
++	SAS_ETL_WLANCFG			= 15,
++	SAS_ETL_WLAN_SSID		= 16,
++	SAS_ETL_FLASH_LAYOUT		= 17,
++	SAS_ETL_EXTRA_SPACE_SIZE	= 18,
++	SAS_ETL_JFFS_IMAGES		= 19,
++	SAS_ETL_SERIAL_EXTRA		= 20,
++	SAS_ETL_SHDSL_LINES		= 21,
++	SAS_ETL_ID_LAST,
++};
++
++typedef enum sas_etl_id sas_etl_id_t;
+ 
+ struct sas_hw_cfg
+ {
+@@ -71,7 +74,53 @@ struct sas_led_cfg
+ 	unsigned rsvd : 2;
+ };
+ 
++static inline int sas_etl_is_string(enum sas_etl_id idx)
++{
++	switch (idx) {
++	case SAS_ETL_HW_VERSION:
++	case SAS_ETL_SERIAL:
++	case SAS_ETL_PROD_DATE:
++	case SAS_ETL_WLAN_MODULE:
++	case SAS_ETL_WLAN_KEY:
++	case SAS_ETL_TRIV_NAME:
++	case SAS_ETL_MAC_ADDR:
++	case SAS_ETL_CUSTOMER:
++	case SAS_ETL_WPS_PIN:
++	case SAS_ETL_WLAN_SSID:
++	case SAS_ETL_FLASH_LAYOUT:
++	case SAS_ETL_SERIAL_EXTRA:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++static inline int sas_etl_is_integer(enum sas_etl_id idx)
++{
++	switch (idx) {
++	case SAS_ETL_IDENT_NO:
++	case SAS_ETL_BASE_PLATFORM:
++	case SAS_ETL_WLANCFG:
++	case SAS_ETL_EXTRA_SPACE_SIZE:
++	case SAS_ETL_JFFS_IMAGES:
++	case SAS_ETL_SHDSL_LINES:
++		return 1;
++	default:
++		return 0;
++	}
++}
+ 
++static inline int sas_etl_is_binary(enum sas_etl_id idx)
++{
++	switch (idx) {
++	case SAS_ETL_HW_CFG:
++	case SAS_ETL_HW_CFG2:
++	case SAS_ETL_LEDCFG:
++		return 1;
++	default:
++		return 0;
++	}
++}
+ 
+ #define SAS_ETL_AREA_SIZE		SAS_FLASH_ETL_SIZE
+ #define SAS_ETL_VARIABLE_EMPTY_CHAR	0x78
+diff --git a/include/sas/flash.h b/include/sas/flash.h
+index 9560b178cfb4efcc152b33189a8796e957f53bbc..73f036f1b0f768e0ff22b46440165ee0182d7563 100644
+--- a/include/sas/flash.h
++++ b/include/sas/flash.h
+@@ -8,54 +8,125 @@
+ #ifndef __SAS_FLASH_H__
+ #define __SAS_FLASH_H__
+ 
++#include <linux/list.h>
+ #include <sas/flash_user.h>
+ 
++enum sas_flash_part_type {
++	SAS_PART_UBOOT_FIX,
++	SAS_PART_UBOOT_CFG,
++	SAS_PART_UBOOT_UPDATE,
++	SAS_PART_SYSCFG1,
++	SAS_PART_SYSCFG2,
++	SAS_PART_IMAGES1,
++	SAS_PART_IMAGES2,
++	SAS_PART_IMAGES3,
++	SAS_PART_DEVICE,
++	SAS_PART_DATA,
++	SAS_PART_INVALID
++};
++
++struct mtd_info;
++struct part_info;
++
+ struct sas_flash_partition {
+ 	struct list_head link;
+-	struct mtd_info *master;
+ 	struct mtd_info *mtd;
+-	sas_flash_partition_t type;
++	struct part_info *pinfo;
++	enum sas_flash_part_type type;
+ 	size_t offset;
+ 	size_t size;
+-	int locked;
++	u8 pnum;
++	u8 locked;
+ };
+ 
+-int sas_flash_init(void);
++/**
++ * sas_flash_init - init the flash subsystem
++ */
++void sas_flash_init(void);
+ 
++/**
++ * sas_flash_verbose_set - set verbosity of flash subsystem
++ */
+ void sas_flash_verbose_set(int v);
+ 
+-const char * sas_flash_boot_device(void);
++/**
++ * sas_flash_part_create - create a new partition instance
++ *
++ * @type: partition type
++ */
++struct sas_flash_partition *
++sas_flash_part_create(enum sas_flash_part_type type);
+ 
+-const char * sas_flash_linux_mtdid(const struct mtd_info *mtd);
++/**
++ * sas_flash_part_destroy - destroy a partition instance
++ *
++ * @part partition
++ */
++void sas_flash_part_destroy(struct sas_flash_partition *part);
++
++/**
++ * sas_flash_part_add - register a partition
++ *
++ * @part partition
++ */
++void sas_flash_part_add(struct sas_flash_partition *part);
+ 
+-struct sas_flash_partition * sas_flash_partition_add(
+-					struct mtd_info *master,
+-					sas_flash_partition_t type,
+-					size_t size, size_t offset,
+-					int locked);
++/**
++ * sas_flash_part_del - unregister a partition
++ *
++ * @part partition
++ */
++void sas_flash_part_del(struct sas_flash_partition *part);
+ 
+-struct sas_flash_partition * sas_flash_partition_get(
+-					sas_flash_partition_t type);
++/**
++ * sas_flash_part_find - find a partition by its type
++ *
++ * @type: partition type
++ */
++struct sas_flash_partition *
++sas_flash_part_find(enum sas_flash_part_type type);
+ 
+-typedef void (*sas_flash_device_cb)(struct mtd_info *mtd, void *data);
++/**
++ * sas_flash_part_mtdparts_sync - sync a partition info with its according
++ * mtdparts values
++ *
++ * @part partition
++ */
++int sas_flash_part_mtdparts_sync(struct sas_flash_partition *part);
+ 
+-void sas_flash_device_foreach(sas_flash_device_cb cb, void *data);
++/**
++ * sas_flash_part_mtdparts_add - add a partition to mtdparts
++ *
++ * @mtd parent mtd device
++ * @part partition
++ */
++int sas_flash_part_mtdparts_add(const struct mtd_info *mtd,
++				struct sas_flash_partition *part,
++				size_t size, size_t offset);
+ 
+-typedef void (*sas_flash_partition_cb)(struct sas_flash_partition *part,
+-					void *data);
++/**
++ * sas_flash_part_mtd_parent - get MTD parent device of given partition
++ *
++ * @part partition
++ */
++struct mtd_info *
++sas_flash_part_mtd_parent(const struct sas_flash_partition *part);
+ 
+-void sas_flash_partition_foreach(struct mtd_info *master,
+-					sas_flash_partition_cb cb, void *data);
++/**
++ * sas_flash_part_mtd_register - register a MTD device for given partition
++ *
++ * @part partition
++ */
++int sas_flash_part_mtd_register(struct mtd_info *mtd,
++				struct sas_flash_partition *part);
+ 
+-int sas_flash_partition_mtd_update(struct mtd_info *master);
++struct mtd_info *sas_flash_boot_device(void);
++struct mtd_info *sas_flash_rootfs_device(void);
++struct mtd_info *sas_flash_data_device(void);
+ 
+ void sas_flash_partition_print(void);
+ 
+-static inline size_t sas_flash_roundb(const struct sas_flash_partition *part,
+-					size_t len)
+-{
+-	return ROUND(len, part->mtd->erasesize);
+-}
++size_t sas_flash_roundb(const struct sas_flash_partition *part, size_t len);
+ 
+ int sas_flash_read(const struct sas_flash_partition *part,
+ 			ulong from, size_t len, void *buf);
+@@ -89,16 +160,16 @@ static inline size_t sas_flash_etl_size(void)
+ 	return 1 * 1024;
+ }
+ 
+-static inline ulong sas_flash_cd_offset(struct sas_flash_partition *part)
++static inline ulong sas_flash_cd_offset(const struct sas_flash_partition *part)
+ {
+ 	return part->size - 8 * 1024;
+ }
+ 
+-static inline ulong sas_flash_etl_offset(struct sas_flash_partition *part)
++static inline ulong sas_flash_etl_offset(const struct sas_flash_partition *part)
+ {
+ 	return part->size - 7 * 1024;
+ }
+ 
+-const char* sas_flash_partition_str(sas_flash_partition_t type);
++const char* sas_flash_partition_str(enum sas_flash_part_type type);
+ 
+ #endif /* __SAS_FLASH_H__ */
+diff --git a/include/sas/flash_user.h b/include/sas/flash_user.h
+index 52993e87c20e1667c0d4202a5187d9014070322f..e9fdcaa43c2456ac1ee46778cea8d61dd42d708b 100644
+--- a/include/sas/flash_user.h
++++ b/include/sas/flash_user.h
+@@ -8,19 +8,6 @@
+ #ifndef __SAS_FLASH_USER_H__
+ #define __SAS_FLASH_USER_H__
+ 
+-typedef enum {
+-	SAS_PART_UBOOT_FIX,
+-	SAS_PART_UBOOT_CFG,
+-	SAS_PART_UBOOT_UPDATE,
+-	SAS_PART_SYSCFG1,
+-	SAS_PART_SYSCFG2,
+-	SAS_PART_IMAGES1,
+-	SAS_PART_IMAGES2,
+-	SAS_PART_IMAGES3,
+-	SAS_PART_DEVICE,
+-	SAS_PART_INVALID
+-} sas_flash_partition_t;
+-
+ #define SAS_FLASH_DATA_SIZE		(8 * 1024)
+ #define SAS_FLASH_CD_SIZE		(1 * 1024)
+ #define SAS_FLASH_ETL_SIZE		(1 * 1024)
+diff --git a/include/sas/flashlayout.h b/include/sas/flashlayout.h
+index 4ad46c526aabe5a61ecdd0b7c49159559e675790..67f587a7f631f5a17703f59b09a28c9e4f84063f 100644
+--- a/include/sas/flashlayout.h
++++ b/include/sas/flashlayout.h
+@@ -8,43 +8,140 @@
+ #ifndef __SAS_FLASHLAYOUT_H__
+ #define __SAS_FLASHLAYOUT_H__
+ 
+-typedef enum {
++enum sas_flash_layout_type {
+ 	SAS_LAYOUT_BASIC = 0,
+ 	SAS_LAYOUT_PLATFORM_ONLY_SINGLE,
+ 	SAS_LAYOUT_PLATFORM_ONLY_MIRRORED,
+ 	SAS_LAYOUT_PLATFORM_SERVICE_SINGLE,
+ 	SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED,
+ 	SAS_LAYOUT_INVALID
+-} sas_flash_layout_t;
++};
+ 
+ struct mtd_info;
+ 
+-int sas_flash_layout_basic_init(struct mtd_info *mtd);
++int sas_flash_layout_static_init(void);
+ 
+-int sas_flash_layout_full_init(struct mtd_info *mtd, int *save_env);
++int sas_flash_layout_dynamic_init(struct mtd_info *mtd, int is_boot_device,
++					enum sas_flash_layout_type layout);
+ 
+-int sas_flash_layout_device_init(struct mtd_info *mtd);
++int sas_flash_layout_data_init(struct mtd_info *mtd,
++				enum sas_flash_layout_type layout);
+ 
+ void sas_flash_layout_print(void);
+ 
+-int sas_flash_layout_is_mirrored(sas_flash_layout_t layout);
++unsigned long sas_flash_layout_dynamic_offset(void);
+ 
+-int sas_flash_layout_image_partitions(sas_flash_layout_t layout);
++static inline int
++sas_flash_layout_is_mirrored(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++static inline int
++sas_flash_layout_has_image_parts(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
++	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
++	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 1;
++	default:
++		return 0;
++	}
++}
+ 
+-static inline int sas_flash_layout_image_max_partitions(void)
++static inline int
++sas_flash_layout_image_part_cnt(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
++	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
++		return 1;
++	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 2;
++	default:
++		return 0;
++	}
++}
++
++static inline int sas_flash_layout_max_image_parts(void)
+ {
+ 	return 3;
+ }
+ 
++static inline int
++sas_flash_layout_has_sysconfig_part(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
++	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
++	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++static inline int
++sas_flash_layout_has_platform_images(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
++	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
++	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++static inline int
++sas_flash_layout_has_service_images(enum sas_flash_layout_type layout)
++{
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 1;
++	default:
++		return 0;
++	}
++}
++
++static inline int
++sas_flash_layout_has_nand_data_part(enum sas_flash_layout_type layout)
++{
++#ifdef CONFIG_LTQ_SUPPORT_NAND_FLASH
++	switch (layout) {
++	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
++	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
++		return 1;
++	default:
++		return 0;
++	}
++#else
++	return 0;
++#endif
++}
++
+ struct sas_flash_partition *
+ sas_flash_layout_image_partition(unsigned int index);
+ 
+-sas_flash_layout_t sas_flash_layout_current(void);
++enum sas_flash_layout_type sas_flash_layout_current(void);
+ 
+-const char* sas_flash_layout_name(sas_flash_layout_t layout);
++const char* sas_flash_layout_name(enum sas_flash_layout_type layout);
+ 
+-const char* sas_flash_layout_str(sas_flash_layout_t layout);
++const char* sas_flash_layout_str(enum sas_flash_layout_type layout);
+ 
+-sas_flash_layout_t sas_flash_layout_parse(const char *str);
++enum sas_flash_layout_type sas_flash_layout_parse(const char *str);
+ 
+ #endif /* __SAS_FLASHLAYOUT_H__ */
+diff --git a/lib/sphairon/Makefile b/lib/sphairon/Makefile
+index d8d3e7a242f2171e65b9a7804d9019b201ce0627..9e062ffeff5f140415318964a207baefe209fac6 100644
+--- a/lib/sphairon/Makefile
++++ b/lib/sphairon/Makefile
+@@ -17,10 +17,13 @@ COBJS-y	+= etl.o
+ COBJS-y	+= boot.o image.o
+ COBJS-y	+= init.o
+ COBJS-y	+= controlfile.o
++ifneq ($(CONFIG_SYS_BOOT_RAM),y)
+ COBJS-y	+= cmd_sas_boot.o
+ COBJS-y	+= cmd_sas_upgrade.o
+ COBJS-$(CONFIG_SPI_FLASH) += cmd_sas_test_sf.o
++endif
+ COBJS-y	+= cmd_sas_controlfile.o
++COBJS-y	+= cmd_sas_etl.o
+ SOBJS-y	+=
+ 
+ COBJS	:= $(COBJS-y)
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index 9acc34450bd1fae7915eb3403105b3d16cde9bd0..ac7192025a6c0220c726174e307b147cf5949edc 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -17,27 +17,16 @@ struct sas_boot_image {
+ 	struct list_head link;
+ 	sas_image_type_t type;
+ 	size_t size;
+-	ulong offset;
+-	int mtd_num;
++	size_t offset;
+ 	const struct sas_flash_partition *part;
+ 	char name[IH_NMLEN];
+ };
+ 
+ static struct list_head sas_boot_images;
+ 
+-int sas_boot_init(struct mtd_info *mtd, int *save_env)
++void sas_boot_init(void)
+ {
+-	int ret;
+-
+-	debug("sas_boot: initializing\n");
+-
+ 	INIT_LIST_HEAD(&sas_boot_images);
+-
+-	ret = sas_boot_scan_images();
+-	if (ret)
+-		return ret;
+-
+-	return 0;
+ }
+ 
+ static int sas_boot_image_add(const struct sas_flash_partition *part,
+@@ -55,7 +44,6 @@ static int sas_boot_image_add(const struct sas_flash_partition *part,
+ 	image->type = type;
+ 	image->size = size;
+ 	image->offset = offset;
+-	image->mtd_num = -1;
+ 	image->part = part;
+ 	sas_image_name(hdr, image->name);
+ 
+@@ -75,13 +63,13 @@ static int sas_boot_image_add(const struct sas_flash_partition *part,
+  *   the scan for this partition
+  */
+ static int sas_boot_image_part_scan(const struct sas_flash_partition *part,
+-					sas_flash_layout_t flash_layout)
++					enum sas_flash_layout_type flash_layout)
+ {
+ 	size_t size;
+ 	int ret;
+ 	image_header_t hdr;
+ 	sas_image_type_t type;
+-	ulong offset;
++	unsigned long offset;
+ 
+ 	debug("%s: mtd->name %s, mtd->size %llx, mtd->erasesize %x\n",
+ 		__func__, part->mtd->name, part->mtd->size, part->mtd->erasesize);
+@@ -205,7 +193,7 @@ static void sas_boot_flush_images(void)
+ int sas_boot_scan_images(void)
+ {
+ 	const struct sas_flash_partition *part;
+-	sas_flash_layout_t flash_layout;
++	enum sas_flash_layout_type flash_layout;
+ 	enum sas_boot_state state_new, state_cur;
+ 	int ret, image_cnt, i;
+ 	int has_platformfs, has_servicefs;
+@@ -219,9 +207,9 @@ int sas_boot_scan_images(void)
+ 
+ 	sas_boot_flush_images();
+ 
+-	image_cnt = sas_flash_layout_image_partitions(flash_layout);
++	image_cnt = sas_flash_layout_image_part_cnt(flash_layout);
+ 
+-	for (i = 0; i < sas_flash_layout_image_max_partitions(); i++) {
++	for (i = 0; i < sas_flash_layout_max_image_parts(); i++) {
+ 		if (i >= image_cnt) {
+ 			sas_boot_state_set(i + 1, SAS_BOOT_NOTAVAILABLE, NULL);
+ 			sas_boot_content_set(i + 1, 0, 0);
+@@ -264,229 +252,158 @@ int sas_boot_scan_images(void)
+ 	return 0;
+ }
+ 
+-struct sas_boot_priv {
+-	unsigned int active_image;
+-	int ptest_mode;
+-	int dev_cnt;
+-	int part_cnt;
+-	int mtd_cnt;
+-	char *pos;
+-};
+-
+-static int sas_boot_memsize_format(char *buf, size_t size)
++static struct sas_boot_image *
++sas_boot_image_find(sas_image_type_t type,
++			const struct sas_flash_partition *part)
+ {
+-	int n;
+-
+-#define SIZE_GB ((size_t)1024*1024*1024)
+-#define SIZE_MB ((size_t)1024*1024)
+-#define SIZE_KB ((size_t)1024)
+-
+-	if ((size % SIZE_GB) == 0)
+-		n = sprintf(buf, "%ug", size/SIZE_GB);
+-	else if ((size % SIZE_MB) == 0)
+-		n = sprintf(buf, "%um", size/SIZE_MB);
+-	else if (size % SIZE_KB == 0)
+-		n = sprintf(buf, "%uk", size/SIZE_KB);
+-	else
+-		n = sprintf(buf, "%u", size);
+-
+-	return n;
++	struct sas_boot_image *image;
++
++	list_for_each_entry(image, &sas_boot_images, link) {
++		if (part == image->part && type == image->type)
++			return image;
++	}
++
++	return NULL;
+ }
+ 
+-static void sas_boot_mtd_part_add(struct sas_boot_priv *priv,
+-				size_t size, size_t offset,
+-				const char *name,
+-				int readonly)
++static int sas_boot_fs_part_add(const struct sas_flash_partition *part,
++				sas_image_type_t type, const char *name)
+ {
+-	int n;
++	struct sas_boot_image *image;
++	struct mtd_info *mtd;
++	int err;
++	size_t size;
++	unsigned long offset;
+ 
+-	if (priv->part_cnt)
+-		*(priv->pos++) = ',';
++	debug("%s: part %d, name %s\n", __func__, part->type, name);
+ 
+-	n = sas_boot_memsize_format(priv->pos, size);
+-	priv->pos += n;
++	image = sas_boot_image_find(type, part);
++	if (!image)
++		return 1;
+ 
+-	if (offset) {
+-		*(priv->pos++) = '@';
+-		n = sas_boot_memsize_format(priv->pos, offset);
+-		priv->pos += n;
+-	}
++	mtd = sas_flash_part_mtd_parent(part);
++	if (!mtd)
++		return 1;
+ 
+-	n = sprintf(priv->pos, "(%s)", name);
+-	priv->pos += n;
++	size = image->size - sizeof(image_header_t);
++	offset = image->offset + part->offset + sizeof(image_header_t);
+ 
+-	if (readonly) {
+-		*(priv->pos++) = 'r';
+-		*(priv->pos++) = 'o';
+-	}
++	err = sas_run_command("mtdparts add %s %zu@%lu %s ro", mtd->name,
++		size, offset, name);
++	if (err)
++		return err;
+ 
+-	priv->part_cnt++;
+-	priv->mtd_cnt++;
++	return 0;
+ }
+ 
+-static void sas_boot_part_handle_cfg(struct sas_boot_priv *priv,
+-				const struct sas_flash_partition *part)
++int sas_boot_init_platform_mtdparts(int active_image,
++					enum sas_flash_layout_type layout)
+ {
+-	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
+-	int add_active = 0, add_backup = 0;
++	const struct sas_flash_partition *part;
+ 
+-	switch (flash_layout) {
+-	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+-		add_active = (part->type == SAS_PART_SYSCFG1);
+-		break;
+-	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-		if (priv->active_image > 1) {
+-			add_active = (part->type == SAS_PART_SYSCFG2);
+-			add_backup = (part->type == SAS_PART_SYSCFG1);
+-		} else {
+-			add_active = (part->type == SAS_PART_SYSCFG1);
+-			add_backup = (part->type == SAS_PART_SYSCFG2);
+-		}
+-		break;
+-	default:
+-		break;
+-	}
++	if (!active_image)
++		return 1;
+ 
+-	if (add_active)
+-		sas_boot_mtd_part_add(priv, part->size, part->offset,
+-					"cfg_active", 0);
++	part = sas_flash_layout_image_partition(active_image - 1);
++	if (!part)
++		return 1;
+ 
+-	if (add_backup)
+-		sas_boot_mtd_part_add(priv, part->size, part->offset,
+-					"cfg_backup", 0);
++	return sas_boot_fs_part_add(part, SAS_IMG_ROOTFS, "rootfs");
+ }
+ 
+-static void sas_boot_part_cb(struct sas_flash_partition *part, void *data)
++int sas_boot_init_service_mtdparts(int active_image,
++					enum sas_flash_layout_type layout)
+ {
+-	struct sas_boot_priv *priv = data;
+-
+-	switch (part->type) {
+-	case SAS_PART_UBOOT_FIX:
+-	case SAS_PART_UBOOT_CFG:
+-	case SAS_PART_UBOOT_UPDATE:
+-	case SAS_PART_IMAGES1:
+-	case SAS_PART_IMAGES2:
+-	case SAS_PART_IMAGES3:
+-	case SAS_PART_DEVICE:
+-		sas_boot_mtd_part_add(priv, part->size, part->offset,
+-					part->mtd->name, 0);
+-		break;
+-	case SAS_PART_SYSCFG1:
+-	case SAS_PART_SYSCFG2:
+-		sas_boot_part_handle_cfg(priv, part);
+-		break;
+-	default:
+-		break;
+-	}
+-}
++	const struct sas_flash_partition *part;
++	int ret;
+ 
+-static void sas_boot_mtd_part_fs_add(struct sas_boot_priv *priv,
+-					struct sas_boot_image *image)
+-{
+-	ulong offset;
+-	size_t size;
+-	const char *type;
++	if (!active_image)
++		return 1;
+ 
+-	offset = image->offset + image->part->offset + sizeof(image_header_t);
+-	size = image->size - sizeof(image_header_t);
+-	type = sas_image_type_str(image->type);
+-	image->mtd_num = priv->mtd_cnt;
++	part = sas_flash_layout_image_partition(active_image - 1);
++	if (!part)
++		return 1;
++
++	ret = sas_boot_fs_part_add(part, SAS_IMG_SERVICEFS, "servicefs");
++	if (ret)
++		return ret;
++
++	ret = sas_boot_fs_part_add(part, SAS_IMG_DEFCONFIG, "defconfig");
++	if (ret)
++		return ret;
+ 
+-	sas_boot_mtd_part_add(priv, size, offset, type, 1);
++	return 0;
+ }
+ 
+-static void sas_boot_part_handle_fs(struct sas_boot_priv *priv,
+-					struct sas_flash_partition *boot_part)
++static int sas_boot_sysconfig_part_add(enum sas_flash_part_type type,
++					const char *name)
+ {
+-	struct sas_boot_image *image, *rootfs = NULL;
+-	struct sas_boot_image *servicefs = NULL, *defconfig = NULL;
++	const struct sas_flash_partition *part;
++	struct mtd_info *mtd;
++	int ret;
+ 
+-	list_for_each_entry(image, &sas_boot_images, link) {
+-		if (boot_part != image->part)
+-			continue;
++	debug("%s: type %d, name %s\n", __func__, type, name);
+ 
+-		switch (image->type) {
+-		case SAS_IMG_ROOTFS:
+-			rootfs = image;
+-			break;
+-		case SAS_IMG_SERVICEFS:
+-			servicefs = image;
+-			break;
+-		case SAS_IMG_DEFCONFIG:
+-			defconfig = image;
+-			break;
+-		default:
+-			break;
+-		}
+-	}
++	part = sas_flash_part_find(type);
++	if (!part)
++		return 1;
+ 
+-	if (rootfs)
+-		sas_boot_mtd_part_fs_add(priv, rootfs);
++	mtd = sas_flash_part_mtd_parent(part);
++	if (!mtd)
++		return 1;
+ 
+-	if (servicefs)
+-		sas_boot_mtd_part_fs_add(priv, servicefs);
++	ret = sas_run_command("mtdparts add %s %zu@%zu %s", mtd->name,
++		part->size, part->offset, name);
++	if (ret)
++		return ret;
+ 
+-	if (defconfig)
+-		sas_boot_mtd_part_fs_add(priv, defconfig);
++	return 0;
+ }
+ 
+-static void sas_boot_mtd_cb(struct mtd_info *mtd, void *data)
++int sas_boot_init_sysconfig_mtdparts(int active_image,
++					enum sas_flash_layout_type layout)
+ {
+-	struct sas_boot_priv *priv = data;
+-	struct sas_flash_partition *boot_part;
+-	int n;
+-
+-	if (strcmp(sas_flash_boot_device(), mtd->name))
+-		return;
+-
+-	if (priv->dev_cnt)
+-		*(priv->pos++) = ';';
++	enum sas_flash_part_type cfg_active, cfg_backup;
++	int ret;
+ 
+-	n = sprintf(priv->pos, "%s:", sas_flash_linux_mtdid(mtd));
+-	priv->pos += n;
+-	priv->part_cnt = 0;
++	if (!active_image)
++		active_image = sas_boot_boottry_get();
+ 
+-	sas_flash_partition_foreach(mtd, sas_boot_part_cb, priv);
++	if (!active_image)
++		active_image = 1;
+ 
+-	if (priv->active_image) {
+-		boot_part = sas_flash_layout_image_partition(
+-						priv->active_image - 1);
+-		if (mtd == boot_part->master)
+-			sas_boot_part_handle_fs(priv, boot_part);
++	if (sas_flash_layout_is_mirrored(layout)) {
++		if (active_image == 2) {
++			cfg_active = SAS_PART_SYSCFG2;
++			cfg_backup = SAS_PART_SYSCFG1;
++		} else {
++			cfg_active = SAS_PART_SYSCFG1;
++			cfg_backup = SAS_PART_SYSCFG2;
++		}
++	} else {
++		cfg_active = SAS_PART_SYSCFG1;
++		cfg_backup = SAS_PART_INVALID;
+ 	}
+ 
+-	priv->dev_cnt++;
+-}
+-
+-void sas_boot_init_mtdparts(unsigned int active_image, int ptest_mode,
+-				char *buf)
+-{
+-	struct sas_boot_priv priv;
+-	int n;
+-
+-	priv.active_image = active_image;
+-	priv.ptest_mode = ptest_mode;
+-	priv.dev_cnt = 0;
+-	priv.part_cnt = 0;
+-	priv.mtd_cnt = 0;
+-	priv.pos = buf;
+-
+-	n = sprintf(priv.pos, "mtdparts=");
+-	priv.pos += n;
++	ret = sas_boot_sysconfig_part_add(cfg_active, "cfg_active");
++	if (ret)
++		return ret;
+ 
+-	sas_flash_device_foreach(sas_boot_mtd_cb, &priv);
++	if (cfg_backup != SAS_PART_INVALID) {
++		ret = sas_boot_sysconfig_part_add(cfg_backup, "cfg_backup");
++		if (ret)
++			return ret;
++	}
+ 
+-	*(priv.pos) = 0;
++	return 0;
+ }
+ 
+-int sas_boot_find_working_image(sas_flash_layout_t layout)
++int sas_boot_find_working_image(enum sas_flash_layout_type layout)
+ {
+ 	unsigned int first_active_working = 0;
+ 	unsigned int first_inactive_working = 0;
+ 	unsigned int first_available = 0;
+-	unsigned int part_cnt = sas_flash_layout_image_partitions(layout);
++	unsigned int part_cnt = sas_flash_layout_image_part_cnt(layout);
+ 	unsigned int i, image_index;
+ 	enum sas_boot_state state;
+ 
+@@ -543,7 +460,7 @@ int sas_boot_find_working_image(sas_flash_layout_t layout)
+ 	return 0;
+ }
+ 
+-int sas_boot_update_states(unsigned int active_image, int *retry, int *save_env)
++int sas_boot_update_states(int active_image, int *retry, int *save_env)
+ {
+ 	unsigned int boot_try = sas_boot_boottry_get();
+ 	unsigned int boot_cnt = sas_boot_bootcount_get();
+@@ -603,19 +520,6 @@ int sas_boot_update_states(unsigned int active_image, int *retry, int *save_env)
+ 	return can_boot;
+ }
+ 
+-static struct sas_boot_image * sas_boot_find(sas_image_type_t type,
+-						const struct sas_flash_partition *part)
+-{
+-	struct sas_boot_image *image;
+-
+-	list_for_each_entry(image, &sas_boot_images, link) {
+-		if (part == image->part && type == image->type)
+-			return image;
+-	}
+-
+-	return NULL;
+-}
+-
+ int sas_boot_has_platform_images(const struct sas_flash_partition *part)
+ {
+ 	struct sas_boot_image *image;
+@@ -675,7 +579,7 @@ int sas_boot_invalidate_platform_images(const struct sas_flash_partition *part)
+ 			SAS_IMG_ROOTFS != image->type))
+ 			continue;
+ 
+-		printf("Invalidating image %s @ %lx on %s\n",
++		printf("Invalidating image %s @ %x on %s\n",
+ 			image->name, image->offset, part->mtd->name);
+ 
+ 		ret = sas_flash_write(part, image->offset, sizeof(data), &data);
+@@ -697,7 +601,7 @@ int sas_boot_invalidate_service_images(const struct sas_flash_partition *part)
+ 			SAS_IMG_DEFCONFIG != image->type))
+ 			continue;
+ 
+-		printf("Invalidating image %s @ %lx on %s\n",
++		printf("Invalidating image %s @ %x on %s\n",
+ 			image->name, image->offset, part->mtd->name);
+ 
+ 		ret = sas_flash_write(part, image->offset, sizeof(data), &data);
+@@ -753,7 +657,7 @@ int sas_boot_layout_service(const struct sas_flash_partition *part,
+ 	debug("%s: part %s, servicefs_size %zu, configfs_size %zu\n",
+ 		__func__, part->mtd->name, servicefs_size, configfs_size);
+ 
+-	image = sas_boot_find(SAS_IMG_ROOTFS, part);
++	image = sas_boot_image_find(SAS_IMG_ROOTFS, part);
+ 	if (image)
+ 		rootfs_endaddr = image->offset + image->size;
+ 
+@@ -786,37 +690,25 @@ int sas_boot_load_image(const struct sas_flash_partition *part,
+ {
+ 	struct sas_boot_image *image;
+ 
+-	image = sas_boot_find(type, part);
++	image = sas_boot_image_find(type, part);
+ 	if (!image)
+ 		return 1;
+ 
+ 	return sas_flash_read(part, image->offset, image->size, (void *) addr);
+ }
+ 
+-int sas_boot_image_mtd_num(const struct sas_flash_partition *part,
+-					sas_image_type_t type)
+-{
+-	struct sas_boot_image *image;
+-
+-	image = sas_boot_find(type, part);
+-	if (!image)
+-		return -1;
+-
+-	return image->mtd_num;
+-}
+-
+ void sas_boot_print(void)
+ {
+ 	struct sas_boot_image *image;
+ 	enum sas_boot_state state;
+ 	unsigned int i;
+-	sas_flash_layout_t layout = sas_flash_layout_current();
+-	unsigned int images_max = sas_flash_layout_image_partitions(layout);
++	enum sas_flash_layout_type layout = sas_flash_layout_current();
++	unsigned int images_max = sas_flash_layout_image_part_cnt(layout);
+ 
+ 	sas_banner_header_print("Boot info");
+ 
+ 	list_for_each_entry(image, &sas_boot_images, link)
+-		sas_banner_content_print("%-8s @ %08lx      %-32s",
++		sas_banner_content_print("%-8s @ %08x      %-32s",
+ 					sas_flash_partition_str(image->part->type),
+ 					image->offset, image->name);
+ 
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index f93652f5225df42991ca5a69f83b73c366f3a35d..fdf87d561b5842d1f06a011232f47f4a2bb4e1ea 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -23,7 +23,7 @@
+ #define MK_STR(x)	XMK_STR(x)
+ 
+ /* Alternate console devices needed for Lantiq UGW kernels */
+-static inline const char *sas_consoledev_fixup(void)
++static const char *sas_consoledev_fixup(void)
+ {
+ #if defined(CONFIG_SOC_XWAY_VRX200)
+ 	return "ttyS0";
+@@ -32,19 +32,19 @@ static inline const char *sas_consoledev_fixup(void)
+ #endif
+ }
+ 
+-static inline const char *sas_consoledev_configured(void)
++static const char *sas_consoledev_configured(void)
+ {
+ 	return CONFIG_CONSOLE_DEV;
+ }
+ 
+-typedef enum {
++enum sas_image_src_type {
+ 	SAS_FLASH,
+ 	SAS_TFTP,
+ 	SAS_NFS,
+ 	SAS_NONE,
+ 	SAS_PTEST,
+ 	SAS_INVALID,
+-} sas_image_src_t;
++};
+ 
+ static const char sas_image_src_strings[][10] = {
+ 	"flash",
+@@ -55,14 +55,14 @@ static const char sas_image_src_strings[][10] = {
+ 	"invalid"
+ };
+ 
+-static inline const char * sas_image_src_str(sas_image_src_t image)
++static const char * sas_image_src_str(enum sas_image_src_type image)
+ {
+ 	assert(image <= SAS_INVALID);
+ 
+ 	return sas_image_src_strings[image];
+ }
+ 
+-static int sas_image_src_set(const char *name, sas_image_src_t image,
++static int sas_image_src_set(const char *name, enum sas_image_src_type image,
+ 				int *saveenv)
+ {
+ 	assert(image <= SAS_INVALID);
+@@ -70,8 +70,8 @@ static int sas_image_src_set(const char *name, sas_image_src_t image,
+ 	return sas_setenv(name, sas_image_src_strings[image], saveenv);
+ }
+ 
+-static sas_image_src_t sas_parse_image_src(const char *image,
+-					sas_image_src_t def_image)
++static enum sas_image_src_type
++sas_parse_image_src(const char *image, enum sas_image_src_type def_image)
+ {
+ 	int i, ret;
+ 
+@@ -90,7 +90,7 @@ static sas_image_src_t sas_parse_image_src(const char *image,
+ 	return SAS_INVALID;
+ }
+ 
+-static inline const char * sas_image_str(sas_image_type_t type)
++static const char *sas_image_str(sas_image_type_t type)
+ {
+ 	switch (type) {
+ 	case SAS_IMG_ROOTFS:
+@@ -104,7 +104,8 @@ static inline const char * sas_image_str(sas_image_type_t type)
+ 	}
+ }
+ 
+-static int sas_load_kernel(int active_image, sas_image_src_t src, ulong loadaddr)
++static int sas_kernel_load(int active_image, enum sas_image_src_type src,
++				ulong loadaddr)
+ {
+ 	int ret;
+ 	size_t size;
+@@ -113,75 +114,103 @@ static int sas_load_kernel(int active_image, sas_image_src_t src, ulong loadaddr
+ 	switch (src) {
+ 	case SAS_TFTP:
+ 		size = sas_run_tftpboot(loadaddr, SAS_KERNEL_IMAGE);
+-		ret = size ? 0 : 1;
++		if (!size)
++			goto err;
+ 		break;
+ 	case SAS_FLASH:
+-		if (active_image) {
+-			part = sas_flash_layout_image_partition(active_image - 1);
+-			ret = sas_boot_load_image(part, SAS_IMG_KERNEL, loadaddr);
+-		} else
+-			ret = 1;
++		if (!active_image)
++			goto err;
++
++		part = sas_flash_layout_image_partition(active_image - 1);
++		ret = sas_boot_load_image(part, SAS_IMG_KERNEL, loadaddr);
++		if (ret)
++			goto err;
+ 		break;
+ 	default:
+-		ret = 1;
+-		break;
+-	}
+-
+-	if (ret) {
+-		puts("Failed to load kernel image\n");
+-		return 1;
++		goto err;
+ 	}
+ 
+ 	return 0;
++
++err:
++	puts("Failed to load kernel image\n");
++
++	return 1;
+ }
+ 
+-static int sas_load_fs(int active_image, sas_image_src_t src,
+-			sas_image_type_t type)
++static int sas_servicefs_load(enum sas_flash_layout_type layout,
++				int active_image, enum sas_image_src_type src)
+ {
+-	char buf[48];
+-	int mtd_num;
+-	int ret = 0;
+-	const char *name = sas_image_str(type);
+ 	const struct sas_flash_partition *part;
++	int ret;
+ 
+-	switch (src) {
+-	case SAS_FLASH:
+-		if (!active_image) {
+-			ret = 1;
+-			break;
+-		}
++	if (!sas_flash_layout_has_service_images(layout))
++		return 0;
+ 
+-		part = sas_flash_layout_image_partition(active_image - 1);
+-		mtd_num = sas_boot_image_mtd_num(part, type);
+-		if (mtd_num < 0) {
+-			ret = 1;
+-			break;
+-		}
++	if (src != SAS_FLASH)
++		return 0;
+ 
+-		sprintf(buf, "%s=/dev/mtdblock%d", name, mtd_num);
+-		setenv(name, buf);
+-		break;
+-	case SAS_TFTP:
+-	case SAS_NFS:
+-		sprintf(buf, "%s=%s", name, sas_image_src_str(src));
+-		setenv(name, buf);
+-		break;
+-	case SAS_PTEST:
+-	case SAS_NONE:
+-		break;
+-	default:
+-		ret = 1;
+-		break;
+-	}
++	if (!active_image)
++		return 1;
+ 
+-	if (ret) {
+-		printf("Failed to load %s image\n", name);
++	part = sas_flash_layout_image_partition(active_image - 1);
++	if (!part)
+ 		return 1;
++
++	ret = sas_boot_has_service_images(part);
++	if (ret)
++		return 0;
++
++	return 1;
++}
++
++static int sas_mtdparts_update(enum sas_flash_layout_type layout,
++				int active_image,
++				enum sas_image_src_type rootfs_src,
++				enum sas_image_src_type servicefs_src)
++{
++	int ret;
++
++	if (sas_flash_layout_has_sysconfig_part(layout)) {
++		ret = sas_boot_init_sysconfig_mtdparts(active_image, layout);
++		if (ret)
++			return ret;
++	}
++
++	if (sas_flash_layout_has_platform_images(layout) &&
++		rootfs_src == SAS_FLASH) {
++		ret = sas_boot_init_platform_mtdparts(active_image, layout);
++		if (ret)
++			return ret;
++	}
++
++	if (sas_flash_layout_has_service_images(layout) &&
++		servicefs_src == SAS_FLASH) {
++		ret = sas_boot_init_service_mtdparts(active_image, layout);
++		if (ret)
++			return ret;
+ 	}
+ 
+ 	return 0;
+ }
+ 
++static void sas_env_fs_arg_set(const char *name, enum sas_image_src_type src)
++{
++	char buf[48];
++
++	sprintf(buf, "%s=%s", name, sas_image_src_str(src));
++	setenv(name, buf);
++}
++
++static void sas_env_fs_args_init(int active_image,
++				enum sas_image_src_type rootfs_src,
++				enum sas_image_src_type servicefs_src)
++{
++	sas_env_fs_arg_set("rootfs", rootfs_src);
++	sas_env_fs_arg_set("servicefs", servicefs_src);
++	sas_env_fs_arg_set("defconfig", servicefs_src);
++}
++
+ static void sas_env_linux_fixup(ulong loadaddr)
+ {
+ 	const image_header_t *hdr = (const image_header_t *)loadaddr;
+@@ -203,14 +232,13 @@ static void sas_env_linux_fixup(ulong loadaddr)
+ static void sas_env_bootargs_clear(void)
+ {
+ 	setenv("bootargs", NULL);
+-	setenv("mtdparts", NULL);
+ 	setenv("ptest", NULL);
+ 	setenv(sas_image_str(SAS_IMG_ROOTFS), NULL);
+ 	setenv(sas_image_str(SAS_IMG_SERVICEFS), NULL);
+ 	setenv(sas_image_str(SAS_IMG_DEFCONFIG), NULL);
+ }
+ 
+-static void sas_env_flashlayout_set(sas_flash_layout_t layout, int *save_env)
++static void sas_env_flashlayout_set(enum sas_flash_layout_type layout, int *save_env)
+ {
+ 	const char flash_layout[] = "flash_layout";
+ 	char buf[24];
+@@ -227,11 +255,6 @@ static void sas_env_compat_set(int *save_env)
+ 	sas_setenv("uboot_builddate", U_BOOT_DATE " " U_BOOT_TIME, save_env);
+ }
+ 
+-static void sas_env_mtdparts_set(const char *mtdparts)
+-{
+-	setenv("mtdparts", mtdparts);
+-}
+-
+ static void sas_env_bootargs_init(int ptest_mode)
+ {
+ 	if (ptest_mode)
+@@ -246,18 +269,19 @@ static void sas_env_save(int status)
+ 		sas_saveenv();
+ }
+ 
+-static void sas_bootm(ulong addr)
++static int sas_bootm(ulong addr)
+ {
+ #if 0
+-		printf("\nbootm %08lx\n\n", addr);
++	printf("\nbootm %08lx\n\n", addr);
++	return 0;
+ #else
+-		sas_run_command("bootm %08lx", addr);
++	return sas_run_command("bootm %08lx", addr);
+ #endif
+ }
+ 
+-static int sas_check_ptest(sas_flash_layout_t flash_layout,
+-				sas_image_src_t kernel, sas_image_src_t rootfs,
+-				sas_image_src_t servicefs)
++static int sas_check_ptest(enum sas_flash_layout_type flash_layout,
++				enum sas_image_src_type kernel, enum sas_image_src_type rootfs,
++				enum sas_image_src_type servicefs)
+ {
+ 	const char *etl_serial_no, *ethaddr;
+ 
+@@ -297,7 +321,7 @@ static int sas_check_ptest(sas_flash_layout_t flash_layout,
+ 	 * No PTEST if serial number is already set or first char is
+ 	 * different from SAS_ETL_VARIABLE_EMPTY_CHAR
+ 	 */
+-	etl_serial_no = getenv("etl_serial_no");
++	etl_serial_no = sas_etl_get_string(SAS_ETL_SERIAL);
+ 	if (etl_serial_no && etl_serial_no[0] != SAS_ETL_VARIABLE_EMPTY_CHAR)
+ 		return 0;
+ 
+@@ -309,9 +333,9 @@ static int sas_check_ptest(sas_flash_layout_t flash_layout,
+ 	return 1;
+ }
+ 
+-static int sas_bootlogic_active(sas_flash_layout_t flash_layout,
+-				sas_image_src_t kernel, sas_image_src_t rootfs,
+-				sas_image_src_t servicefs)
++static int sas_bootlogic_active(enum sas_flash_layout_type flash_layout,
++				enum sas_image_src_type kernel, enum sas_image_src_type rootfs,
++				enum sas_image_src_type servicefs)
+ {
+ 	if (kernel != SAS_FLASH)
+ 		return 0;
+@@ -338,19 +362,17 @@ static int sas_bootlogic_active(sas_flash_layout_t flash_layout,
+ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[])
+ {
+ 	const char *kernel_src, *rootfs_src, *servicefs_src;
+-	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
+-	sas_image_src_t kernel, rootfs, servicefs;
++	const enum sas_flash_layout_type flash_layout = sas_flash_layout_current();
++	enum sas_image_src_type kernel, rootfs, servicefs;
+ 	ulong loadaddr;
+ 	int ret = 0, save_env = 0;
+-	int boot_logic, etl_exists, ptest_mode, can_boot;
++	int boot_logic, ptest_mode, can_boot;
+ 	int retry, active_image;
+-	char mtdparts[512];
+ 
+-	etl_exists = getenv_ulong("etl_exists", 10, 0);
+-	if (!etl_exists) {
++	if (!sas_etl_version()) {
+ 		printf("Cannot boot without Sphairon typelabel\n");
+ 		ret = 1;
+-		goto done;
++		return 1;
+ 	}
+ 
+ 	if (argc == 4) {
+@@ -362,7 +384,7 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 		rootfs_src = getenv("rootfs_src");
+ 		servicefs_src = getenv("servicefs_src");
+ 	} else
+-		goto usage;
++		return CMD_RET_USAGE;
+ 
+ 	kernel = sas_parse_image_src(kernel_src, SAS_FLASH);
+ 	rootfs = sas_parse_image_src(rootfs_src, SAS_FLASH);
+@@ -370,7 +392,7 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 
+ 	if (kernel == SAS_INVALID || rootfs == SAS_INVALID ||
+ 		servicefs == SAS_INVALID)
+-		goto usage;
++		return CMD_RET_USAGE;
+ 
+ 	ptest_mode = sas_check_ptest(flash_layout, kernel, rootfs, servicefs);
+ 
+@@ -413,52 +435,45 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 			break;
+ 		}
+ 
+-		ret = sas_load_kernel(active_image, kernel, loadaddr);
+-		if (ret)
+-			goto done;
+-
+-		sas_boot_init_mtdparts(active_image, ptest_mode, mtdparts);
+-
+-		ret = sas_load_fs(active_image, rootfs, SAS_IMG_ROOTFS);
+-		if (ret)
+-			goto done;
+-
+-		ret = sas_load_fs(active_image, servicefs, SAS_IMG_SERVICEFS);
++		/* Load kernel from flash or via TFTP */
++		ret = sas_kernel_load(active_image, kernel, loadaddr);
+ 		if (ret)
+-			goto done;
++			return 1;
+ 
+-		ret = sas_load_fs(active_image, servicefs, SAS_IMG_DEFCONFIG);
++		ret = sas_servicefs_load(flash_layout, active_image, servicefs);
+ 		if (ret)
+-			goto done;
++			return 1;
+ 
+ 		if (boot_logic && active_image && !ptest_mode)
+ 			can_boot = sas_boot_update_states(active_image, &retry,
+ 								&save_env);
+ 	} while (retry);
+ 
+-	sas_env_save(save_env);
++	if (!can_boot) {
++		puts("Invalid or incomplete images available for boot\n");
++		return 1;
++	}
+ 
+-	if (can_boot) {
+-		/* Handle transient env variables */
+-		sas_env_linux_fixup(loadaddr);
+-		sas_env_mtdparts_set(mtdparts);
+-		sas_env_bootargs_init(ptest_mode);
++	sas_etl_env_save(&save_env);
++	sas_env_save(save_env);
+ 
+-		/* Perform boot */
+-		sas_bootm(loadaddr);
+-	}
++	ret = sas_mtdparts_update(flash_layout, active_image, rootfs,
++		servicefs);
++	if (ret)
++		return 1;
+ 
+-done:
+-	if (ret != -1)
+-		return ret;
++	/* Handle transient env variables */
++	sas_env_linux_fixup(loadaddr);
++	sas_env_fs_args_init(active_image, rootfs, servicefs);
++	sas_env_bootargs_init(ptest_mode);
+ 
+-usage:
+-	return cmd_usage(cmdtp);
++	/* Perform boot */
++	return sas_bootm(loadaddr);
+ }
+ 
+ U_BOOT_CMD(sas_boot, 4, 1, do_sas_boot,
+-	   "Sphairon kernel and rootfs loader",
+-	   "[kernel_src rootfs_src servicefs_src] \n"
+-	   "    - kernel_src = [flash|tftp]\n"
+-	   "    - rootfs_src = [flash|tftp|nfs|none]\n"
+-	   "    - servicefs_src = [flash|tftp|nfs|none|ptest]\n");
++	"Sphairon kernel and rootfs loader",
++	"[kernel_src rootfs_src servicefs_src] \n"
++	"    - kernel_src = [flash|tftp]\n"
++	"    - rootfs_src = [flash|tftp|nfs|none]\n"
++	"    - servicefs_src = [flash|tftp|nfs|none|ptest]\n");
+diff --git a/lib/sphairon/cmd_sas_etl.c b/lib/sphairon/cmd_sas_etl.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..9ed9216643ed4466e9374e27fec5ea454cb77132
+--- /dev/null
++++ b/lib/sphairon/cmd_sas_etl.c
+@@ -0,0 +1,151 @@
++/*
++ * (C) Copyright 2011-2012 Sphairon Technologies GmbH
++ *
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ */
++#define DEBUG
++#include <common.h>
++#include <command.h>
++#include <sas/etl.h>
++
++static int parse_loadaddr(int argc, const char *value, unsigned long *loadaddr)
++{
++	if (argc == 2)
++		strict_strtoul(value, 16, loadaddr);
++	else if (argc == 1)
++		*loadaddr = getenv_ulong("loadaddr", 16, CONFIG_LOADADDR);
++	else
++		return CMD_RET_USAGE;
++
++	return 0;
++}
++
++static int do_etl_import(int argc, char * const argv[])
++{
++	unsigned long loadaddr;
++	int ret;
++
++	ret = parse_loadaddr(argc, argv[1], &loadaddr);
++	if (ret)
++		return ret;
++
++	ret = sas_etl_import(loadaddr);
++	if (ret)
++		return ret;
++
++	sas_etl_env_set_ethaddr(NULL);
++
++	return 0;
++}
++
++static int do_etl_export(int argc, char * const argv[])
++{
++	unsigned long loadaddr;
++	int ret;
++
++	ret = parse_loadaddr(argc, argv[1], &loadaddr);
++	if (ret)
++		return ret;
++
++	return sas_etl_export(loadaddr);
++}
++
++static int do_etl_read(int argc, char * const argv[])
++{
++	unsigned long loadaddr;
++	int ret;
++
++	ret = parse_loadaddr(argc, argv[1], &loadaddr);
++	if (ret)
++		return ret;
++
++	return sas_etl_flash_read(loadaddr);
++}
++
++static int do_etl_write(int argc, char * const argv[])
++{
++	unsigned long loadaddr;
++	int ret;
++
++	ret = parse_loadaddr(argc, argv[1], &loadaddr);
++	if (ret)
++		return ret;
++
++	return sas_etl_flash_write(loadaddr);
++}
++
++static int do_etl_set(int argc, char * const argv[])
++{
++	enum sas_etl_id idx;
++
++	if (argc != 3)
++		return CMD_RET_USAGE;
++
++	idx = sas_etl_id_parse(argv[1]);
++	if (idx == SAS_ETL_ID_LAST) {
++		printf("invalid id: %s\n", argv[1]);
++		return CMD_RET_FAILURE;
++	}
++
++	sas_etl_set_string(idx, argv[2]);
++
++	return 0;
++}
++
++static int do_etl_save(void)
++{
++	unsigned long loadaddr;
++	int ret;
++
++	parse_loadaddr(1, NULL, &loadaddr);
++
++	ret = sas_etl_export(loadaddr);
++	if (ret)
++		return ret;
++
++	return sas_etl_flash_write(loadaddr);
++}
++
++static int do_sas_etl(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[])
++{
++	const char *cmd;
++
++	/* need at least two arguments */
++	if (argc < 2)
++		return CMD_RET_USAGE;
++
++	cmd = argv[1];
++	argc--;
++	argv++;
++
++	if (strcmp(cmd, "import") == 0)
++		return do_etl_import(argc, argv);
++	else if (strcmp(cmd, "export") == 0)
++		return do_etl_export(argc, argv);
++	else if (strcmp(cmd, "read") == 0)
++		return do_etl_read(argc, argv);
++	else if (strcmp(cmd, "write") == 0)
++		return do_etl_write(argc, argv);
++	else if (strcmp(cmd, "set") == 0)
++		return do_etl_set(argc, argv);
++	else if (strcmp(cmd, "save") == 0)
++		return do_etl_save();
++	else if (strcmp(cmd, "dump") == 0) {
++		sas_etl_dump();
++		return 0;
++	} else
++		return CMD_RET_USAGE;
++
++	return 0;
++}
++
++U_BOOT_CMD(sas_etl, 4, 0, do_sas_etl,
++	"Sphairon ETL commands",
++	"import [addr] - import ETL at [addr]\n"
++	"sas_etl export [addr] - export ETL to [addr]\n"
++	"sas_etl read [addr] - read ETL from flash to [addr]\n"
++	"sas_etl write [addr] - write ETL at [addr] to flash\n"
++	"sas_etl save - save current ETL values to flash\n"
++	"sas_etl dump - dump ETL values\n"
++	"sas_etl set <id|name> <value> - set new <value> for <id|name>");
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index 04485f0f6880564e249bc3ed4bcdc21bc05217dd..9c33a0480af9cde4ac60e12d57042a55c42765f9 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -13,6 +13,7 @@
+ #include <sas/flash.h>
+ #include <sas/flashlayout.h>
+ #include <sas/boot.h>
++#include <sas/etl.h>
+ 
+ #if defined(CONFIG_SYS_BOOT_SFSPL)
+ #if defined(CONFIG_LTQ_SPL_COMP_LZO)
+@@ -31,8 +32,8 @@
+ #endif
+ 
+ static int sas_upgrade_images_load(const char *name1, ulong *addr1,
+-				   size_t *size1, const char *name2,
+-				   ulong *addr2, size_t *size2)
++					size_t *size1, const char *name2,
++					ulong *addr2, size_t *size2)
+ {
+ 	ulong loadaddr;
+ 	size_t size;
+@@ -72,8 +73,8 @@ err:
+ }
+ 
+ static int sas_upgrade_image_load(cmd_tbl_t * cmdtp, int argc,
+-				  char *const argv[], const char *image,
+-				  ulong *addr, size_t *size)
++					char *const argv[], const char *image,
++					ulong *addr, size_t *size)
+ {
+ 	int ret;
+ 	ulong val;
+@@ -130,7 +131,7 @@ static int sas_upgrade_check_forced(int argc, char *const argv[])
+ }
+ 
+ static int do_sas_upgrade_uboot(cmd_tbl_t * cmdtp, int flag,
+-				int argc, char *const argv[])
++					int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+ 	ulong loadaddr, cd_offset;
+@@ -146,7 +147,7 @@ static int do_sas_upgrade_uboot(cmd_tbl_t * cmdtp, int flag,
+ 			return 0;
+ 	}
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
++	part = sas_flash_part_find(SAS_PART_UBOOT_FIX);
+ 	if (!part)
+ 		return 1;
+ 
+@@ -178,14 +179,14 @@ U_BOOT_CMD(sas_upgrade_uboot, 4, 0, do_sas_upgrade_uboot,
+ 	"Update U-Boot in flash", "[-f] [addr size]\n");
+ 
+ static int do_sas_upgrade_uboot_alt(cmd_tbl_t * cmdtp, int flag,
+-				    int argc, char *const argv[])
++					int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+ 	ulong loadaddr;
+ 	size_t size;
+ 	int ret;
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_UPDATE);
++	part = sas_flash_part_find(SAS_PART_UBOOT_UPDATE);
+ 	if (!part)
+ 		return 1;
+ 
+@@ -211,12 +212,12 @@ U_BOOT_CMD(sas_upgrade_uboot_alt, 3, 0, do_sas_upgrade_uboot_alt,
+ 	"Update alternate U-Boot in flash", "[addr] [size]\n");
+ 
+ static int do_sas_erase_uboot_alt(cmd_tbl_t * cmdtp, int flag,
+-				  int argc, char *const argv[])
++					int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+ 	int ret;
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_UPDATE);
++	part = sas_flash_part_find(SAS_PART_UBOOT_UPDATE);
+ 	if (!part)
+ 		return 1;
+ 
+@@ -231,10 +232,9 @@ U_BOOT_CMD(sas_erase_uboot_alt, 1, 0, do_sas_erase_uboot_alt,
+ 	"Erase second U-Boot in flash", "");
+ 
+ static int do_sas_upgrade_etl(cmd_tbl_t * cmdtp, int flag,
+-			      int argc, char *const argv[])
++				int argc, char *const argv[])
+ {
+-	struct sas_flash_partition *part;
+-	ulong loadaddr, etl_offset;
++	ulong loadaddr;
+ 	size_t size;
+ 	int ret;
+ 
+@@ -247,26 +247,17 @@ static int do_sas_upgrade_etl(cmd_tbl_t * cmdtp, int flag,
+ 			return 0;
+ 	}
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
+-	if (!part)
+-		return 1;
+-
+ 	ret = sas_upgrade_image_load(cmdtp, argc, argv, SAS_TYPELABEL_BIN,
+ 					&loadaddr, &size);
+ 	if (ret)
+ 		return ret;
+ 
+-	if (size >= sas_flash_etl_size()) {
+-		puts("Image size too big\n");
+-		return 1;
+-	}
+-
+-	etl_offset = sas_flash_etl_offset(part);
++	ret = sas_etl_import(loadaddr);
++	if (ret)
++		return ret;
+ 
+ 	sas_flash_verbose_set(1);
+-	ret = sas_flash_complete_write(part, etl_offset, size,
+-					sas_flash_etl_size(),
+-					(const void *) loadaddr, 1);
++	ret = sas_etl_flash_write(loadaddr);
+ 	sas_flash_verbose_set(0);
+ 
+ 	return ret;
+@@ -276,11 +267,9 @@ U_BOOT_CMD(sas_upgrade_etl, 4, 0, do_sas_upgrade_etl,
+ 	"Update ETL in flash", "[-f] [addr size]\n");
+ 
+ static int do_sas_erase_etl(cmd_tbl_t * cmdtp, int flag,
+-			    int argc, char *const argv[])
++				int argc, char *const argv[])
+ {
+-	struct sas_flash_partition *part;
+ 	int ret;
+-	ulong etl_offset;
+ 
+ 	if (!sas_upgrade_check_forced(argc, argv)) {
+ 		ret = sas_confirm("Caution: this can damage your board");
+@@ -288,22 +277,8 @@ static int do_sas_erase_etl(cmd_tbl_t * cmdtp, int flag,
+ 			return 0;
+ 	}
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
+-	if (!part)
+-		return 1;
+-
+-	etl_offset = sas_flash_etl_offset(part);
+-
+ 	sas_flash_verbose_set(1);
+-	ret = sas_flash_unlock(part, 0, part->size);
+-	if (ret)
+-		goto done;
+-
+-	ret = sas_flash_partial_erase(part, etl_offset,
+-					sas_flash_etl_size());
+-
+-done:
+-	sas_flash_lock(part, 0, part->size);
++	ret = sas_etl_flash_erase();
+ 	sas_flash_verbose_set(0);
+ 
+ 	return ret;
+@@ -313,23 +288,22 @@ U_BOOT_CMD(sas_erase_etl, 2, 0, do_sas_erase_etl,
+ 	"Erase ETL in flash", "[-f]");
+ 
+ static int do_sas_erase_uboot_cfg(cmd_tbl_t * cmdtp, int flag,
+-			    int argc, char *const argv[])
++					int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+ 	int ret;
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_CFG);
++	part = sas_flash_part_find(SAS_PART_UBOOT_CFG);
+ 	if (!part)
+ 		return 1;
+ 
+ 	sas_flash_verbose_set(1);
+ 	ret = sas_flash_unlock(part, 0, part->size);
+ 	if (ret)
+-		goto done;
++		return 1;
+ 
+ 	ret = sas_flash_erase(part, 0, part->size);
+ 
+-done:
+ 	sas_flash_lock(part, 0, part->size);
+ 	sas_flash_verbose_set(0);
+ 
+@@ -359,7 +333,7 @@ static void sas_upgrade_index(int argc, char *const argv[], int *index)
+ }
+ 
+ static int do_sas_upgrade_platform(cmd_tbl_t * cmdtp, int flag,
+-				   int argc, char *const argv[])
++					int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+ 	int index = 0, ret;
+@@ -424,7 +398,7 @@ U_BOOT_CMD(sas_upgrade_platform, 2, 0, do_sas_upgrade_platform,
+ 	"Update kernel and rootfs in flash", "[index]");
+ 
+ static int do_sas_upgrade_service(cmd_tbl_t * cmdtp, int flag,
+-				  int argc, char *const argv[])
++					int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+ 	int index = 0, ret;
+@@ -492,7 +466,7 @@ static int do_sas_erase_syscfg(cmd_tbl_t * cmdtp, int flag,
+ 				int argc, char *const argv[])
+ {
+ 	struct sas_flash_partition *part;
+-	sas_flash_partition_t part_type;
++	enum sas_flash_part_type part_type;
+ 	int index = 0, ret;
+ 
+ 	sas_upgrade_index(argc, argv, &index);
+@@ -509,7 +483,7 @@ static int do_sas_erase_syscfg(cmd_tbl_t * cmdtp, int flag,
+ 		return 1;
+ 	}
+ 
+-	part = sas_flash_partition_get(part_type);
++	part = sas_flash_part_find(part_type);
+ 	if (!part)
+ 		return 1;
+ 
+diff --git a/lib/sphairon/controlfile.c b/lib/sphairon/controlfile.c
+index b1ffc5051ca33f18e923517e81136274eeb2fcea..97e62d189e8027860b3c1afbbe478397c8495509 100644
+--- a/lib/sphairon/controlfile.c
++++ b/lib/sphairon/controlfile.c
+@@ -60,3 +60,16 @@ void sas_cf_run(void)
+ 	setenv("bootcmd", "sas_controlfile");
+ 	setenv("bootdelay", "2");
+ }
++
++int sas_cf_is_active(void)
++{
++	const char *bootcmd = getenv("bootcmd");
++
++	if (!bootcmd)
++		return 0;
++
++	if (!strcmp(bootcmd, "sas_controlfile"))
++		return 1;
++
++	return 0;
++}
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index 8272816b2d661354e375ec32894431c16ca61392..7332a8ad092f3f9924d955fbee3fe6859a150406 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -6,157 +6,223 @@
+  */
+ 
+ #include <common.h>
+-#include <malloc.h>
+-#include <linux/list.h>
+-#include <linux/mtd/mtd.h>
++#include <linux/compiler.h>
+ 
+ #include <sas/etl.h>
+ #include <sas/util.h>
+ #include <sas/flash.h>
+ 
+-static u_char *sas_etl_buf;
++#define SAS_ETL_MAX_VALUE_CHARS		40
++#define SAS_ETL_V2_SIZE			256
++
++static char sas_etl_map[SAS_ETL_ID_LAST][SAS_ETL_MAX_VALUE_CHARS];
+ static int sas_etl_ver;
+ 
+-static int sas_etl_import(void)
++int sas_etl_init(void)
+ {
+-	struct sas_flash_partition *part;
++	const unsigned long addr = CONFIG_LOADADDR;
+ 	int ret;
+ 
+-	debug("sas_etl: initializing\n");
++	ret = sas_etl_flash_read(addr);
++	if (ret)
++		return ret;
+ 
+-	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
+-	if (!part) {
+-		debug("sas_etl: sas_flash_partition_get failed\n");
+-		return 1;
+-	}
++	return sas_etl_import(addr);
++}
++
++int sas_etl_flash_read(unsigned long addr)
++{
++	const struct sas_flash_partition *part;
++	void *buf = (void *)addr;
+ 
+-	sas_etl_buf = malloc(sas_flash_etl_size());
+-	if (!sas_etl_buf) {
+-		debug("sas_etl: malloc failed\n");
++	part = sas_flash_part_find(SAS_PART_UBOOT_FIX);
++	if (!part)
+ 		return 1;
+-	}
+ 
+-	ret = sas_flash_read(part, sas_flash_etl_offset(part),
+-			sas_flash_etl_size(), sas_etl_buf);
+-	if (ret) {
+-		debug("sas_etl: sas_flash_read failed\n");
+-		goto err;
+-	}
++	return sas_flash_read(part, sas_flash_etl_offset(part),
++		SAS_ETL_V2_SIZE, buf);
++}
+ 
+-	sas_etl_ver = 0;
+-	if (sas_etl_buf[0] != 0xFF)
+-		sas_etl_ver = 2;
++int sas_etl_flash_write(unsigned long addr)
++{
++	const struct sas_flash_partition *part;
++	const void *buf = (const void *)addr;
++	int ret;
+ 
+-	return 0;
++	part = sas_flash_part_find(SAS_PART_UBOOT_FIX);
++	if (!part)
++		return 1;
+ 
+-err:
+-	free(sas_etl_buf);
++	ret = sas_flash_complete_write(part, sas_flash_etl_offset(part),
++		SAS_ETL_V2_SIZE, SAS_ETL_V2_SIZE, buf, 1);
+ 
+ 	return ret;
+ }
+ 
+-static inline void sas_etl_banner_print(const char *name, const char *buf)
++int sas_etl_flash_erase(void)
+ {
+-	sas_banner_content_print("%-25s%-s ", name, buf);
++	const struct sas_flash_partition *part;
++	int ret;
++
++	part = sas_flash_part_find(SAS_PART_UBOOT_FIX);
++	if (!part)
++		return 1;
++
++	ret = sas_flash_unlock(part, 0, part->size);
++	if (ret)
++		return 1;
++
++	ret = sas_flash_partial_erase(part, sas_flash_etl_offset(part),
++		SAS_ETL_V2_SIZE);
++
++	sas_flash_lock(part, 0, part->size);
++
++	return ret;
+ }
+ 
+-static inline int sas_etl_check_eth_addr(const char *buf)
++int sas_etl_import(unsigned long addr)
+ {
++	const u8 *buf = (const u8 *)addr;
++	u8 idx, len;
++	char *str;
++
++	sas_etl_ver = 0;
++	memset(&sas_etl_map, 0, sizeof(sas_etl_map));
++
++	/* Check for empty flash and ETL version */
++	if (buf[0] == 0xff || buf[SAS_ETL_V2_SIZE - 1] == 0xff) {
++		debug("%s: empty flash\n", __func__);
++		return 0;
++	}
++
++	if (buf[SAS_ETL_V2_SIZE - 1] == 0x1) {
++		debug("%s: ETL v2\n", __func__);
++		sas_etl_ver = 2;
++	} else {
++		debug("%s: invalid ETL version\n", __func__);
++		return 0;
++	}
++
++	do {
++		idx = *buf++;
++		len = *buf++;
++
++		debug("%s: idx %u, len %u\n", __func__, idx, len);
++
++		/* end of ETL reached */
++		if (!idx && !len)
++			return 0;
++
++		if (idx >= SAS_ETL_ID_LAST) {
++			debug("%s: invalid idx %u\n", __func__, idx);
++			return 1;
++		}
++
++		if (len >= SAS_ETL_MAX_VALUE_CHARS) {
++			debug("%s: invalid len %u\n", __func__, len);
++			return 1;
++		}
++
++		str = &sas_etl_map[idx][0];
++		memcpy(str, buf, len);
++		buf += len;
++	} while ((buf - (const u8 *)addr) < SAS_ETL_V2_SIZE);
++
+ 	return 0;
+ }
+ 
+-static int sas_etl_parse(int *save_env)
++int sas_etl_export(unsigned long addr)
+ {
+-	char buf[40];
+-	int ret;
+-	struct sas_hw_cfg hw_cfg;
+-	struct sas_hw_cfg2 hw_cfg2;
++	u8 *buf = (u8 *)addr;
++	char *str;
++	enum sas_etl_id idx;
++	u8 len;
+ 
+-	if (!sas_etl_ver) {
+-		sas_setenv_num("etl_exists", 0, save_env);
+-		return 0;
++	memset(buf, 0, SAS_ETL_V2_SIZE);
++
++	for (idx = SAS_ETL_HW_VERSION; idx < SAS_ETL_ID_LAST; idx++) {
++		str = &sas_etl_map[idx][0];
++
++		if (sas_etl_is_binary(idx))
++			len = 4;
++		else
++			len = strlen(str);
++
++		*buf++ = idx;
++		*buf++ = len;
++		memcpy(buf, str, len);
++		buf += len;
+ 	}
+ 
+-	sas_setenv_num("etl_exists", 1, save_env);
++	buf = (u8 *)addr;
++	buf[SAS_ETL_V2_SIZE - 1] = 0x1;
+ 
+-	sas_banner_header_print("Sphairon type label v%u", sas_etl_ver);
++	return 0;
++}
+ 
+-	/* Trivial name of board */
+-	sas_etl_get_string(SAS_ETL_TRIV_NAME, buf, 32,
+-				CONFIG_IDENT_STRING, 0);
+-	sas_setenv("etl_triv_name", buf, save_env);
+-	sas_etl_banner_print("Product name", buf);
++static void sas_etl_env_set_default(enum sas_etl_id idx, const char *name,
++					const char *defval, int *save_env)
++{
++	const char *etl_val = sas_etl_get_string(idx);
++	const char *env_val;
+ 
+-	/* Ident number */
+-	sas_etl_get_string(SAS_ETL_IDENT_NO, buf, 6, "0", 0);
+-	sas_setenv("etl_ident_no", buf, save_env);
+-	sas_etl_banner_print("Ident number", buf);
++	if (etl_val && strlen(etl_val))
++		env_val = etl_val;
++	else
++		env_val = defval;
+ 
+-	/* Base platform */
+-	sas_etl_get_string(SAS_ETL_BASE_PLATFORM, buf, 4, "0", 0);
+-	sas_setenv("etl_base_platform", buf, save_env);
+-	sas_etl_banner_print("Base platform", buf);
++	sas_setenv(name, env_val, save_env);
++}
+ 
+-	/* Flash layout */
+-	sas_etl_get_string(SAS_ETL_FLASH_LAYOUT, buf, 8,
+-				CONFIG_SPHAIRON_FLASHLAYOUT, 0);
+-	sas_setenv("etl_flash_layout", buf, save_env);
+-	sas_etl_banner_print("Flash layout", buf);
++static void sas_etl_env_set_fill(enum sas_etl_id idx, const char *name,
++				char fillval, size_t len, int *save_env)
++{
++	const char *etl_val = sas_etl_get_string(idx);
++	const char *env_val;
++	char tmp[40];
++
++	if (etl_val && strlen(etl_val))
++		env_val = etl_val;
++	else {
++		memset(tmp, fillval, len);
++		tmp[len] = 0;
++		env_val = tmp;
++	}
+ 
+-	sas_banner_line_print();
++	sas_setenv(name, env_val, save_env);
++}
++
++void sas_etl_env_set_ethaddr(int *save_env)
++{
++	const char *val;
++	int i;
++
++	val = sas_etl_get_string(SAS_ETL_MAC_ADDR);
++	if (!val)
++		return;
++
++	if (17 != strlen(val))
++		return;
+ 
+-	/* Hardware version */
+-	sas_etl_get_string(SAS_ETL_HW_VERSION, buf, 4, NULL, 'x');
+-	sas_setenv("etl_hw_version", buf, save_env);
+-	sas_etl_banner_print("HW version", buf);
+-
+-	/* Serial number */
+-	sas_etl_get_string(SAS_ETL_SERIAL, buf, 13, NULL, 'x');
+-	sas_setenv("etl_serial_no", buf, save_env);
+-	sas_etl_banner_print("Serial number", buf);
+-
+-	/* Extra serial number */
+-	sas_etl_get_string(SAS_ETL_SERIAL_EXTRA, buf, 15, NULL, 'x');
+-	sas_setenv("etl_serial_extra", buf, save_env);
+-	sas_etl_banner_print("Serial number extra", buf);
+-
+-	/* Production date */
+-	sas_etl_get_string(SAS_ETL_PROD_DATE, buf, 10, NULL, 'x');
+-	sas_setenv("etl_prod_date", buf, save_env);
+-	sas_etl_banner_print("Date of production", buf);
+-
+-	/* MAC address */
+-	ret = sas_etl_get_string(SAS_ETL_MAC_ADDR, buf, 17, NULL, 0);
+-	if (!ret) {
+-		ret = sas_etl_check_eth_addr(buf);
+-		if (!ret)
+-			sas_setenv("ethaddr", buf, save_env);
++	for (i = 2; i < 15; i += 3) {
++		if (val[i] != ':')
++			return;
+ 	}
+-	sas_etl_banner_print("MAC address", getenv("ethaddr"));
+-
+-	/* WLAN module */
+-	sas_etl_get_string(SAS_ETL_WLAN_MODULE, buf, 32, NULL, 'x');
+-	sas_setenv("etl_wlan_module", buf, save_env);
+-	sas_etl_banner_print("WLAN module", buf);
+-
+-	/* WLAN SSID */
+-	sas_etl_get_string(SAS_ETL_WLAN_SSID, buf, 32, "default", 0);
+-	sas_setenv("etl_wlan_ssid", buf, save_env);
+-	sas_etl_banner_print("WLAN SSID", buf);
+-
+-	/* WLAN Key */
+-	sas_etl_get_string(SAS_ETL_WLAN_KEY, buf, 26, NULL, 'x');
+-	sas_setenv("etl_wlan_wep_key", buf, save_env);
+-	sas_etl_banner_print("WLAN key", buf);
+-
+-	/* WLAN WPS PIN */
+-	sas_etl_get_string(SAS_ETL_WPS_PIN, buf, 16, NULL, 'x');
+-	sas_setenv("etl_wlan_wps_pin", buf, save_env);
+-	sas_etl_banner_print("WLAN WPS PIN", buf);
+-
+-	/* Hardware config 1 */
+-	sas_etl_get_string(SAS_ETL_HW_CFG, (char *) &hw_cfg,
+-				sizeof(hw_cfg), NULL, 0);
++
++	sas_setenv("ethaddr", val, save_env);
++}
++
++static void sas_etl_env_set_hwcfg(int *save_env)
++{
++	const char *val;
++	struct sas_hw_cfg hw_cfg;
++
++	val = sas_etl_get_string(SAS_ETL_HW_CFG);
++	if (!val)
++		return;
++
++	memcpy(&hw_cfg, val, sizeof(hw_cfg));
++
+ 	sas_setenv_num("etl_fxo", hw_cfg.FXO, save_env);
+ 	sas_setenv_num("etl_s0_ext", hw_cfg.S0_ext, save_env);
+ 	sas_setenv_num("etl_s0_int", hw_cfg.S0_int, save_env);
+@@ -164,112 +230,254 @@ static int sas_etl_parse(int *save_env)
+ 	sas_setenv_num("etl_switch_ic", hw_cfg.switch_ic, save_env);
+ 	sas_setenv_num("etl_usb", hw_cfg.USB, save_env);
+ 	sas_setenv_num("etl_metering_hw", hw_cfg.metering_hw, save_env);
++}
++
++static void sas_etl_env_set_hwcfg2(int *save_env)
++{
++	const char *val;
++	struct sas_hw_cfg2 hw_cfg2;
++
++	val = sas_etl_get_string(SAS_ETL_HW_CFG2);
++	if (!val)
++		return;
++
++	memcpy(&hw_cfg2, val, sizeof(hw_cfg2));
+ 
+-	/* Hardware config 2 */
+-	sas_etl_get_string(SAS_ETL_HW_CFG2, (char *) &hw_cfg2,
+-				sizeof(hw_cfg2), NULL, 0);
+ 	sas_setenv_num("etl_fxs_ringvoltage", hw_cfg2.fxs_ringvoltage, save_env);
+ 	sas_setenv_num("etl_s0_int_count", hw_cfg2.S0_int_count, save_env);
++}
+ 
+-	sas_banner_footer_print();
++void sas_etl_env_save(int *save_env)
++{
++	if (!sas_etl_ver) {
++		sas_setenv_num("etl_exists", 0, save_env);
++		return;
++	}
+ 
+-	return 0;
++	sas_setenv_num("etl_exists", 1, save_env);
++
++	sas_etl_env_set_ethaddr(save_env);
++
++	sas_etl_env_set_default(SAS_ETL_TRIV_NAME, "etl_triv_name",
++		CONFIG_IDENT_STRING, save_env);
++
++	sas_etl_env_set_default(SAS_ETL_IDENT_NO, "etl_ident_no",
++		"0", save_env);
++
++	sas_etl_env_set_default(SAS_ETL_BASE_PLATFORM, "etl_base_platform",
++		"0", save_env);
++
++	sas_etl_env_set_default(SAS_ETL_FLASH_LAYOUT, "etl_flash_layout",
++		CONFIG_SPHAIRON_FLASHLAYOUT, save_env);
++
++	sas_etl_env_set_default(SAS_ETL_WLAN_SSID, "etl_wlan_ssid",
++		"default", save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_HW_VERSION, "etl_hw_version",
++		'x', 4, save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_SERIAL, "etl_serial_no",
++		'x', 13, save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_SERIAL_EXTRA, "etl_serial_extra",
++		'x', 15, save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_PROD_DATE, "etl_prod_date",
++		'x', 10, save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_WLAN_MODULE, "etl_wlan_module",
++		'x', 32, save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_WLAN_KEY, "etl_wlan_wep_key",
++		'x', 26, save_env);
++
++	sas_etl_env_set_fill(SAS_ETL_WPS_PIN, "etl_wlan_wps_pin",
++		'x', 16, save_env);
++
++	sas_etl_env_set_hwcfg(save_env);
++	sas_etl_env_set_hwcfg2(save_env);
+ }
+ 
+-int sas_etl_init(int *save_env)
++const char *sas_etl_get_string(enum sas_etl_id idx)
+ {
+-	int ret;
++	if (!idx || idx >= SAS_ETL_ID_LAST)
++		return NULL;
+ 
+-	ret = sas_etl_import();
+-	if (ret)
+-		return ret;
++	return &sas_etl_map[idx][0];
++}
+ 
+-	ret = sas_etl_parse(save_env);
+-	if (ret)
+-		return ret;
++unsigned long sas_etl_get_ulong(enum sas_etl_id idx)
++{
++	const char *str = sas_etl_get_string(idx);
++	unsigned long val;
+ 
+-	return 0;
++	if (!str)
++		return 0;
++
++	strict_strtoul(str, 10, &val);
++
++	return val;
+ }
+ 
+-void sas_etl_print(void)
++void sas_etl_set_string(enum sas_etl_id idx, const char *val)
+ {
+-	int save_env;
++	char *str;
+ 
+-	sas_etl_parse(&save_env);
++	if (!idx || idx >= SAS_ETL_ID_LAST)
++		return;
++
++	str = &sas_etl_map[idx][0];
++
++	if (val)
++		snprintf(str, SAS_ETL_MAX_VALUE_CHARS - 1, "%s", val);
++	else
++		memset(str, 0, SAS_ETL_MAX_VALUE_CHARS);
+ }
+ 
+-static const u_char * sas_etl_match(unsigned id, size_t *retlen)
++void sas_etl_set_ulong(enum sas_etl_id idx, unsigned long val)
+ {
+-	const u_char *p;
+-	u8 idx;
+-	size_t len;
++	char *str;
+ 
+-	p = sas_etl_buf;
+-	do {
+-		idx = *p++;
+-		len = *p++;
++	if (!idx || idx >= SAS_ETL_ID_LAST)
++		return;
+ 
+-		if (idx == id && len) {
+-			*retlen = len;
+-			return p;
+-		}
++	str = &sas_etl_map[idx][0];
+ 
+-		p += len;
+-	} while (idx && len &&
+-		((p - sas_etl_buf) < sas_flash_etl_size()));
++	snprintf(str, SAS_ETL_MAX_VALUE_CHARS - 1, "%lu", val);
++}
+ 
+-	return NULL;
++static void sas_etl_banner_print(const char *name, const char *buf)
++{
++	sas_banner_content_print("%-25s%-s ", name, buf);
+ }
+ 
+-int sas_etl_get_string(unsigned int id, char *retval, size_t len,
+-				const char *defval, char fill)
++void sas_etl_print(void)
+ {
+-	size_t retlen = 0;
+-	const void *p;
+-
+-	p = sas_etl_match(id, &retlen);
+-	if (!p) {
+-		if (!defval) {
+-			if (fill) {
+-				memset(retval, fill, len);
+-				retval[len] = 0;
+-				return 0;
+-			}
+-			return -1;
+-		}
+-		p = defval;
+-		retlen = len;
++	if (!sas_etl_ver) {
++		sas_banner_header_print("No Sphairon type label installed");
++		return;
+ 	}
+ 
+-	if (retlen > len)
+-		retlen = len;
++	sas_banner_header_print("Sphairon type label v%u", sas_etl_ver);
+ 
+-	memcpy(retval, p, retlen);
+-	retval[retlen] = 0;
++	sas_etl_banner_print("Product name",
++		sas_etl_get_string(SAS_ETL_TRIV_NAME));
++	sas_etl_banner_print("Ident number",
++		sas_etl_get_string(SAS_ETL_IDENT_NO));
++	sas_etl_banner_print("Base platform",
++		sas_etl_get_string(SAS_ETL_BASE_PLATFORM));
++	sas_etl_banner_print("Flash layout",
++		sas_etl_get_string(SAS_ETL_FLASH_LAYOUT));
+ 
+-	return 0;
++	sas_banner_line_print();
++
++	sas_etl_banner_print("HW version",
++		sas_etl_get_string(SAS_ETL_HW_VERSION));
++	sas_etl_banner_print("Serial number",
++		sas_etl_get_string(SAS_ETL_SERIAL));
++	sas_etl_banner_print("Serial number extra",
++		sas_etl_get_string(SAS_ETL_SERIAL_EXTRA));
++	sas_etl_banner_print("Date of production",
++		sas_etl_get_string(SAS_ETL_PROD_DATE));
++	sas_etl_banner_print("MAC address",
++		sas_etl_get_string(SAS_ETL_MAC_ADDR));
++
++	sas_banner_footer_print();
+ }
+ 
+-int sas_etl_get_ulong(unsigned int id, unsigned long *retval,
+-			unsigned int base, unsigned long defval)
++void sas_etl_dump(void)
+ {
+-	size_t retlen = 0;
+-	const void *p;
+-	char buf[32];
++	char *str;
++	enum sas_etl_id idx;
++
++	for (idx = SAS_ETL_HW_VERSION; idx < SAS_ETL_ID_LAST; idx++) {
++		str = &sas_etl_map[idx][0];
++		printf("%03d: %s = ", idx, sas_etl_id_str(idx));
++
++		switch (idx) {
++		case SAS_ETL_HW_CFG:
++		case SAS_ETL_HW_CFG2:
++		case SAS_ETL_LEDCFG:
++			printf("0x%02x 0x%02x 0x%02x 0x%02x\n",
++				str[3], str[2], str[1], str[0]);
++			break;
++		default:
++			printf("%s\n", str);
++		}
++	}
++}
+ 
+-	p = sas_etl_match(id, &retlen);
+-	if (!p) {
+-		*retval = defval;
+-		return 0;
++int sas_etl_version(void)
++{
++	return sas_etl_ver;
++}
++
++enum sas_flash_layout_type sas_etl_flash_layout(void)
++{
++	const char *val;
++
++	val = getenv("flash_layout_override");
++	if (!val) {
++		val = sas_etl_get_string(SAS_ETL_FLASH_LAYOUT);
++		if (!val)
++			val = CONFIG_SPHAIRON_FLASHLAYOUT;
+ 	}
+ 
+-	memcpy(buf, p, sizeof(buf));
+-	buf[retlen] = 0;
++	return sas_flash_layout_parse(val);
++}
++
++static const char sas_etl_id_strings[][16] = {
++	"hw_version",
++	"serial_no",
++	"prod_date",
++	"wlan_module",
++	"wlan_key",
++	"triv_name",
++	"ethaddr",
++	"hw_cfg",
++	"hw_cfg2",
++	"ident_no",
++	"customer",
++	"base_platform",
++	"wlan_wps_pin",
++	"led_cfg",
++	"wlan_cfg",
++	"wlan_ssid",
++	"flash_layout",
++	"extra_space",
++	"jffs_images",
++	"serial_extra",
++	"shdsl_lines",
++};
++
++const char *sas_etl_id_str(enum sas_etl_id idx)
++{
++	assert(idx && idx < SAS_ETL_ID_LAST);
+ 
+-	return strict_strtoul(buf, base, retval);
++	return sas_etl_id_strings[idx - 1];
+ }
+ 
+-int sas_etl_version(void)
++enum sas_etl_id sas_etl_id_parse(const char *str)
+ {
+-	return sas_etl_ver;
++	unsigned int i;
++	unsigned long val;
++	const char *name;
++
++	if (!str)
++		return SAS_ETL_ID_LAST;
++
++	for (i = SAS_ETL_HW_VERSION; i < SAS_ETL_ID_LAST; i++) {
++		name = sas_etl_id_strings[i - 1];
++
++		if (!strncmp(name, str, 15))
++			return i;
++	}
++
++	if (strict_strtoul(str, 10, &val))
++		return SAS_ETL_ID_LAST;
++
++	if (val && val < SAS_ETL_ID_LAST)
++		return val;
++
++	return SAS_ETL_ID_LAST;
+ }
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 6201890367ec828dbf8c75e300cd421b7e3e5752..b017f364d8bfa0a9f76419b03dbc7ae560944ddc 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -9,50 +9,19 @@
+ #include <malloc.h>
+ #include <spi_flash.h>
+ #include <linux/err.h>
+-#include <linux/list.h>
+ #include <linux/mtd/mtd.h>
+ #include <linux/mtd/partitions.h>
++#include <jffs2/load_kernel.h>
+ 
+ #include <sas/flash.h>
+ #include <sas/util.h>
+ 
+-#define SAS_FLASH_MAX_DEVICES	4
+-
+-/* should be ltq-nor for upstream linux */
+-#define SAS_MTDID_LTQ_NOR	"bank1";
+-#define SAS_MTDID_LTQ_NAND	"ifx_nand";
+-#define SAS_MTDID_M25P80	"spi0.4";
+-
+-extern struct mtd_info *mtd_table[MAX_MTD_DEVICES];
+-
+-#define mtd_for_each_device(mtd)		\
+-	for ((mtd) = mtd_table[0];		\
+-		(mtd) != NULL;			\
+-		(mtd) = mtd_table[(mtd)->index + 1])
+-
+-static struct mtd_info *sas_flash_devs[SAS_FLASH_MAX_DEVICES];
+-static int sas_flash_dev_num;
+-
+ static struct list_head sas_flash_partitions;
+-static int sas_flash_part_num;
+-
+ static int sas_flash_verbose;
+ 
+-int sas_flash_init(void)
++void sas_flash_init(void)
+ {
+-	struct mtd_info *mtd;
+-
+ 	INIT_LIST_HEAD(&sas_flash_partitions);
+-
+-	mtd_for_each_device(mtd) {
+-		debug("sas_flash: found MTD device %s\n", mtd->name);
+-		sas_flash_devs[sas_flash_dev_num++] = mtd;
+-	}
+-
+-	if (!sas_flash_dev_num)
+-		return 1;
+-
+-	return 0;
+ }
+ 
+ void sas_flash_verbose_set(int v)
+@@ -60,69 +29,39 @@ void sas_flash_verbose_set(int v)
+ 	sas_flash_verbose = v;
+ }
+ 
+-const char * sas_flash_boot_device(void)
+-{
+-#if defined(CONFIG_FLASH_CFI_MTD)
+-#if defined(CONFIG_SPI_FLASH_MTD) && defined(CONFIG_SYS_BOOT_SFSPL)
+-	return "nor1";
+-#else
+-	return "nor0";
+-#endif
+-#elif defined(CONFIG_SPI_FLASH_MTD)
+-	return "nor0";
+-#else
+-	return "nor0";
+-#endif
+-}
+-
+-const char * sas_flash_linux_mtdid(const struct mtd_info *mtd)
+-{
+-#if defined(CONFIG_FLASH_CFI_MTD)
+-	if (0 == strcmp(mtd->name, "nor0"))
+-		return SAS_MTDID_LTQ_NOR;
+-#if defined(CONFIG_SPI_FLASH_MTD)
+-	if (0 == strcmp(mtd->name, "nor1"))
+-		return SAS_MTDID_M25P80;
+-#endif
+-#elif defined(CONFIG_SPI_FLASH_MTD)
+-	if (0 == strcmp(mtd->name, "nor0"))
+-		return SAS_MTDID_M25P80;
+-#endif
+-#if defined(CONFIG_CMD_NAND)
+-	if (0 == strcmp(mtd->name, "nand0"))
+-		return SAS_MTDID_LTQ_NAND;
+-#endif
+-
+-	return NULL;
+-}
+-
+-struct sas_flash_partition * sas_flash_partition_add(struct mtd_info *master,
+-						sas_flash_partition_t type,
+-						size_t size, size_t offset,
+-						int locked)
++struct sas_flash_partition *
++sas_flash_part_create(enum sas_flash_part_type type)
+ {
+ 	struct sas_flash_partition *part;
+ 
+ 	part = malloc(sizeof(*part));
+-	assert(part);
++	if (!part)
++		return NULL;
+ 
++	memset(part, 0, sizeof(*part));
+ 	INIT_LIST_HEAD(&part->link);
+-	part->master = master;
+-	part->mtd = NULL;
+ 	part->type = type;
+-	part->offset = offset;
+-	part->size = size;
+-	part->locked = locked;
+ 
+-	list_add_tail(&part->link, &sas_flash_partitions);
++	return part;
++}
+ 
+-	sas_flash_part_num++;
++void sas_flash_part_destroy(struct sas_flash_partition *part)
++{
++	free(part);
++}
+ 
+-	return part;
++void sas_flash_part_add(struct sas_flash_partition *part)
++{
++	list_add_tail(&part->link, &sas_flash_partitions);
+ }
+ 
+-struct sas_flash_partition * sas_flash_partition_get(
+-						sas_flash_partition_t type)
++void sas_flash_part_del(struct sas_flash_partition *part)
++{
++	list_del(&part->link);
++}
++
++struct sas_flash_partition *
++sas_flash_part_find(enum sas_flash_part_type type)
+ {
+ 	struct sas_flash_partition *part;
+ 
+@@ -133,87 +72,118 @@ struct sas_flash_partition * sas_flash_partition_get(
+ 	return NULL;
+ }
+ 
+-void sas_flash_device_foreach(sas_flash_device_cb cb, void *data)
++int sas_flash_part_mtdparts_sync(struct sas_flash_partition *part)
+ {
+-	int i;
+-	struct mtd_info *mtd;
++	const char *name = sas_flash_partition_str(part->type);
++	struct mtd_device *dev;
++	int err;
+ 
+-	for (i = 0; i < sas_flash_dev_num; i++) {
+-		mtd = sas_flash_devs[i];
+-		cb(mtd, data);
++	debug("%s: name %s\n", __func__, name);
++
++	err = find_dev_and_part(name, &dev, &part->pnum, &part->pinfo);
++	if (err) {
++		debug("%s: find_dev_and_part failed (%d)\n",
++			__func__, err);
++		return 1;
+ 	}
++
++	part->size = part->pinfo->size;
++	part->offset = part->pinfo->offset;
++
++	return 0;
+ }
+ 
+-void sas_flash_partition_foreach(struct mtd_info *master,
+-				sas_flash_partition_cb cb, void *data)
++int sas_flash_part_mtdparts_add(const struct mtd_info *mtd,
++				struct sas_flash_partition *part,
++				size_t size, size_t offset)
+ {
+-	struct sas_flash_partition *part;
++	const char *name = sas_flash_partition_str(part->type);
++	int err;
++
++	debug("%s: name %s\n", __func__, name);
+ 
+-	list_for_each_entry(part, &sas_flash_partitions, link) {
+-		if (part->master == master)
+-			cb(part, data);
++	err = sas_run_command("mtdparts add %s %u@%u %s", mtd->name,
++				size, offset, name);
++	if (err) {
++		debug("%s: mtdparts add failed (%d)\n",
++			__func__, err);
++		return 1;
+ 	}
++
++	return sas_flash_part_mtdparts_sync(part);
+ }
+ 
+-int sas_flash_partition_mtd_update(struct mtd_info *master)
++struct mtd_info *
++sas_flash_part_mtd_parent(const struct sas_flash_partition *part)
+ {
+-	int i = 0, do_add = 0, ret;
+-	struct mtd_partition *mtd_part, mtd_parts[12];
+-	struct sas_flash_partition *part;
++	struct mtd_device *dev = part->pinfo->dev;
++	char mtd_dev[16];
+ 
+-	memset(mtd_parts, 0, sizeof(mtd_parts));
++	sprintf(mtd_dev, "%s%d", MTD_DEV_TYPE(dev->id->type), dev->id->num);
+ 
+-	list_for_each_entry(part, &sas_flash_partitions, link) {
+-		if (part->mtd)
+-			continue;
++	return get_mtd_device_nm(mtd_dev);
++}
+ 
+-		if (master != part->master)
+-			continue;
++int sas_flash_part_mtd_register(struct mtd_info *mtd,
++				struct sas_flash_partition *part)
++{
++	struct mtd_partition mtd_part;
++	int err;
+ 
+-		mtd_part = &mtd_parts[i++];
+-		mtd_part->name =
+-			(char *) sas_flash_partition_str(part->type);
+-		mtd_part->offset = part->offset;
+-		mtd_part->size = part->size;
+-		do_add = 1;
+-	}
++	debug("%s: name %s\n", __func__, part->pinfo->name);
+ 
+-	if (!do_add)
+-		return 0;
++	memset(&mtd_part, 0, sizeof(mtd_part));
++	mtd_part.name = part->pinfo->name;
++	mtd_part.offset = part->pinfo->offset;
++	mtd_part.size = part->pinfo->size;
++	mtd_part.mtdp = &part->mtd;
+ 
+-	ret = add_mtd_partitions(master, mtd_parts, i);
+-	if (ret)
+-		return ret;
++	err = add_mtd_partitions(mtd, &mtd_part, 1);
++	if (err) {
++		debug("%s: add_mtd_partitions failed (%d)\n",
++			__func__, err);
++		return 1;
++	}
+ 
+-	list_for_each_entry(part, &sas_flash_partitions, link)
+-		part->mtd = get_mtd_device_nm(
+-			sas_flash_partition_str(part->type));
++	add_mtd_device(part->mtd);
+ 
+ 	return 0;
+ }
+ 
+-void sas_flash_partition_print(void)
++struct mtd_info *sas_flash_boot_device(void)
+ {
+-	struct mtd_info *mtd;
+ 	struct sas_flash_partition *part;
+-	int i = 0, dev;
+ 
+-	for (dev = 0; dev < sas_flash_dev_num; dev++) {
+-		mtd = sas_flash_devs[dev];
++	part = sas_flash_part_find(SAS_PART_UBOOT_FIX);
++	if (!part)
++		return NULL;
+ 
+-		sas_banner_line_print();
+-		sas_banner_content_print("Device %s:", mtd->name);
++	return sas_flash_part_mtd_parent(part);
++}
+ 
+-		list_for_each_entry(part, &sas_flash_partitions, link) {
+-			if (mtd != part->master)
+-				continue;
++struct mtd_info *sas_flash_rootfs_device(void)
++{
++	return sas_flash_boot_device();
++}
+ 
+-			sas_banner_content_print("%-24s %8x @ %08x",
+-						part->mtd->name,
+-						part->size, part->offset);
+-			i++;
+-		}
+-	}
++struct mtd_info *sas_flash_data_device(void)
++{
++#ifdef CONFIG_LTQ_SUPPORT_NAND_FLASH
++	return get_mtd_device_nm("nand0");
++#else
++	return NULL;
++#endif
++}
++
++void sas_flash_partition_print(void)
++{
++	struct sas_flash_partition *part;
++
++	list_for_each_entry(part, &sas_flash_partitions, link)
++		sas_banner_content_print("%4s%u: %-16s %8x @ %08x",
++			MTD_DEV_TYPE(part->pinfo->dev->id->type),
++			part->pinfo->dev->id->num, part->pinfo->name,
++			part->pinfo->size, part->pinfo->offset);
+ }
+ 
+ static inline void sas_flash_info_print(const char *func,
+@@ -238,6 +208,11 @@ static inline void sas_flash_result_print(int result)
+ 		puts("done\n");
+ }
+ 
++size_t sas_flash_roundb(const struct sas_flash_partition *part, size_t len)
++{
++	return ROUND(len, part->mtd->erasesize);
++}
++
+ int sas_flash_read(const struct sas_flash_partition *part,
+ 			ulong from, size_t len, void *buf)
+ {
+@@ -345,7 +320,7 @@ int sas_flash_partial_erase(const struct sas_flash_partition *part,
+ 
+ 		pre_data = malloc(pre_size);
+ 		if (!pre_data) {
+-			ret = -ENOMEM;
++			ret = 1;
+ 			goto done;
+ 		}
+ 
+@@ -365,7 +340,7 @@ int sas_flash_partial_erase(const struct sas_flash_partition *part,
+ 
+ 		post_data = malloc(post_size);
+ 		if (!post_data) {
+-			ret = -ENOMEM;
++			ret = 1;
+ 			goto done;
+ 		}
+ 
+@@ -432,16 +407,17 @@ int sas_flash_complete_write(const struct sas_flash_partition *part,
+ 		ret = sas_flash_erase(part, to, erase_len);
+ 
+ 	if (ret)
+-		return ret;
++		goto done;
+ 
+ 	ret = sas_flash_write(part, to, write_len, buf);
+ 	if (ret)
+-		return ret;
++		goto done;
+ 
++done:
+ 	if (part->locked)
+ 		sas_flash_lock(part, 0, part->size);
+ 
+-	return 0;
++	return ret;
+ }
+ 
+ static const char sas_flash_partition_strings[][16] = {
+@@ -454,10 +430,11 @@ static const char sas_flash_partition_strings[][16] = {
+ 	"images2",
+ 	"images3",
+ 	"device",
++	"data",
+ 	"invalid"
+ };
+ 
+-const char* sas_flash_partition_str(sas_flash_partition_t type)
++const char* sas_flash_partition_str(enum sas_flash_part_type type)
+ {
+ 	assert(type <= SAS_PART_INVALID);
+ 
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index 7cd06637cbea7d31cb32fb5673f93880913bc2c8..0191579242139acd9fe97b54053984cfc1a0b3b3 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -14,13 +14,11 @@
+ #include <sas/flash.h>
+ 
+ #if defined(CONFIG_ENV_OFFSET) && defined(CONFIG_ENV_SECT_SIZE)
+-#define sas_have_mtd_uboot_cfg		1
+-#define sas_have_mtd_uboot_update	1
++#define UBOOT_ENV_OFFSET		CONFIG_ENV_OFFSET
++#define UBOOT_ENV_SECT_SIZE		CONFIG_ENV_SECT_SIZE
+ #else
+-#define sas_have_mtd_uboot_cfg		0
+-#define sas_have_mtd_uboot_update	0
+-#define CONFIG_ENV_OFFSET		0
+-#define CONFIG_ENV_SECT_SIZE		0
++#define UBOOT_ENV_OFFSET		0
++#define UBOOT_ENV_SECT_SIZE		0
+ #endif
+ 
+ #define SYSCFG_MIN_SIZE			(512 * 1024)
+@@ -30,196 +28,202 @@ struct sas_layout_map {
+ 	const char desc[28];
+ };
+ 
+-static sas_flash_layout_t sas_flash_layout;
+-static size_t sas_flash_layout_offset;
++static enum sas_flash_layout_type sas_flash_layout;
+ 
+-static inline size_t sas_round_size(struct mtd_info *mtd, size_t min_size)
++static int sas_flash_layout_static_part_init(enum sas_flash_part_type type)
+ {
+-	size_t size, d;
++	struct sas_flash_partition *part;
++	struct mtd_info *mtd;
++	int err;
+ 
+-	if (!(min_size % mtd->erasesize))
+-		return min_size;
++	part = sas_flash_part_create(type);
++	if (!part)
++		return 1;
+ 
+-	d = min_size / mtd->erasesize;
+-	size = (d + 1) * mtd->erasesize;
++	part->locked = 1;
+ 
+-	return size;
+-}
++	err = sas_flash_part_mtdparts_sync(part);
++	if (err)
++		return 1;
+ 
+-static void sas_flash_layout_default(struct mtd_info *mtd)
+-{
+-	size_t size, offset;
++	mtd = sas_flash_part_mtd_parent(part);
++	if (!mtd)
++		return 1;
+ 
+-	/* uboot_fix: size = env offset @ 0 */
+-	offset = 0;
+-	size = CONFIG_ENV_OFFSET;
+-	sas_flash_partition_add(mtd, SAS_PART_UBOOT_FIX,
+-				size, offset, 1);
+-
+-	/* uboot_cfg: env sector size @ env offset */
+-	if (sas_have_mtd_uboot_cfg) {
+-		offset = CONFIG_ENV_OFFSET;
+-		size = CONFIG_ENV_SECT_SIZE;
+-		sas_flash_partition_add(mtd, SAS_PART_UBOOT_CFG,
+-					size, offset, 1);
+-	}
++	err = sas_flash_part_mtd_register(mtd, part);
++	if (err)
++		return 1;
+ 
+-	/* uboot_update: size = env offset */
+-	if (sas_have_mtd_uboot_update) {
+-		offset += size;
+-		size = sas_round_size(mtd, CONFIG_ENV_OFFSET);
+-		sas_flash_partition_add(mtd, SAS_PART_UBOOT_UPDATE,
+-					size, offset, 0);
+-	}
++	sas_flash_part_add(part);
+ 
+-	sas_flash_layout_offset = offset + size;
+-	sas_flash_layout = SAS_LAYOUT_BASIC;
++	return 0;
+ }
+ 
+-static void sas_flash_layout_extended(struct mtd_info *mtd,
+-				sas_flash_layout_t layout)
++int sas_flash_layout_static_init(void)
+ {
+-	size_t size, offset, image_size;
+-	const int image_cnt =
+-		sas_flash_layout_image_partitions(layout);
+-
+-	/* syscfg1: 256k */
+-	offset = sas_flash_layout_offset;
+-	size = sas_round_size(mtd, SYSCFG_MIN_SIZE);
+-	sas_flash_partition_add(mtd, SAS_PART_SYSCFG1,
+-				size, offset, 0);
+-
+-	/* syscfg2: 256k */
+-	if (sas_flash_layout_is_mirrored(layout)) {
+-		offset += size;
+-		size = sas_round_size(mtd, SYSCFG_MIN_SIZE);
+-		sas_flash_partition_add(mtd, SAS_PART_SYSCFG2,
+-					size, offset, 0);
+-	}
++	int err;
+ 
+-	/* calculate remaining flash space */
+-	offset += size;
+-	image_size = mtd->size - offset;
+-
+-	switch (image_cnt) {
+-	case 1:
+-		size = image_size;
+-		sas_flash_partition_add(mtd, SAS_PART_IMAGES1,
+-					size, offset, 0);
+-		break;
+-	case 2:
+-		size = sas_round_size(mtd, image_size / 2);
+-		sas_flash_partition_add(mtd, SAS_PART_IMAGES1,
+-					size, offset, 0);
++	debug("%s:\n", __func__);
+ 
+-		offset += size;
+-		size = mtd->size - offset;
+-		sas_flash_partition_add(mtd, SAS_PART_IMAGES2,
+-					size, offset, 0);
+-		break;
+-	case 3:
+-		size = sas_round_size(mtd, image_size / 3);
+-		sas_flash_partition_add(mtd, SAS_PART_IMAGES1,
+-					size, offset, 0);
++	sas_flash_layout = SAS_LAYOUT_BASIC;
+ 
+-		offset += size;
+-		sas_flash_partition_add(mtd, SAS_PART_IMAGES2,
+-					size, offset, 0);
++	err = sas_run_command("mtdparts default");
++	if (err)
++		return 1;
+ 
+-		offset += size;
+-		size = mtd->size - offset;
+-		sas_flash_partition_add(mtd, SAS_PART_IMAGES3,
+-					size, offset, 0);
+-		break;
+-	}
++	err = sas_flash_layout_static_part_init(SAS_PART_UBOOT_FIX);
++	if (err)
++		return 1;
+ 
+-	sas_flash_layout = layout;
++	err = sas_flash_layout_static_part_init(SAS_PART_UBOOT_CFG);
++	if (err)
++		return 1;
++
++	err = sas_flash_layout_static_part_init(SAS_PART_UBOOT_UPDATE);
++	if (err)
++		return 1;
++
++	return 0;
+ }
+ 
+-int sas_flash_layout_basic_init(struct mtd_info *mtd)
++static int sas_flash_layout_dynamic_part_add(struct mtd_info *mtd,
++						enum sas_flash_part_type type,
++						unsigned long offset,
++						size_t size)
+ {
+-	debug("sas_flash_layout: init basic layout on MTD device %s\n",
+-		mtd->name);
++	struct sas_flash_partition *part;
++	int err;
++
++	part = sas_flash_part_create(type);
++	if (!part)
++		return 1;
++
++	err = sas_flash_part_mtdparts_add(mtd, part, size, offset);
++	if (err)
++		return 1;
+ 
+-	sas_flash_layout_default(mtd);
++	err = sas_flash_part_mtd_register(mtd, part);
++	if (err)
++		return 1;
++
++	sas_flash_part_add(part);
+ 
+-	return sas_flash_partition_mtd_update(mtd);
++	return 0;
+ }
+ 
+-int sas_flash_layout_full_init(struct mtd_info *mtd,
+-				int *save_env)
++int sas_flash_layout_dynamic_init(struct mtd_info *mtd, int is_boot_device,
++				enum sas_flash_layout_type layout)
+ {
+-	sas_flash_layout_t layout;
++	size_t size, offset;
++	uint64_t available_size;
++	uint32_t n;
++	int err;
+ 
+-	layout = sas_flash_layout_parse(getenv("etl_flash_layout"));
+-	if (layout == SAS_LAYOUT_INVALID)
+-		return 1;
++	if (!mtd)
++		return 0;
++
++	debug("%s: mtd %s, is_boot_device %d, layout %s\n",
++		__func__, mtd->name, is_boot_device,
++		sas_flash_layout_str(layout));
++
++	if (is_boot_device)
++		offset = sas_flash_layout_dynamic_offset();
++	else
++		offset = 0;
++
++	if (sas_flash_layout_has_sysconfig_part(layout)) {
++		size = SYSCFG_MIN_SIZE;
+ 
+-	debug("sas_flash_layout: init full layout %s on MTD device %s\n",
+-		sas_flash_layout_str(layout), mtd->name);
++		err = sas_flash_layout_dynamic_part_add(mtd, SAS_PART_SYSCFG1,
++			offset, size);
++		if (err)
++			return 1;
+ 
+-	sas_flash_layout_extended(mtd, layout);
++		if (sas_flash_layout_is_mirrored(layout)) {
++			offset += size;
++
++			err = sas_flash_layout_dynamic_part_add(mtd,
++				SAS_PART_SYSCFG2, offset, size);
++			if (err)
++				return 1;
++		}
++	}
++
++	if (sas_flash_layout_has_image_parts(layout)) {
++		offset += size;
++		available_size = mtd->size - offset;
++
++		if (sas_flash_layout_is_mirrored(layout)) {
++			n = mtd_div_by_eb(available_size, mtd);
++			n >>= 1;
++			size = n * mtd->erasesize;
++		}
++		else
++			size = available_size;
++
++		err = sas_flash_layout_dynamic_part_add(mtd, SAS_PART_IMAGES1,
++			offset, size);
++		if (err)
++			return 1;
++
++		if (sas_flash_layout_is_mirrored(layout)) {
++			offset += size;
++
++			err = sas_flash_layout_dynamic_part_add(mtd,
++				SAS_PART_IMAGES2, offset, size);
++			if (err)
++				return 1;
++		}
++	}
++
++	sas_flash_layout = layout;
+ 
+-	return sas_flash_partition_mtd_update(mtd);
++	return 0;
+ }
+ 
+-int sas_flash_layout_device_init(struct mtd_info *mtd)
++int sas_flash_layout_data_init(struct mtd_info *mtd,
++				enum sas_flash_layout_type layout)
+ {
+-	debug("sas_flash_layout: init one partition for whole MTD device %s\n",
+-		mtd->name);
++	int err;
+ 
+-	sas_flash_partition_add(mtd, SAS_PART_DEVICE,
+-				mtd->size, 0, 0);
++	if (!mtd)
++		return 0;
++
++	debug("%s: mtd %s, layout %s\n",
++		__func__, mtd->name, sas_flash_layout_str(layout));
++
++	err = sas_flash_layout_dynamic_part_add(mtd, SAS_PART_DATA, 0,
++						mtd->size);
++	if (err)
++		return 1;
+ 
+-	return sas_flash_partition_mtd_update(mtd);
++	return 0;
+ }
+ 
+ void sas_flash_layout_print(void)
+ {
+ 	sas_banner_header_print("Flash partition info");
+ 	sas_banner_content_print("%-25s%-s ", "Used layout",
+-					sas_flash_layout_str(sas_flash_layout));
++		sas_flash_layout_str(sas_flash_layout));
++	sas_banner_line_print();
+ 	sas_flash_partition_print();
+ 	sas_banner_footer_print();
+ }
+ 
+-int sas_flash_layout_is_mirrored(sas_flash_layout_t layout)
+-{
+-	switch (layout) {
+-	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-		return 1;
+-	default:
+-		return 0;
+-	}
+-}
+-
+-int sas_flash_layout_image_partitions(sas_flash_layout_t layout)
++unsigned long sas_flash_layout_dynamic_offset(void)
+ {
+-	switch (layout) {
+-	case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+-		return 1;
+-	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-		return 2;
+-	default:
+-		return 0;
+-	}
++	return 2 * UBOOT_ENV_OFFSET + UBOOT_ENV_SECT_SIZE;
+ }
+ 
+-struct sas_flash_partition * sas_flash_layout_image_partition(unsigned int index)
++struct sas_flash_partition *sas_flash_layout_image_partition(unsigned int index)
+ {
+-	const sas_flash_partition_t image_parts[] = {
+-		SAS_PART_IMAGES1, SAS_PART_IMAGES2, SAS_PART_IMAGES3
+-	};
+-
+-	assert(index < 3);
++	const enum sas_flash_part_type type = index ?
++					SAS_PART_IMAGES2 : SAS_PART_IMAGES1;
+ 
+-	return sas_flash_partition_get(image_parts[index]);
++	return sas_flash_part_find(type);
+ }
+ 
+-sas_flash_layout_t sas_flash_layout_current(void)
++enum sas_flash_layout_type sas_flash_layout_current(void)
+ {
+ 	return sas_flash_layout;
+ }
+@@ -233,21 +237,21 @@ static const struct sas_layout_map sas_flash_layout_strings[] = {
+ 	{ "", "invalid" }
+ };
+ 
+-const char* sas_flash_layout_name(sas_flash_layout_t layout)
++const char* sas_flash_layout_name(enum sas_flash_layout_type layout)
+ {
+ 	assert(layout <= SAS_LAYOUT_INVALID);
+ 
+ 	return sas_flash_layout_strings[layout].name;
+ }
+ 
+-const char* sas_flash_layout_str(sas_flash_layout_t layout)
++const char* sas_flash_layout_str(enum sas_flash_layout_type layout)
+ {
+ 	assert(layout <= SAS_LAYOUT_INVALID);
+ 
+ 	return sas_flash_layout_strings[layout].desc;
+ }
+ 
+-sas_flash_layout_t sas_flash_layout_parse(const char *str)
++enum sas_flash_layout_type sas_flash_layout_parse(const char *str)
+ {
+ 	unsigned int i;
+ 	const char *name;
+diff --git a/lib/sphairon/image.c b/lib/sphairon/image.c
+index 0ccc6dfbd4d644ecf0ffcec960fd925d7ca068cb..53673542052c26d61d01ac5257a4570346f98fb8 100644
+--- a/lib/sphairon/image.c
++++ b/lib/sphairon/image.c
+@@ -6,7 +6,6 @@
+  */
+ 
+ #include <common.h>
+-#
+ #include <sas/image.h>
+ 
+ int sas_image_header_check(const image_header_t *hdr)
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index 784a264ffc95aa65438583a12e4a540f6191f04f..c8e9082461bd544bdfdd86f081acc8b10ebca8fa 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -18,6 +18,12 @@
+ #include <sas/boot.h>
+ #include <sas/controlfile.h>
+ 
++#if defined(CONFIG_SYS_BOOT_RAM)
++#define init_flash_layout	0
++#else
++#define init_flash_layout	1
++#endif
++
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+ int sas_init_f(void)
+@@ -25,67 +31,70 @@ int sas_init_f(void)
+ 	return 0;
+ }
+ 
+-static void sas_init_mtd_cb(struct mtd_info *mtd, void *data)
+-{
+-	struct mtd_info *boot_mtd = (struct mtd_info *) data;
+-
+-	if (mtd != boot_mtd)
+-		sas_flash_layout_device_init(mtd);
+-}
+-
+ int sas_init_r(void)
+ {
+ 	int ret;
+ 	int save_env = 0;
+-	struct mtd_info *mtd;
+-	const char *boot_dev;
++	enum sas_flash_layout_type layout;
++	struct mtd_info *boot_mtd, *rootfs_mtd, *data_mtd;
+ 
+ 	printf("Reloc: offset @ 0x%08lx\n", gd->reloc_off);
+ 
+-	ret = sas_flash_init();
+-	if (ret)
+-		goto err;
++	sas_flash_init();
++	sas_boot_init();
+ 
+-	boot_dev = sas_flash_boot_device();
+-	if (!boot_dev)
+-		goto err;
++	if (init_flash_layout) {
++		ret = sas_flash_layout_static_init();
++		if (ret)
++			goto err;
+ 
+-	mtd = get_mtd_device_nm(boot_dev);
+-	if (IS_ERR(mtd)) {
+-		ret = 1;
+-		goto err;
+-	}
++		ret = sas_etl_init();
++		if (ret)
++			goto err;
++
++		sas_etl_env_set_ethaddr(&save_env);
+ 
+-	ret = sas_flash_layout_basic_init(mtd);
+-	if (ret)
+-		goto err;
++		boot_mtd = sas_flash_boot_device();
++		if (!boot_mtd) {
++			ret = -1;
++			goto err;
++		}
+ 
+-	sas_flash_device_foreach(sas_init_mtd_cb, mtd);
++		if (sas_etl_version()) {
++			rootfs_mtd = sas_flash_rootfs_device();
++			data_mtd = sas_flash_data_device();
++			layout = sas_etl_flash_layout();
+ 
+-	ret = sas_etl_init(&save_env);
+-	if (ret)
+-		goto err;
++			ret = sas_flash_layout_dynamic_init(rootfs_mtd, 1,
++				layout);
++			if (ret)
++				goto err;
+ 
+-	if (sas_etl_version()) {
+-		ret = sas_flash_layout_full_init(mtd, &save_env);
+-		if (ret)
+-			goto err;
++			ret = sas_flash_layout_data_init(data_mtd, layout);
++			if (ret)
++				goto err;
+ 
+-		ret = sas_boot_init(mtd, &save_env);
+-		if (ret)
+-			goto err;
++			ret = sas_boot_scan_images();
++			if (ret)
++				goto err;
++		}
+ 
++		sas_etl_print();
+ 		sas_flash_layout_print();
+ 		sas_boot_print();
++	}
+ 
+-		setenv("bootcmd", "sas_boot");
+-		setenv("bootdelay", "3");
+-	} else
+-		setenv("bootcmd", NULL);
++	sas_cf_run();
+ 
+-	sas_setenv_num("sas_saveenv", save_env, NULL);
++	if (!sas_cf_is_active()) {
++		if (sas_etl_version()) {
++			setenv("bootcmd", "sas_boot");
++			setenv("bootdelay", "3");
++		} else
++			setenv("bootcmd", NULL);
++	}
+ 
+-	sas_cf_run();
++	sas_setenv_num("sas_saveenv", save_env, NULL);
+ 
+ 	return 0;
+ 

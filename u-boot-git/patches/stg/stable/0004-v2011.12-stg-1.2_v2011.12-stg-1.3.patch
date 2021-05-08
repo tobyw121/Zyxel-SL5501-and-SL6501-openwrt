@@ -1,0 +1,243 @@
+diff --git a/Makefile b/Makefile
+index 6495add9f155397959ceb061619fe6da7e89ad27..5ef213136c1281daeffafabdf1c3e44e279bb5a7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.2
++EXTRAVERSION = -stg-1.3
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/vrx200/Makefile b/arch/mips/cpu/mips32/vrx200/Makefile
+index 1b9140c9b010cd83d155f14ea9daf4f67ca41672..c36364692e3b2ff78807f91a97a5da535cc3a0c7 100644
+--- a/arch/mips/cpu/mips32/vrx200/Makefile
++++ b/arch/mips/cpu/mips32/vrx200/Makefile
+@@ -10,7 +10,7 @@ include $(TOPDIR)/config.mk
+ 
+ LIB	= $(obj)lib$(SOC).o
+ 
+-COBJS-y	+= cgu.o chipid.o cpu.o ebu.o gphy.o gpio.o mem.o pmu.o rcu.o
++COBJS-y	+= cgu.o chipid.o cpu.o dcdc.o ebu.o gphy.o gpio.o mem.o pmu.o rcu.o
+ SOBJS-y	+= cgu_init.o mem_init.o lowlevel_init.o
+ SOBJS-y	+= gphy_fw.o
+ 
+diff --git a/arch/mips/cpu/mips32/vrx200/dcdc.c b/arch/mips/cpu/mips32/vrx200/dcdc.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..162f1e8abe41e0d3acd2ece4050799e68cbec8d8
+--- /dev/null
++++ b/arch/mips/cpu/mips32/vrx200/dcdc.c
+@@ -0,0 +1,107 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2010 Lantiq Deutschland GmbH
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#include <common.h>
++#include <asm/arch/soc.h>
++#include <asm/lantiq/io.h>
++
++#define LTQ_DCDC_CLK_SET0_CLK_SEL_P		(1 << 6)
++#define LTQ_DCDC_CLK_SET1_SEL_DIV25		(1 << 5)
++#define LTQ_DCDC_CONF_TEST_DIG_PID_FREEZE	(1 << 5)
++
++struct ltq_dcdc_regs {
++	u8	b0_coeh;		/* Coefficient b0 */
++	u8	b0_coel;		/* Coefficient b0 */
++	u8	b1_coeh;		/* Coefficient b1 */
++	u8	b1_coel;		/* Coefficient b1 */
++	u8	b2_coeh;		/* Coefficient b2 */
++	u8	b2_coel;		/* Coefficient b2 */
++	u8	clk_set0;		/* Clock setup */
++	u8	clk_set1;		/* Clock setup */
++	u8	pwm_confh;		/* Configure PWM */
++	u8	pwm_confl;		/* Configure PWM */
++	u8	bias_vreg0;		/* Bias and regulator setup */
++	u8	bias_vreg1;		/* Bias and regulator setup */
++	u8	adc_gen0;		/* ADC and general control */
++	u8	adc_gen1;		/* ADC and general control */
++	u8	adc_con0;		/* ADC and general config */
++	u8	adc_con1;		/* ADC and general config */
++	u8	conf_test_ana;		/* not documented */
++	u8	conf_test_dig;		/* not documented */
++	u8	dcdc_status;		/* not documented */
++	u8	pid_status;		/* not documented */
++	u8	duty_cycle;		/* not documented */
++	u8	non_ov_delay;		/* not documented */
++	u8	analog_gain;		/* not documented */
++	u8	duty_cycle_max_sat;	/* not documented */
++	u8	duty_cycle_min_sat;	/* not documented */
++	u8	duty_cycle_max;		/* not documented */
++	u8	duty_cycle_min;		/* not documented */
++	u8	error_max;		/* not documented */
++	u8	error_read;		/* not documented */
++	u8	delay_deglitch;		/* not documented */
++	u8	latch_control;		/* not documented */
++	u8	rsvd[240];
++	u8	osc_conf;		/* OSC general config */
++	u8	osc_stat;		/* OSC general status */
++};
++
++static struct ltq_dcdc_regs* ltq_dcdc_regs =
++	(struct ltq_dcdc_regs *) CKSEG1ADDR(LTQ_DCDC_BASE);
++
++void ltq_dcdc_init(unsigned int dig_ref)
++{
++	u8 dig_ref_cur, val;
++
++	/* Set duty cycle max sat. to 70/90, enable PID freeze */
++	ltq_writeb(&ltq_dcdc_regs->duty_cycle_max_sat, 0x5A);
++	ltq_writeb(&ltq_dcdc_regs->duty_cycle_min_sat, 0x46);
++	val = ltq_readb(&ltq_dcdc_regs->conf_test_dig);
++	val |= LTQ_DCDC_CONF_TEST_DIG_PID_FREEZE;
++	ltq_writeb(&ltq_dcdc_regs->conf_test_dig, val);
++
++	/* Program new coefficients */
++	ltq_writeb(&ltq_dcdc_regs->b0_coeh, 0x00);
++	ltq_writeb(&ltq_dcdc_regs->b0_coel, 0x00);
++	ltq_writeb(&ltq_dcdc_regs->b1_coeh, 0xFF);
++	ltq_writeb(&ltq_dcdc_regs->b1_coel, 0xE6);
++	ltq_writeb(&ltq_dcdc_regs->b2_coeh, 0x00);
++	ltq_writeb(&ltq_dcdc_regs->b2_coel, 0x1B);
++	ltq_writeb(&ltq_dcdc_regs->non_ov_delay, 0x8B);
++
++	/* Set duty cycle max sat. to 60/108, disable PID freeze */
++	ltq_writeb(&ltq_dcdc_regs->duty_cycle_max_sat, 0x6C);
++	ltq_writeb(&ltq_dcdc_regs->duty_cycle_min_sat, 0x3C);
++	val = ltq_readb(&ltq_dcdc_regs->conf_test_dig);
++	val &= ~LTQ_DCDC_CONF_TEST_DIG_PID_FREEZE;
++	ltq_writeb(&ltq_dcdc_regs->conf_test_dig, val);
++
++	/* Init clock and DLL settings */
++	val = ltq_readb(&ltq_dcdc_regs->clk_set0);
++	val |= LTQ_DCDC_CLK_SET0_CLK_SEL_P;
++	ltq_writeb(&ltq_dcdc_regs->clk_set0, val);
++	val = ltq_readb(&ltq_dcdc_regs->clk_set1);
++	val |= LTQ_DCDC_CLK_SET1_SEL_DIV25;
++	ltq_writeb(&ltq_dcdc_regs->clk_set1, val);
++	ltq_writeb(&ltq_dcdc_regs->pwm_confh, 0xF9);
++
++	wmb();
++
++	/* Adapt value of digital reference of DCDC converter */
++	dig_ref_cur = ltq_readb(&ltq_dcdc_regs->bias_vreg1);
++
++	while (dig_ref_cur != dig_ref) {
++		if (dig_ref >= dig_ref_cur)
++			dig_ref_cur++;
++		else if (dig_ref < dig_ref_cur)
++			dig_ref_cur--;
++
++		ltq_writeb(&ltq_dcdc_regs->bias_vreg1, dig_ref_cur);
++		__udelay(1000);
++	}
++}
+diff --git a/arch/mips/include/asm/arch-vrx200/cpu.h b/arch/mips/include/asm/arch-vrx200/cpu.h
+index 79f4e14614e042de5f723e2748c706dba794fce0..30e6f59cb4110f7752837b8a7d590a01549e2052 100644
+--- a/arch/mips/include/asm/arch-vrx200/cpu.h
++++ b/arch/mips/include/asm/arch-vrx200/cpu.h
+@@ -21,6 +21,7 @@ enum ltq_boot_select {
+ 
+ extern void ltq_ebu_init(void);
+ extern void ltq_pmu_init(void);
++extern void ltq_dcdc_init(unsigned int dig_ref);
+ 
+ extern enum ltq_boot_select ltq_boot_select(void);
+ extern const char *ltq_boot_select_str(void);
+diff --git a/arch/mips/include/asm/arch-vrx200/soc.h b/arch/mips/include/asm/arch-vrx200/soc.h
+index 7b8979a7e246f7af2fe6fe13d2dc40e6b730712f..9bd7fc9b4199e681319893282710520224850af3 100644
+--- a/arch/mips/include/asm/arch-vrx200/soc.h
++++ b/arch/mips/include/asm/arch-vrx200/soc.h
+@@ -34,6 +34,7 @@
+ 
+ #define LTQ_PMU_BASE			0x1F102000
+ #define LTQ_CGU_BASE			0x1F103000
++#define LTQ_DCDC_BASE			0x1F106A00
+ #define LTQ_MPS_BASE			0x1F107000
+ #define LTQ_CHIPID_BASE			(LTQ_MPS_BASE + 0x340)
+ #define LTQ_RCU_BASE			0x1F203000
+diff --git a/board/avm/fb3370/fb3370.c b/board/avm/fb3370/fb3370.c
+index 42e157984869ccab85c483e3e8194dc0172d232d..35afcf6e37d3bc0e96091c95a0db380883db492a 100644
+--- a/board/avm/fb3370/fb3370.c
++++ b/board/avm/fb3370/fb3370.c
+@@ -11,6 +11,7 @@
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
+ #include <asm/arch/gphy.h>
++#include <asm/arch/cpu.h>
+ 
+ static void gpio_init(void)
+ {
+@@ -21,6 +22,7 @@ static void gpio_init(void)
+ int board_early_init_f(void)
+ {
+ 	gpio_init();
++	ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }
+diff --git a/board/lantiq/easy80920/easy80920.c b/board/lantiq/easy80920/easy80920.c
+index 7b34b02c2bf9c89c1b9a459f37bd287b8fdbcc99..dad15cd2d79294cc972641b4ef46eeae48318b75 100644
+--- a/board/lantiq/easy80920/easy80920.c
++++ b/board/lantiq/easy80920/easy80920.c
+@@ -11,6 +11,7 @@
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
+ #include <asm/arch/gphy.h>
++#include <asm/arch/cpu.h>
+ 
+ static void gpio_init(void)
+ {
+@@ -21,6 +22,7 @@ static void gpio_init(void)
+ int board_early_init_f(void)
+ {
+ 	gpio_init();
++	ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 285fe2805e5b3f7111795d1fc5d88aee5f196f11..ec614b91348b26124fee7824e1cde82e67c9b846 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -11,6 +11,7 @@
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
+ #include <asm/arch/gphy.h>
++#include <asm/arch/cpu.h>
+ 
+ static void gpio_init(void)
+ {
+@@ -96,6 +97,7 @@ static void gpio_init(void)
+ int board_early_init_f(void)
+ {
+ 	gpio_init();
++	ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }
+diff --git a/board/sphairon/vrx_g1/vrx_g1.c b/board/sphairon/vrx_g1/vrx_g1.c
+index 539098819564e5ab65918d2c339868e5727253fb..7435fa88bfb9460445fd7693bbdfc2a6a5cc4a1c 100644
+--- a/board/sphairon/vrx_g1/vrx_g1.c
++++ b/board/sphairon/vrx_g1/vrx_g1.c
+@@ -11,6 +11,7 @@
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/chipid.h>
+ #include <asm/arch/gphy.h>
++#include <asm/arch/cpu.h>
+ 
+ static void gpio_init(void)
+ {
+@@ -39,6 +40,7 @@ static void gpio_init(void)
+ int board_early_init_f(void)
+ {
+ 	gpio_init();
++	ltq_dcdc_init(0x7F);
+ 
+ 	return 0;
+ }

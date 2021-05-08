@@ -1,0 +1,47 @@
+diff --git a/Makefile b/Makefile
+index ecf7714a33b6f4367ca2e0e6280e1303306d5e32..1b8251cbc22fec6448c78cb4c955770b519b35f3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.14
++EXTRAVERSION = -stg-1.15
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/drivers/mtd/spi/spi_flash.c b/drivers/mtd/spi/spi_flash.c
+index 893226373505272f579938f033c76416f3407814..e437c168d3ba32b25a83acb8a98038d1ae540664 100644
+--- a/drivers/mtd/spi/spi_flash.c
++++ b/drivers/mtd/spi/spi_flash.c
+@@ -478,6 +478,29 @@ int spi_flash_probe_spl(struct spi_flash *sf, unsigned int bus, unsigned int cs,
+ 	if (!found)
+ 		goto err_manufacturer_probe;
+ 
++	/* workaround: force exit 4-byte mode */
++	if (*idp == 0x01)
++	{
++		u8 cmd[2];
++
++		cmd[0] = 0x17;
++		cmd[1] = 0x00;
++
++		ret = spi_flash_read_write(spi, cmd, 2, NULL, NULL, 0);
++		if (ret)
++			goto err_read_id;
++
++	} else if (*idp == 0xc2) {
++		u8 cmd;
++
++		cmd = 0xe9;
++
++		ret = spi_flash_read_write(spi, &cmd, 1, NULL, NULL, 0);
++		if (ret)
++			goto err_read_id;
++
++	}
++
+ 	spi_release_bus(spi);
+ 
+ 	sf->spi = spi;

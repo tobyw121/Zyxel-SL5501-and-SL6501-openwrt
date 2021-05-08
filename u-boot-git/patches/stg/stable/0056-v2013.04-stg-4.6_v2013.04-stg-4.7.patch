@@ -1,0 +1,27 @@
+diff --git a/Makefile b/Makefile
+index cffbe3fc23186fe6cd05d86c2d4f05f8bf015f20..9948b28848f87ba2cdbf2250fba0ec6312255d51 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.6
++EXTRAVERSION = -stg-4.7
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 2049bfdf49c5b0da14ad79d6c85ca28621ca2e63..465b14371665cfd642d05fa5da698231329b154c 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -81,6 +81,9 @@ static inline void gpio_init(void)
+ 
+ 	/* PCM DCL/FSC input/output switch -> default output */
+ 	gpio_direction_output(47, 1);
++
++        /* CLKOUT0 for Supervisor */
++        gpio_set_altfunc(8, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ }
+ 
+ int board_early_init_f(void)

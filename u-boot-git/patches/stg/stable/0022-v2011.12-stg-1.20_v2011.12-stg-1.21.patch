@@ -1,0 +1,1049 @@
+diff --git a/Makefile b/Makefile
+index bc0a0b87a9dc635f1b35cd3cecff9789ca913fdd..620e1d54aab683b133384f3a70324ff255be0126 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.20
++EXTRAVERSION = -stg-1.21
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/boot.h b/include/sas/boot.h
+index 2f76abc5ff5439694c0725f08eb158b1403c1ce7..728e2dd5fb48c6eb3fed86253005bfcfcf06ecf9 100644
+--- a/include/sas/boot.h
++++ b/include/sas/boot.h
+@@ -28,9 +28,7 @@ struct sas_flash_partition;
+ 
+ extern int sas_boot_init(struct mtd_info *mtd, int *save_env);
+ 
+-extern int sas_boot_image_scan(void);
+-
+-extern void sas_boot_image_flush(void);
++extern int sas_boot_scan_images(void);
+ 
+ extern int sas_boot_has_platform_images(
+ 				const struct sas_flash_partition *part);
+@@ -38,32 +36,35 @@ extern int sas_boot_has_platform_images(
+ extern int sas_boot_has_service_images(
+ 				const struct sas_flash_partition *part);
+ 
++extern void sas_boot_invalidate_image_state(unsigned int active_image);
++
+ extern int sas_boot_invalidate_platform_images(
+ 				const struct sas_flash_partition *part);
+ 
+ extern int sas_boot_invalidate_service_images(
+ 				const struct sas_flash_partition *part);
+ 
+-extern int sas_boot_platform_layout(const struct sas_flash_partition *part,
++extern int sas_boot_layout_platform(const struct sas_flash_partition *part,
+ 					size_t uimage_size, size_t rootfs_size,
+ 					ulong *uimage_addr, ulong *rootfs_addr,
+ 					size_t *erase_len);
+ 
+-extern int sas_boot_service_layout(const struct sas_flash_partition *part,
++extern int sas_boot_layout_service(const struct sas_flash_partition *part,
+ 					size_t servicefs_size,
+ 					size_t configfs_size,
+ 					ulong *servicefs_addr,
+ 					ulong *configfs_addr,
+ 					size_t *erase_len);
+ 
+-extern void sas_boot_mtdparts_init(int active_image, int protect_uboot,
++extern void sas_boot_init_mtdparts(unsigned int active_image, int protect_uboot,
+ 					char *buf);
+ 
+-extern int sas_boot_active_image(sas_flash_layout_t layout);
++extern int sas_boot_find_working_image(sas_flash_layout_t layout);
+ 
+-extern int sas_boot_state_update(int active_image, int *save_env);
++extern int sas_boot_update_states(unsigned int active_image, int *retry,
++					int *save_env);
+ 
+-extern int sas_boot_image_load(const struct sas_flash_partition *part,
++extern int sas_boot_load_image(const struct sas_flash_partition *part,
+ 				sas_image_type_t type, ulong addr);
+ 
+ extern int sas_boot_image_mtd_num(const struct sas_flash_partition *part,
+diff --git a/include/sas/flashlayout.h b/include/sas/flashlayout.h
+index c3ccfe6d8511ce8b79a2350db17798c72cb506b6..cbaa124788537a49aaffd73d20506d3184c82d0f 100644
+--- a/include/sas/flashlayout.h
++++ b/include/sas/flashlayout.h
+@@ -14,7 +14,6 @@ typedef enum {
+ 	SAS_LAYOUT_PLATFORM_ONLY_MIRRORED,
+ 	SAS_LAYOUT_PLATFORM_SERVICE_SINGLE,
+ 	SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED,
+-	SAS_LAYOUT_PLATFORM_SERVICE_HANOI,
+ 	SAS_LAYOUT_INVALID
+ } sas_flash_layout_t;
+ 
+@@ -40,7 +39,7 @@ static inline int sas_flash_layout_image_max_partitions(void)
+ }
+ 
+ extern struct sas_flash_partition *
+-		sas_flash_layout_image_partition(int index);
++sas_flash_layout_image_partition(unsigned int index);
+ 
+ extern sas_flash_layout_t sas_flash_layout_current(void);
+ 
+diff --git a/include/sas/util.h b/include/sas/util.h
+index 88036a3805b86d0c71feb246537dea4623b0636d..35d51afb4c313c604c74419d75e9bfc14dfdb439 100644
+--- a/include/sas/util.h
++++ b/include/sas/util.h
+@@ -14,6 +14,8 @@ extern int sas_setenv_num(const char *name, int value, int *saveenv);
+ 
+ extern int sas_setenv_hex(const char *name, int value, int *saveenv);
+ 
++extern void sas_saveenv(void);
++
+ extern int sas_run_command(const char* fmt, ...)
+ 		__attribute__((format(printf, 1, 2)));
+ 
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index 75bb73c273066482f9feb5dfb9d878fdf5407d17..9cbc691f9d9443aa7a334e900abb6fbe76a999b7 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -35,7 +35,7 @@ int sas_boot_init(struct mtd_info *mtd, int *save_env)
+ 
+ 	INIT_LIST_HEAD(&sas_boot_images);
+ 
+-	ret = sas_boot_image_scan();
++	ret = sas_boot_scan_images();
+ 	if (ret)
+ 		return ret;
+ 
+@@ -116,24 +116,25 @@ static int sas_boot_image_part_scan(const struct sas_flash_partition *part,
+ 	return 0;
+ }
+ 
+-static void sas_boot_content_set(int index, int has_platform, int has_service)
++static void sas_boot_content_set(unsigned int index, int has_platform,
++					int has_service)
+ {
+ 	unsigned int content = (has_platform | (has_service << 1));
+ 	char buf[32];
+ 
+-	sprintf(buf, "image_content%d", index);
+-	printf("Setting content of image %d to %u\n",
++	sprintf(buf, "image_content%u", index);
++	printf("Setting content of image %u to %u\n",
+ 		index, content);
+ 
+ 	sas_setenv_num(buf, content, NULL);
+ }
+ 
+-static enum sas_boot_state sas_boot_state_get(int index)
++static enum sas_boot_state sas_boot_state_get(unsigned int index)
+ {
+ 	char buf[32];
+ 	int state;
+ 
+-	sprintf(buf, "image_state%d", index);
++	sprintf(buf, "image_state%u", index);
+ 
+ 	state = getenv_ulong(buf, 10, SAS_BOOT_NOTAVAILABLE);
+ 	if (state > SAS_BOOT_IGNORED)
+@@ -142,13 +143,13 @@ static enum sas_boot_state sas_boot_state_get(int index)
+ 	return state;
+ }
+ 
+-static void sas_boot_state_set(int index, enum sas_boot_state state,
++static void sas_boot_state_set(unsigned int index, enum sas_boot_state state,
+ 				int *save_env)
+ {
+ 	char buf[32];
+ 
+-	sprintf(buf, "image_state%d", index);
+-	printf("Setting state of image %d to '%s'\n",
++	sprintf(buf, "image_state%u", index);
++	printf("Setting state of image %u to '%s'\n",
+ 		index, sas_boot_state_str(state));
+ 
+ 	sas_setenv_num(buf, state, save_env);
+@@ -181,7 +182,19 @@ static void sas_boot_boottry_set(int value, int *save_env)
+ 	sas_setenv_num("boot_try", value, save_env);
+ }
+ 
+-int sas_boot_image_scan(void)
++static void sas_boot_flush_images(void)
++{
++	struct sas_boot_image *image;
++
++	while (!list_empty(&sas_boot_images)) {
++		image = list_first_entry(&sas_boot_images,
++					 struct sas_boot_image, link);
++		list_del(&image->link);
++		free(image);
++	}
++}
++
++int sas_boot_scan_images(void)
+ {
+ 	const struct sas_flash_partition *part;
+ 	sas_flash_layout_t flash_layout;
+@@ -196,7 +209,7 @@ int sas_boot_image_scan(void)
+ 		flash_layout == SAS_LAYOUT_INVALID)
+ 		return 0;
+ 
+-	sas_boot_image_flush();
++	sas_boot_flush_images();
+ 
+ 	image_cnt = sas_flash_layout_image_partitions(flash_layout);
+ 
+@@ -226,11 +239,9 @@ int sas_boot_image_scan(void)
+ 		case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+ 			if (has_platformfs)
+ 				state_new = SAS_BOOT_AVAILABLE;
+-			else
+ 			break;
+ 		case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+ 		case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-		case SAS_LAYOUT_PLATFORM_SERVICE_HANOI:
+ 			if (has_platformfs && has_servicefs)
+ 				state_new = SAS_BOOT_AVAILABLE;
+ 			break;
+@@ -248,20 +259,8 @@ int sas_boot_image_scan(void)
+ 	return 0;
+ }
+ 
+-void sas_boot_image_flush(void)
+-{
+-	struct sas_boot_image *image;
+-
+-	while (!list_empty(&sas_boot_images)) {
+-		image = list_first_entry(&sas_boot_images,
+-					 struct sas_boot_image, link);
+-		list_del(&image->link);
+-		free(image);
+-	}
+-}
+-
+ struct sas_boot_priv {
+-	int active_image;
++	unsigned int active_image;
+ 	int protect_uboot;
+ 	int dev_cnt;
+ 	int part_cnt;
+@@ -331,10 +330,6 @@ static void sas_boot_part_handle_cfg(struct sas_boot_priv *priv,
+ 	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+ 		add_active = (part->type == SAS_PART_SYSCFG1);
+ 		break;
+-	case SAS_LAYOUT_PLATFORM_SERVICE_HANOI:
+-		add_active = (part->type == SAS_PART_SYSCFG1);
+-		add_backup = (part->type == SAS_PART_SYSCFG2);
+-		break;
+ 	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+ 	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+ 		if (priv->active_image > 1) {
+@@ -403,30 +398,25 @@ static void sas_boot_mtd_part_fs_add(struct sas_boot_priv *priv,
+ static void sas_boot_part_handle_fs(struct sas_boot_priv *priv,
+ 					struct sas_flash_partition *boot_part)
+ {
+-	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
+ 	struct sas_boot_image *image, *rootfs = NULL;
+ 	struct sas_boot_image *servicefs = NULL, *defconfig = NULL;
+ 
+ 	list_for_each_entry(image, &sas_boot_images, link) {
+-		if (flash_layout == SAS_LAYOUT_PLATFORM_SERVICE_HANOI) {
+-			printf("%s: hanoi layout not yet supported!\n",
+-				__func__);
+-		} else {
+-			if (boot_part == image->part) {
+-				switch (image->type) {
+-				case SAS_IMG_ROOTFS:
+-					rootfs = image;
+-					break;
+-				case SAS_IMG_SERVICEFS:
+-					servicefs = image;
+-					break;
+-				case SAS_IMG_DEFCONFIG:
+-					defconfig = image;
+-					break;
+-				default:
+-					break;
+-				}
+-			}
++		if (boot_part != image->part)
++			continue;
++
++		switch (image->type) {
++		case SAS_IMG_ROOTFS:
++			rootfs = image;
++			break;
++		case SAS_IMG_SERVICEFS:
++			servicefs = image;
++			break;
++		case SAS_IMG_DEFCONFIG:
++			defconfig = image;
++			break;
++		default:
++			break;
+ 		}
+ 	}
+ 
+@@ -465,7 +455,8 @@ static void sas_boot_mtd_cb(struct mtd_info *mtd, void *data)
+ 	priv->dev_cnt++;
+ }
+ 
+-void sas_boot_mtdparts_init(int active_image, int protect_uboot, char *buf)
++void sas_boot_init_mtdparts(unsigned int active_image, int protect_uboot,
++				char *buf)
+ {
+ 	struct sas_boot_priv priv;
+ 	int n;
+@@ -483,107 +474,99 @@ void sas_boot_mtdparts_init(int active_image, int protect_uboot, char *buf)
+ 	sas_flash_device_foreach(sas_boot_mtd_cb, &priv);
+ 
+ 	*(priv.pos) = 0;
+-
+-	debug("%s: %s\n", __func__, buf);
+ }
+ 
+-int sas_boot_active_image(sas_flash_layout_t layout)
++int sas_boot_find_working_image(sas_flash_layout_t layout)
+ {
+-	int boot_try = sas_boot_boottry_get();
+-	int first_active_working = 0;
+-	int first_inactive_working = 0;
+-	int first_available = 0;
+-	int not_working = 0;
+-	int part_cnt = sas_flash_layout_image_partitions(layout);
+-	int i;
+-	struct sas_flash_partition *part;
++	unsigned int first_active_working = 0;
++	unsigned int first_inactive_working = 0;
++	unsigned int first_available = 0;
++	unsigned int part_cnt = sas_flash_layout_image_partitions(layout);
++	unsigned int i, image_index;
+ 	enum sas_boot_state state;
+ 
+-	for (i = 0; i < part_cnt; i++) {
+-		part = sas_flash_layout_image_partition(i);
+-		if (!sas_boot_has_platform_images(part))
+-			continue;
++	/*
++	 * Boot image selection strategy:
++	 * 1) use first active,working image if available
++	 * 2) prefer first available image over inactive,working
++	 *    -> firmware update case
++	 * 3) use first inactive,working image
++	 */
+ 
+-		state = sas_boot_state_get(i + 1);
++	for (i = 0; i < part_cnt; i++) {
++		image_index = i + 1;
++		state = sas_boot_state_get(image_index);
+ 
+ 		switch (state) {
+ 		case SAS_BOOT_ACTIVEWORKING:
+ 			if (!first_active_working)
+-				first_active_working = i + 1;
++				first_active_working = image_index;
+ 			break;
+ 		case SAS_BOOT_INACTIVEWORKING:
+ 			if (!first_inactive_working)
+-				first_inactive_working = i + 1;
++				first_inactive_working = image_index;
+ 			break;
+ 		case SAS_BOOT_AVAILABLE:
+ 			if (!first_available)
+-				first_available = i + 1;
+-			break;
+-		case SAS_BOOT_NOTWORKING:
+-			if (!not_working)
+-				not_working = i + 1;
++				first_available = image_index;
+ 			break;
+ 		default:
+ 			break;
+ 		}
+ 	}
+ 
+-	if (!boot_try) {
+-		if (first_active_working) {
+-			debug("%s: no boot_try, use first active,working image %d\n",
+-				__func__, first_active_working);
+-			return first_active_working;
+-		} else if (first_available) {
+-			debug("%s: no boot_try, use first available image %d\n",
+-				__func__, first_available);
+-			return first_available;
+-		} else {
+-			debug("%s: no boot_try, no active image\n", __func__);
+-			return 0;
+-		}
+-	}
+-
+ 	if (first_active_working) {
+-		debug("%s: use active,working image %d\n", __func__,
++		printf("Using first active,working image %u\n",
+ 			first_active_working);
+ 		return first_active_working;
+ 	}
+ 
+ 	if (first_available) {
+-		debug("%s: use first available image %d\n", __func__,
++		printf("Using first available image %u\n",
+ 			first_available);
+ 		return first_available;
+ 	}
+ 
+ 	if (first_inactive_working) {
+-		debug("%s: fallback to first inactive,working image %d\n",
+-			__func__, first_inactive_working);
++		printf("Using first inactive,working image %u\n",
++			first_inactive_working);
+ 		return first_inactive_working;
+ 	}
+ 
+-	debug("%s: no active image\n", __func__);
++	puts("No active image found\n");
+ 
+ 	return 0;
+ }
+ 
+-int sas_boot_state_update(int active_image, int *save_env)
++int sas_boot_update_states(unsigned int active_image, int *retry, int *save_env)
+ {
+-	int boot_try = sas_boot_boottry_get();
+-	int boot_cnt = sas_boot_bootcount_get();
+-	int boot_cnt_max = sas_boot_bootcountmax_get();
+-	enum sas_boot_state state_cur = sas_boot_state_get(active_image);
+-	enum sas_boot_state state_new = state_cur;
+-	int can_boot;
++	unsigned int boot_try = sas_boot_boottry_get();
++	unsigned int boot_cnt = sas_boot_bootcount_get();
++	unsigned int boot_cnt_max = sas_boot_bootcountmax_get();
++	enum sas_boot_state state_cur, state_new;
++	int can_boot = 0;
++
++	if (active_image) {
++		state_cur = sas_boot_state_get(active_image);
++	} else {
++		state_cur = SAS_BOOT_NOTWORKING;
++	}
++	state_new = state_cur;
++
++	*retry = 0;
+ 
+-	switch (state_new) {
++	switch (state_cur) {
+ 	case SAS_BOOT_AVAILABLE:
+ 		if (boot_cnt < boot_cnt_max) {
+ 			boot_cnt++;
+ 			boot_try = active_image;
+ 			can_boot = 1;
+ 		} else {
++			printf("Boot retry count exceeded for image %u\n",
++				active_image);
+ 			state_new = SAS_BOOT_NOTWORKING;
+ 			boot_cnt = 0;
++			*retry = 1;
+ 		}
+ 		break;
+ 	case SAS_BOOT_ACTIVEWORKING:
+@@ -591,22 +574,24 @@ int sas_boot_state_update(int active_image, int *save_env)
+ 		can_boot = 1;
+ 		break;
+ 	case SAS_BOOT_INACTIVEWORKING:
++		state_new = SAS_BOOT_ACTIVEWORKING;
+ 		boot_try = active_image;
+ 		can_boot = 1;
+-		state_new = SAS_BOOT_ACTIVEWORKING;
++		break;
++	case SAS_BOOT_NOTWORKING:
++		boot_try = 0;
+ 		break;
+ 	default:
+-		can_boot = 0;
+ 		break;
+ 	}
+ 
+ 	if (state_new != state_cur) {
+-		printf("Changing image state %d: %s -> %s\n", active_image,
++		printf("Changing image state %u: %s -> %s\n", active_image,
+ 			sas_boot_state_str(state_cur),
+ 			sas_boot_state_str(state_new));
+-		sas_boot_state_set(active_image, state_new, save_env);
+ 	}
+ 
++	sas_boot_state_set(active_image, state_new, save_env);
+ 	sas_boot_bootcount_set(boot_cnt, save_env);
+ 	sas_boot_boottry_set(boot_try, save_env);
+ 
+@@ -629,37 +614,49 @@ static struct sas_boot_image * sas_boot_find(sas_image_type_t type,
+ int sas_boot_has_platform_images(const struct sas_flash_partition *part)
+ {
+ 	struct sas_boot_image *image;
++	int has_kernel = 0, has_rootfs = 0;
+ 
+-	if (!part)
+-		return 0;
++	list_for_each_entry(image, &sas_boot_images, link) {
++		if (part != image->part)
++			continue;
+ 
+-	image = sas_boot_find(SAS_IMG_KERNEL, part);
+-	if (!image)
+-		return 0;
++		if (SAS_IMG_KERNEL == image->type)
++			has_kernel = 1;
+ 
+-	image = sas_boot_find(SAS_IMG_ROOTFS, part);
+-	if (!image)
+-		return 0;
++		if (SAS_IMG_ROOTFS == image->type)
++			has_rootfs = 1;
++	}
+ 
+-	return 1;
++	return has_kernel && has_rootfs;
+ }
+ 
+ int sas_boot_has_service_images(const struct sas_flash_partition *part)
+ {
+ 	struct sas_boot_image *image;
++	int has_servicefs = 0, has_defconfig = 0;
+ 
+-	if (!part)
+-		return 0;
++	list_for_each_entry(image, &sas_boot_images, link) {
++		if (part != image->part)
++			continue;
+ 
+-	image = sas_boot_find(SAS_IMG_SERVICEFS, part);
+-	if (!image)
+-		return 0;
++		if (SAS_IMG_SERVICEFS == image->type)
++			has_servicefs = 1;
+ 
+-	image = sas_boot_find(SAS_IMG_DEFCONFIG, part);
+-	if (!image)
+-		return 0;
++		if (SAS_IMG_DEFCONFIG == image->type)
++			has_defconfig = 1;
++	}
+ 
+-	return 1;
++	return has_servicefs && has_defconfig;
++}
++
++void sas_boot_invalidate_image_state(unsigned int active_image)
++{
++	int save_env = 0;
++
++	sas_boot_state_set(active_image, SAS_BOOT_NOTAVAILABLE, &save_env);
++
++	if (save_env)
++		sas_saveenv();
+ }
+ 
+ int sas_boot_invalidate_platform_images(const struct sas_flash_partition *part)
+@@ -706,28 +703,16 @@ int sas_boot_invalidate_service_images(const struct sas_flash_partition *part)
+ 	return 0;
+ }
+ 
+-int sas_boot_platform_layout(const struct sas_flash_partition *part,
++int sas_boot_layout_platform(const struct sas_flash_partition *part,
+ 				size_t uimage_size, size_t rootfs_size,
+ 				ulong *uimage_addr, ulong *rootfs_addr,
+ 				size_t *erase_len)
+ {
+-	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
+ 	ulong uimage_srcaddr, rootfs_srcaddr;
+ 
+ 	debug("%s: part %s, uimage_size %zu, rootfs_size %zu\n",
+ 		__func__, part->mtd->name, uimage_size, rootfs_size);
+ 
+-	if (flash_layout == SAS_LAYOUT_PLATFORM_SERVICE_HANOI) {
+-		puts("Hanoi layout not yet supported\n");
+-		return 1;
+-	}
+-
+-	/*
+-	 * - uImage at the beginning of the partition
+-	 * - rootfs.img after uImage and aligned to flashStepSize
+-	 * - if Hanoi layout is not configured the whole partition can
+-	 *   be used for platform
+-	 */
+ 	uimage_srcaddr = 0;
+ 	rootfs_srcaddr = uimage_srcaddr + uimage_size;
+ 
+@@ -751,12 +736,11 @@ int sas_boot_platform_layout(const struct sas_flash_partition *part,
+ 	return 0;
+ }
+ 
+-int sas_boot_service_layout(const struct sas_flash_partition *part,
++int sas_boot_layout_service(const struct sas_flash_partition *part,
+ 				size_t servicefs_size, size_t configfs_size,
+ 				ulong *servicefs_addr, ulong *configfs_addr,
+ 				size_t *erase_len)
+ {
+-	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
+ 	struct sas_boot_image *image;
+ 	ulong servicefs_srcaddr, configfs_srcaddr;
+ 	ulong rootfs_endaddr = 0;
+@@ -764,19 +748,6 @@ int sas_boot_service_layout(const struct sas_flash_partition *part,
+ 	debug("%s: part %s, servicefs_size %zu, configfs_size %zu\n",
+ 		__func__, part->mtd->name, servicefs_size, configfs_size);
+ 
+-	if (flash_layout == SAS_LAYOUT_PLATFORM_SERVICE_HANOI) {
+-		puts("Hanoi layout not yet supported\n");
+-		return 1;
+-	}
+-
+-	/*
+-	 * - in Hanoi layout servicefs.img at the beginning of the partition
+-	 * - configfs.img after servicefs.img and aligned to flash sector size
+-	 * - in other layouts configfs.img at the end of the partition
+-	 *   in own sector
+-	 * - servicefs.img before configfs.img
+-	 */
+-
+ 	image = sas_boot_find(SAS_IMG_ROOTFS, part);
+ 	if (image)
+ 		rootfs_endaddr = image->offset + image->size;
+@@ -805,7 +776,7 @@ int sas_boot_service_layout(const struct sas_flash_partition *part,
+ 	return 0;
+ }
+ 
+-int sas_boot_image_load(const struct sas_flash_partition *part,
++int sas_boot_load_image(const struct sas_flash_partition *part,
+ 			sas_image_type_t type, ulong addr)
+ {
+ 	struct sas_boot_image *image;
+@@ -833,9 +804,9 @@ void sas_boot_print(void)
+ {
+ 	struct sas_boot_image *image;
+ 	enum sas_boot_state state;
+-	int i;
++	unsigned int i;
+ 	sas_flash_layout_t layout = sas_flash_layout_current();
+-	int images_max = sas_flash_layout_image_partitions(layout);
++	unsigned int images_max = sas_flash_layout_image_partitions(layout);
+ 
+ 	sas_banner_header_print("Boot info");
+ 
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 73524e6ceb4b2edf720541230aa2b08403ed8415..e8986d29573816fe41193b35f4eb2064bad49014 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -22,12 +22,6 @@
+ #include <sas/flashlayout.h>
+ #include <sas/etl.h>
+ 
+-#if defined (CONFIG_ENV_IS_IN_FLASH) || defined (CONFIG_ENV_IS_IN_SPI_FLASH)
+-#define sas_has_saveenv		1
+-#else
+-#define sas_has_saveenv		0
+-#endif
+-
+ #define XMK_STR(x)	#x
+ #define MK_STR(x)	XMK_STR(x)
+ 
+@@ -105,11 +99,11 @@ static inline const char * sas_image_str(sas_image_type_t type)
+ 	}
+ }
+ 
+-static int sas_load_kernel(const struct sas_flash_partition *part,
+-				sas_image_src_t src, ulong loadaddr)
++static int sas_load_kernel(int active_image, sas_image_src_t src, ulong loadaddr)
+ {
+ 	int ret;
+ 	size_t size;
++	const struct sas_flash_partition *part;
+ 
+ 	switch (src) {
+ 	case SAS_TFTP:
+@@ -117,12 +111,15 @@ static int sas_load_kernel(const struct sas_flash_partition *part,
+ 		ret = size ? 0 : 1;
+ 		break;
+ 	case SAS_FLASH:
+-		assert(part);
+-		ret = sas_boot_image_load(part, SAS_IMG_KERNEL,
+-						loadaddr);
++		if (active_image) {
++			part = sas_flash_layout_image_partition(active_image - 1);
++			ret = sas_boot_load_image(part, SAS_IMG_KERNEL, loadaddr);
++		} else
++			ret = 1;
+ 		break;
+ 	default:
+ 		ret = 1;
++		break;
+ 	}
+ 
+ 	if (ret) {
+@@ -133,39 +130,45 @@ static int sas_load_kernel(const struct sas_flash_partition *part,
+ 	return 0;
+ }
+ 
+-static int sas_load_fs(const struct sas_flash_partition *part,
+-			sas_image_src_t src, sas_image_type_t type)
++static int sas_load_fs(int active_image, sas_image_src_t src,
++			sas_image_type_t type)
+ {
+ 	char buf[48];
+-	int mtd_num, ret;
++	int mtd_num;
++	int ret = 0;
+ 	const char *name = sas_image_str(type);
++	const struct sas_flash_partition *part;
+ 
+ 	switch (src) {
+ 	case SAS_FLASH:
++		if (!active_image) {
++			ret = 1;
++			break;
++		}
++
++		part = sas_flash_layout_image_partition(active_image - 1);
+ 		mtd_num = sas_boot_image_mtd_num(part, type);
+-		if (mtd_num < 0)
++		if (mtd_num < 0) {
+ 			ret = 1;
+-		else {
+-			sprintf(buf, "%s=/dev/mtdblock%d", name, mtd_num);
+-			setenv(name, buf);
+-			ret = 0;
++			break;
+ 		}
++
++		sprintf(buf, "%s=/dev/mtdblock%d", name, mtd_num);
++		setenv(name, buf);
+ 		break;
+ 	case SAS_TFTP:
+ 	case SAS_NFS:
+ 		sprintf(buf, "%s=%s", name, sas_image_src_str(src));
+ 		setenv(name, buf);
+-		ret = 0;
+ 		break;
+ 	case SAS_NONE:
+-		ret = 0;
+ 		break;
+ 	case SAS_PTEST:
+ 		setenv("ptest", "ptest=1");
+-		ret = 0;
+ 		break;
+ 	default:
+ 		ret = 1;
++		break;
+ 	}
+ 
+ 	if (ret) {
+@@ -176,7 +179,7 @@ static int sas_load_fs(const struct sas_flash_partition *part,
+ 	return 0;
+ }
+ 
+-static void sas_linux_fixup(ulong loadaddr)
++static void sas_env_linux_fixup(ulong loadaddr)
+ {
+ 	const image_header_t *hdr = (const image_header_t *)loadaddr;
+ 	const char *consoledev;
+@@ -233,16 +236,17 @@ static void sas_env_bootargs_init(void)
+ 
+ static void sas_env_save(int status)
+ {
+-	if (status && sas_has_saveenv)
+-		saveenv();
++	if (status | getenv_ulong("sas_saveenv", 10, 0))
++		sas_saveenv();
+ }
+ 
+-static void sas_bootm(ulong addr, int sim)
++static void sas_bootm(ulong addr)
+ {
+-	if (sim)
++#if 0
+ 		printf("\nbootm %08lx\n\n", addr);
+-	else
++#else
+ 		sas_run_command("bootm %08lx", addr);
++#endif
+ }
+ 
+ static int sas_check_ptest(sas_flash_layout_t flash_layout,
+@@ -315,8 +319,7 @@ static int sas_bootlogic_active(sas_flash_layout_t flash_layout,
+ 		return 1;
+ 	case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+ 	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_HANOI:
+-		if (servicefs == SAS_FLASH)
++		if (servicefs == SAS_FLASH || servicefs == SAS_PTEST)
+ 			return 1;
+ 		break;
+ 	default:
+@@ -330,11 +333,11 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ {
+ 	const char *kernel_src, *rootfs_src, *servicefs_src;
+ 	const sas_flash_layout_t flash_layout = sas_flash_layout_current();
+-	struct sas_flash_partition *part;
+ 	sas_image_src_t kernel, rootfs, servicefs;
+ 	ulong loadaddr;
+-	int ret = 0, save_env = 0, active_image, active_image_prev, sas_saveenv;
+-	int i, protect_uboot, boot_logic, etl_exists, ptest_mode, can_boot;
++	int ret = 0, save_env = 0;
++	int boot_logic, etl_exists, ptest_mode, can_boot;
++	int retry, active_image;
+ 	char mtdparts[512];
+ 
+ 	etl_exists = getenv_ulong("etl_exists", 10, 0);
+@@ -363,74 +366,73 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 		servicefs == SAS_INVALID)
+ 		goto usage;
+ 
+-	ptest_mode = sas_check_ptest(flash_layout, kernel, rootfs,
+-						servicefs);
+-
++	ptest_mode = sas_check_ptest(flash_layout, kernel, rootfs, servicefs);
+ 	loadaddr = getenv_ulong("loadaddr", 16, 0);
+-	sas_saveenv = getenv_ulong("sas_saveenv", 10, 0);
+ 	boot_logic = sas_bootlogic_active(flash_layout, kernel, rootfs,
+ 						servicefs);
+ 
+-	printf("Booting with: kernel %s, rootfs %s, servicefs %s, "
+-	       "loadaddr %08lx, boot_logic %d ptest %d\n",
++	printf("Booting with: kernel %s, rootfs %s, servicefs %s, boot_logic %d ptest %d\n",
+ 		sas_image_src_str(kernel), sas_image_src_str(rootfs),
+-		sas_image_src_str(servicefs), loadaddr, boot_logic, ptest_mode);
+-
+-	active_image = 0;
+-	active_image_prev = 0;
+-	protect_uboot = 0;
+-	can_boot = 0;
+-	part = NULL;
++		sas_image_src_str(servicefs), boot_logic, ptest_mode);
+ 
++	/* Handle persistent env variables */
+ 	sas_env_bootargs_clear();
++	sas_env_flashlayout_set(flash_layout, &save_env);
++	sas_env_compat_set(&save_env);
+ 
+-	for (i = 0; i < sas_flash_layout_image_partitions(flash_layout); i++) {
+-		if (boot_logic) {
+-			active_image = sas_boot_active_image(flash_layout);
+-			if (active_image == active_image_prev) {
+-				debug("breaking loop: i %d, active_image %d, active_image_prev %d\n",
+-					i, active_image, active_image_prev);
+-				break;
+-			}
+-			active_image_prev = active_image;
+-
+-			part = sas_flash_layout_image_partition(active_image - 1);
+-		} else
+-			can_boot = 1;
+-
+-		sas_boot_mtdparts_init(active_image, protect_uboot, mtdparts);
++	retry = 0;
++	can_boot = 1;
++	do {
++		/*
++		 * If active_image is equal to 0 then no partition contains the
++		 * complete set of boot images (kernel + different rootfs types).
++		 * Otherwise the partition index in range 1..max_partitions
++		 * is returned.
++		 */
++		active_image = sas_boot_find_working_image(flash_layout);
++		/*
++		 * Abort immediately if boot logic is enabled and
++		 * no active images could be found.
++		 */
++		if (boot_logic && !active_image) {
++			can_boot = 0;
++			break;
++		}
+ 
+-		ret = sas_load_kernel(part, kernel, loadaddr);
++		ret = sas_load_kernel(active_image, kernel, loadaddr);
+ 		if (ret)
+ 			goto done;
+ 
+-		ret = sas_load_fs(part, rootfs, SAS_IMG_ROOTFS);
++		sas_boot_init_mtdparts(active_image, !ptest_mode, mtdparts);
++
++		ret = sas_load_fs(active_image, rootfs, SAS_IMG_ROOTFS);
+ 		if (ret)
+ 			goto done;
+ 
+-		ret = sas_load_fs(part, servicefs, SAS_IMG_SERVICEFS);
++		ret = sas_load_fs(active_image, servicefs, SAS_IMG_SERVICEFS);
+ 		if (ret)
+ 			goto done;
+ 
+-		ret = sas_load_fs(part, servicefs, SAS_IMG_DEFCONFIG);
++		ret = sas_load_fs(active_image, servicefs, SAS_IMG_DEFCONFIG);
+ 		if (ret)
+ 			goto done;
+ 
+-		if (boot_logic && active_image)
+-			can_boot = sas_boot_state_update(active_image, &save_env);
++		if (boot_logic && active_image && !ptest_mode)
++			can_boot = sas_boot_update_states(active_image, &retry,
++								&save_env);
++	} while (retry);
+ 
+-		if (can_boot)
+-			break;
+-	}
++	sas_env_save(save_env);
+ 
+-	sas_linux_fixup(loadaddr);
+-	sas_env_flashlayout_set(flash_layout, &save_env);
+-	sas_env_compat_set(&save_env);
+-	sas_env_save(save_env | sas_saveenv);
+-	sas_env_mtdparts_set(mtdparts);
+-	sas_env_bootargs_init();
++	if (can_boot) {
++		/* Handle transient env variables */
++		sas_env_linux_fixup(loadaddr);
++		sas_env_mtdparts_set(mtdparts);
++		sas_env_bootargs_init();
+ 
+-	sas_bootm(loadaddr, 0);
++		/* Perform boot */
++		sas_bootm(loadaddr);
++	}
+ 
+ done:
+ 	if (ret != -1)
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index b1ed080e14ea856033d5999d2ea788092cbd73af..8c30c631b8d1c60c8ea741ec3b210f1b579afd20 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -324,7 +324,7 @@ done:
+ U_BOOT_CMD(sas_erase_uboot_cfg, 1, 0, do_sas_erase_uboot_cfg,
+ 	"Erase U-Boot config in flash", "");
+ 
+-static inline void sas_upgrade_index(int argc, char *const argv[], int *index)
++static void sas_upgrade_index(int argc, char *const argv[], int *index)
+ {
+ 	int ret;
+ 	ulong val;
+@@ -375,12 +375,14 @@ static int do_sas_upgrade_platform(cmd_tbl_t * cmdtp, int flag,
+ 	if (!ret)
+ 		return 1;
+ 
+-	ret = sas_boot_platform_layout(part, uimage_size, rootfs_size,
++	ret = sas_boot_layout_platform(part, uimage_size, rootfs_size,
+ 					&uimage_dstaddr, &rootfs_dstaddr,
+ 					&erase_len);
+ 	if (ret)
+ 		return ret;
+ 
++	sas_boot_invalidate_image_state(index + 1);
++
+ 	ret = sas_boot_invalidate_platform_images(part);
+ 	if (ret)
+ 		return ret;
+@@ -398,7 +400,7 @@ static int do_sas_upgrade_platform(cmd_tbl_t * cmdtp, int flag,
+ 
+ done:
+ 	sas_flash_verbose_set(0);
+-	ret = sas_boot_image_scan();
++	ret = sas_boot_scan_images();
+ 
+ 	return ret;
+ }
+@@ -438,12 +440,14 @@ static int do_sas_upgrade_service(cmd_tbl_t * cmdtp, int flag,
+ 	if (!ret)
+ 		return 1;
+ 
+-	ret = sas_boot_service_layout(part, servicefs_size, configfs_size,
++	ret = sas_boot_layout_service(part, servicefs_size, configfs_size,
+ 					&servicefs_dstaddr, &configfs_dstaddr,
+ 					&erase_len);
+ 	if (ret)
+ 		return ret;
+ 
++	sas_boot_invalidate_image_state(index + 1);
++
+ 	ret = sas_boot_invalidate_service_images(part);
+ 	if (ret)
+ 		return ret;
+@@ -461,7 +465,7 @@ static int do_sas_upgrade_service(cmd_tbl_t * cmdtp, int flag,
+ 
+ done:
+ 	sas_flash_verbose_set(0);
+-	ret = sas_boot_image_scan();
++	ret = sas_boot_scan_images();
+ 
+ 	return ret;
+ }
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index 11c3d7613529265f12bfa3b5efb9b79def06cd2b..de1860614a680c15252ac6bb510ebdd4efb0d1f9 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -191,7 +191,6 @@ int sas_flash_layout_is_mirrored(sas_flash_layout_t layout)
+ 	switch (layout) {
+ 	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+ 	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-	case SAS_LAYOUT_PLATFORM_SERVICE_HANOI:
+ 		return 1;
+ 	default:
+ 		return 0;
+@@ -207,22 +206,18 @@ int sas_flash_layout_image_partitions(sas_flash_layout_t layout)
+ 	case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+ 	case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+ 		return 2;
+-	case SAS_LAYOUT_PLATFORM_SERVICE_HANOI:
+-		return 3;
+ 	default:
+ 		return 0;
+ 	}
+ }
+ 
+-struct sas_flash_partition * sas_flash_layout_image_partition(int index)
++struct sas_flash_partition * sas_flash_layout_image_partition(unsigned int index)
+ {
+ 	const sas_flash_partition_t image_parts[] = {
+ 		SAS_PART_IMAGES1, SAS_PART_IMAGES2, SAS_PART_IMAGES3
+ 	};
+-	int image_cnt = sas_flash_layout_image_partitions(sas_flash_layout);
+ 
+-	if (index < 0 || index >= image_cnt)
+-		return NULL;
++	assert(index < 3);
+ 
+ 	return sas_flash_partition_get(image_parts[index]);
+ }
+@@ -238,7 +233,6 @@ static const struct sas_layout_map sas_flash_layout_strings[] = {
+ 	{ "pom", "Platform only - mirrored" },
+ 	{ "pss", "Platform/Service - single" },
+ 	{ "psm", "Platform/Service - mirrored" },
+-	{ "psh", "Platform/Service - hanoi" },
+ 	{ "", "invalid" }
+ };
+ 
+diff --git a/lib/sphairon/util.c b/lib/sphairon/util.c
+index c60751959be9b3d01094f44ce21c4fb2196e50bd..cb1e23758ccef85ee00db15e075db2401dc8e406 100644
+--- a/lib/sphairon/util.c
++++ b/lib/sphairon/util.c
+@@ -11,6 +11,12 @@
+ 
+ #include <sas/util.h>
+ 
++#if defined (CONFIG_ENV_IS_IN_FLASH) || defined (CONFIG_ENV_IS_IN_SPI_FLASH)
++#define sas_has_saveenv		1
++#else
++#define sas_has_saveenv		0
++#endif
++
+ int sas_setenv(const char *name, const char *value, int *saveenv)
+ {
+ 	const char *s;
+@@ -46,6 +52,12 @@ int sas_setenv_hex(const char *name, int value, int *saveenv)
+ 	return sas_setenv(name, buf, saveenv);
+ }
+ 
++void sas_saveenv(void)
++{
++	if (sas_has_saveenv)
++		saveenv();
++}
++
+ int sas_run_command(const char* fmt, ...)
+ {
+ 	va_list args;

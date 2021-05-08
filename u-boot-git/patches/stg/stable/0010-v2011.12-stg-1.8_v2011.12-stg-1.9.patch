@@ -1,0 +1,27 @@
+diff --git a/Makefile b/Makefile
+index 9ee4c5d1ecab0e50f543c848296c62065f300591..9f76595f064b76baf81ca74536614b83b4d436a8 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.8
++EXTRAVERSION = -stg-1.9
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index a85fb76a437ec9059f7ce2c81e284fb95c09628e..d65ff7c482513156a4ad4264aeaf5386012e3925 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -51,6 +51,9 @@ static void gpio_init(void)
+ 
+ 	/* PCI-E CLKREQ, needs clarification */
+ 	/* gpio_direction_output(44, 1); */
++
++	/* PCM DCL/FSC input/output switch -> default output */
++	gpio_direction_output(47, 1);
+ }
+ 
+ int board_early_init_f(void)

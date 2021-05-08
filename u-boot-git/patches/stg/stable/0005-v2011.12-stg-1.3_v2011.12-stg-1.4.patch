@@ -1,0 +1,25 @@
+diff --git a/Makefile b/Makefile
+index 5ef213136c1281daeffafabdf1c3e44e279bb5a7..2ce87ff9c332ad6d9da18960d57c4368fe4b89f4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.3
++EXTRAVERSION = -stg-1.4
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index 18c5df9dadbd1882de0b2306165c0a2561594bfb..2b00fda2996ee12eba52e8913eef92f687e4eeb6 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -14,6 +14,7 @@
+ 
+ #define CONFIG_CMD_GPIO
+ #define CONFIG_CMD_PING
++#define CONFIG_CMD_MISC
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_SPI_FLASH)
+ #define CONFIG_CMD_SPI

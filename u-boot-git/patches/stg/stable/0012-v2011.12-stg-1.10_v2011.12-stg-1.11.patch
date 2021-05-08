@@ -1,0 +1,59 @@
+diff --git a/Makefile b/Makefile
+index f7d37e54d3cd73359461e0b5b43dc4bd083c5ebb..ef04822d4ca98f2fc07cc04f223ffad7b5e2413e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.10
++EXTRAVERSION = -stg-1.11
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/vrx200/cpu.c b/arch/mips/cpu/mips32/vrx200/cpu.c
+index 7424b562141b1dba308748470a4b904de6576aa7..f451858e2506a688da89d800174d7cdba1711e68 100644
+--- a/arch/mips/cpu/mips32/vrx200/cpu.c
++++ b/arch/mips/cpu/mips32/vrx200/cpu.c
+@@ -15,7 +15,6 @@ int arch_cpu_init(void)
+ {
+ 	ltq_pmu_init();
+ 	ltq_ebu_init();
+-	ltq_pll_init();
+ 
+ 	return 0;
+ }
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index d65ff7c482513156a4ad4264aeaf5386012e3925..737e96a7939d7853858a00fe3d65775e05650808 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -58,8 +58,12 @@ static void gpio_init(void)
+ 
+ int board_early_init_f(void)
+ {
++#if defined(CONFIG_SPL_BUILD)
+ 	gpio_init();
++	ltq_pll_init();
++#else
+ 	ltq_dcdc_init(0x7F);
++#endif
+ 
+ 	return 0;
+ }
+diff --git a/board/sphairon/vrx_g1/vrx_g1.c b/board/sphairon/vrx_g1/vrx_g1.c
+index 186edc0aaac80b78e13f4dec82316ebfd243569d..6542019296cde00d3023f28c827035b5fd7d4933 100644
+--- a/board/sphairon/vrx_g1/vrx_g1.c
++++ b/board/sphairon/vrx_g1/vrx_g1.c
+@@ -39,8 +39,12 @@ static void gpio_init(void)
+ 
+ int board_early_init_f(void)
+ {
++#if defined(CONFIG_SPL_BUILD)
+ 	gpio_init();
++	ltq_pll_init();
++#else
+ 	ltq_dcdc_init(0x7F);
++#endif
+ 
+ 	return 0;
+ }

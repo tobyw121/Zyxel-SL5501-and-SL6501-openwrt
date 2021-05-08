@@ -1,0 +1,2527 @@
+diff --git a/Makefile b/Makefile
+index ea49e5e39948a3a3cabfd43a95bf42dc566d8621..b990fa79a5743d4bf4372d086fa0ab5b060b72ca 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.16
++EXTRAVERSION = -stg-1.17
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/cache.S b/arch/mips/cpu/mips32/cache.S
+index 316e9616a80263f0636a933d3f26a9f3d53a7e39..2b81fb2c3fca36072e7912e55b9d9c32e03bc99a 100644
+--- a/arch/mips/cpu/mips32/cache.S
++++ b/arch/mips/cpu/mips32/cache.S
+@@ -45,7 +45,11 @@
+  */
+ #define MIPS_MAX_CACHE_SIZE	0x10000
+ 
++#ifdef CONFIG_SYS_MIPS_CACHE_EXT_INIT
++#define INDEX_BASE	0x9fc00000
++#else
+ #define INDEX_BASE	CKSEG0
++#endif
+ 
+ 	.macro	cache_op op addr
+ 	.set	push
+@@ -83,7 +87,6 @@ LEAF(mips_init_icache)
+ 	blez		a1, 9f
+ #ifdef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	mtc0		zero, CP0_ITAGLO
+-	mtc0		zero, CP0_IDATALO
+ #else
+ 	mtc0		zero, CP0_TAGLO
+ #endif
+@@ -93,6 +96,7 @@ LEAF(mips_init_icache)
+ 1:	cache_op	Index_Store_Tag_I t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
++#ifndef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	/* fill once, so data field parity is correct */
+ 	PTR_LI		t0, INDEX_BASE
+ 2:	cache_op	Fill t0
+@@ -103,6 +107,7 @@ LEAF(mips_init_icache)
+ 1:	cache_op	Index_Store_Tag_I t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
++#endif
+ 9:	jr		ra
+ 	END(mips_init_icache)
+ 
+@@ -113,7 +118,6 @@ LEAF(mips_init_dcache)
+ 	blez		a1, 9f
+ #ifdef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	mtc0		zero, CP0_DTAGLO
+-	mtc0		zero, CP0_DDATALO
+ #else
+ 	mtc0		zero, CP0_TAGLO
+ #endif
+@@ -123,6 +127,7 @@ LEAF(mips_init_dcache)
+ 1:	cache_op	Index_Store_Tag_D t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
++#ifndef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	/* load from each line (in cached space) */
+ 	PTR_LI		t0, INDEX_BASE
+ 2:	LONG_L		zero, 0(t0)
+@@ -133,6 +138,7 @@ LEAF(mips_init_dcache)
+ 1:	cache_op	Index_Store_Tag_D t0
+ 	PTR_ADDU	t0, a2
+ 	bne		t0, t1, 1b
++#endif
+ 9:	jr		ra
+ 	END(mips_init_dcache)
+ 
+@@ -157,6 +163,7 @@ NESTED(mips_cache_reset, 0, ra)
+ 	li	t4, CONFIG_SYS_CACHELINE_SIZE
+ 	move	t5, t4
+ 
++#ifndef CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 	li	v0, MIPS_MAX_CACHE_SIZE
+ 
+ 	/*
+@@ -167,7 +174,7 @@ NESTED(mips_cache_reset, 0, ra)
+ 2:	PTR_ADDIU	a0, 64
+ 	f_fill64	a0, -64, zero
+ 	bne		a0, a1, 2b
+-
++#endif
+ 	/*
+ 	 * The caches are probably in an indeterminate state,
+ 	 * so we force good parity into them by doing an
+diff --git a/arch/mips/cpu/mips32/start.S b/arch/mips/cpu/mips32/start.S
+index 3ac9714ff5da9fefc7d6e7926d3797efa95c3f72..0201fcb6c35b7b804f9ce2d15b5bc327d4d12f0f 100644
+--- a/arch/mips/cpu/mips32/start.S
++++ b/arch/mips/cpu/mips32/start.S
+@@ -112,7 +112,6 @@ _start:
+ 
+ 	.align 4
+ reset:
+-
+ 	/* Clear watch registers */
+ 	mtc0	zero, CP0_WATCHLO
+ 	mtc0	zero, CP0_WATCHHI
+@@ -120,7 +119,9 @@ reset:
+ 	/* WP(Watch Pending), SW0/1 should be cleared */
+ 	mtc0	zero, CP0_CAUSE
+ 
++#if 0
+ 	setup_c0_status_reset
++#endif
+ 
+ 	/* Init Timer */
+ 	mtc0	zero, CP0_COUNT
+@@ -221,6 +222,8 @@ relocate_code:
+ 	jalr	t9
+ 	 nop
+ 
++	sync
++
+ 	/* Jump to where we've relocated ourselves */
+ 	addi	t0, s2, in_ram - _start
+ 	jr	t0
+diff --git a/arch/mips/cpu/mips32/vrx200/cpu.c b/arch/mips/cpu/mips32/vrx200/cpu.c
+index f451858e2506a688da89d800174d7cdba1711e68..92d8660c73eb4658ecd144dca39617444fb11396 100644
+--- a/arch/mips/cpu/mips32/vrx200/cpu.c
++++ b/arch/mips/cpu/mips32/vrx200/cpu.c
+@@ -11,6 +11,8 @@
+ #include <asm/lantiq/reset.h>
+ #include <asm/arch/cpu.h>
+ 
++#include <asm/mipsregs.h>
++
+ int arch_cpu_init(void)
+ {
+ 	ltq_pmu_init();
+@@ -29,6 +31,16 @@ void ltq_chip_print_info(void)
+ 	printf("IO:    %s MHz\n", strmhz(buf, ltq_get_io_region_clock()));
+ 	printf("BUS:   %s MHz\n", strmhz(buf, ltq_get_bus_clock()));
+ 	printf("BOOT:  %s\n", ltq_boot_select_str());
++#if 0
++	printf("CP0_CONFIG:   %08x\n", read_c0_config());
++	printf("CP0_CONFIG1:  %08x\n", read_c0_config1());
++	printf("CP0_CONFIG2:  %08x\n", read_c0_config2());
++	printf("CP0_CONFIG3:  %08x\n", read_c0_config3());
++	printf("CP0_CONFIG6:  %08x\n", read_c0_config6());
++	printf("CP0_CONFIG7:  %08x\n", read_c0_config7());
++	printf("CP0_STATUS:   %08x\n", read_c0_status());
++	printf("CP0_PRID:     %08x\n", read_c0_prid());
++#endif
+ }
+ 
+ void _machine_restart(void)
+diff --git a/arch/mips/cpu/mips32/vrx200/spl_sram/start.S b/arch/mips/cpu/mips32/vrx200/spl_sram/start.S
+index f44b5a6b2d78916cab03b63a5861694bf07b9989..b9bfc8bf697a4ee1a1c8281c5a2d8fda8564bac4 100644
+--- a/arch/mips/cpu/mips32/vrx200/spl_sram/start.S
++++ b/arch/mips/cpu/mips32/vrx200/spl_sram/start.S
+@@ -10,6 +10,51 @@
+ #include <asm/regdef.h>
+ #include <asm/mipsregs.h>
+ 
++#define S_PRIdCoID	16		/* Company ID (R) */
++#define M_PRIdCoID	(0xff << S_PRIdCoID)
++#define S_PRIdImp	8		/* Implementation ID (R) */
++#define M_PRIdImp	(0xff << S_PRIdImp)
++
++#define K_CacheAttrCWTnWA	0	/* Cacheable, write-thru, no write allocate */
++#define K_CacheAttrCWTWA	1	/* Cacheable, write-thru, write allocate */
++#define K_CacheAttrU		2	/* Uncached */
++#define K_CacheAttrC		3	/* Cacheable */
++#define K_CacheAttrCN		3	/* Cacheable, non-coherent */
++#define K_CacheAttrCCE		4	/* Cacheable, coherent, exclusive */
++#define K_CacheAttrCCS		5	/* Cacheable, coherent, shared */
++#define K_CacheAttrCCU		6	/* Cacheable, coherent, update */
++#define K_CacheAttrUA		7	/* Uncached accelerated */
++
++#define S_ConfigK23		28	/* Kseg2/3 coherency algorithm (FM MMU only) (R/W) */
++#define M_ConfigK23		(0x7 << S_ConfigK23)
++#define W_ConfigK23		3
++#define S_ConfigKU		25	/* Kuseg coherency algorithm (FM MMU only) (R/W) */
++#define M_ConfigKU		(0x7 << S_ConfigKU)
++#define W_ConfigKU		3
++
++#define S_ConfigMM		18	/* Merge mode (implementation specific) */
++#define M_ConfigMM		(0x1 << S_ConfigMM)
++
++#define S_StatusBEV		22	/* Enable Boot Exception Vectors (R/W) */
++#define M_StatusBEV		(0x1 << S_StatusBEV)
++
++#define S_StatusFR		26	/* Enable 64-bit FPRs (R/W) */
++#define M_StatusFR		(0x1 << S_StatusFR)
++
++#define S_ConfigK0		0	/* Kseg0 coherency algorithm (R/W) */
++#define M_ConfigK0		(0x7 << S_ConfigK0)
++
++#define CONFIG0_MIPS32_64_MSK	0x8000ffff
++#define STATUS_MIPS32_64_MSK	0xfffcffff
++
++#define STATUS_MIPS34K		0
++#define CONFIG0_MIPS34K		((K_CacheAttrCN << S_ConfigK23) |\
++				(K_CacheAttrCN << S_ConfigKU) |\
++				(M_ConfigMM))
++
++#define STATUS_MIPS32_64	(M_StatusBEV | M_StatusFR)
++#define CONFIG0_MIPS32_64	(K_CacheAttrCN << S_ConfigK0)
++
+ 	.set noreorder
+ 
+ 	.globl _start
+@@ -19,9 +64,28 @@ _start:
+ 	mtc0	zero, CP0_COUNT
+ 	mtc0	zero, CP0_COMPARE
+ 
++#if 1
++	/* Setup MIPS34K specifics (implementation dependent fields) */
++	mfc0	t0, CP0_CONFIG
++	li	t1, CONFIG0_MIPS32_64_MSK
++	and	t0, t1
++	li	t1, CONFIG0_MIPS34K | CONFIG0_MIPS32_64
++	or	t0, t1
++	mtc0	t0, CP0_CONFIG
++
++	mfc0	t0, CP0_STATUS
++	li	t1, STATUS_MIPS32_64_MSK
++	and	t0, t1
++	li	t1, STATUS_MIPS34K | STATUS_MIPS32_64
++	or	t0, t1
++	mtc0	t0, CP0_STATUS
++#endif
++
++#if 0
+ 	/* Disable caches */
+ 	li	t0, CONF_CM_UNCACHED
+ 	mtc0	t0, CP0_CONFIG
++#endif
+ 
+ 	/* Initialize $gp */
+ 	bal	1f
+@@ -36,13 +100,17 @@ _start:
+ 	 nop
+ 
+ 	/* Initialize caches... */
++#if 1
+ 	la	t9, mips_cache_reset
+ 	jalr	t9
+ 	 nop
++#endif
+ 
++#if 0
+ 	/* ... and enable them */
+ 	li	t0, CONFIG_SYS_MIPS_CACHE_MODE
+ 	mtc0	t0, CP0_CONFIG
++#endif
+ 
+ 	/* Clear BSS */
+ 	la	t1, __bss_start
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 51186a356d3cfc6fff521ba8280369369081d570..12a7a6783278184be118d12f1d8e8d55b2b02725 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -36,10 +36,11 @@
+ #define CONFIG_SOC_XWAY_VRX200
+ 
+ /* Cache configuration */
+-#define CONFIG_SYS_MIPS_CACHE_MODE	CONF_CM_CACHABLE_NO_WA /*CONF_CM_CACHABLE_NONCOHERENT*/
++#define CONFIG_SYS_MIPS_CACHE_MODE	CONF_CM_CACHABLE_NONCOHERENT
+ #define CONFIG_SYS_DCACHE_SIZE		(32 * 1024)
+ #define CONFIG_SYS_ICACHE_SIZE		(32 * 1024)
+ #define CONFIG_SYS_CACHELINE_SIZE	32
++#define CONFIG_SYS_MIPS_CACHE_EXT_INIT
+ 
+ /*
+  * Supported clock modes
+@@ -109,8 +110,10 @@
+ #define CONFIG_LANTIQ_VRX200_SWITCH
+ #define CONFIG_PHY_LANTIQ
+ 
++#define CONFIG_SYS_RX_ETH_BUFFER	8
+ #define CONFIG_PHYLIB
+ #define CONFIG_MII
++#define CONFIG_UDP_CHECKSUM
+ 
+ #define CONFIG_CMD_MII
+ #define CONFIG_CMD_NET
+@@ -147,7 +150,7 @@
+ #endif
+ 
+ #if defined(CONFIG_SYS_BOOT_RAM)
+-#define CONFIG_SYS_TEXT_BASE		0xA0100000
++#define CONFIG_SYS_TEXT_BASE		0x80100000
+ #define CONFIG_SKIP_LOWLEVEL_INIT
+ #define CONFIG_SYS_DISABLE_CACHE
+ #elif defined(CONFIG_SYS_BOOT_EVA)
+diff --git a/arch/mips/include/asm/arch-vrx200/switch.h b/arch/mips/include/asm/arch-vrx200/switch.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..b623b8b3f65c9bd73119a3f1cc5e3e9556b00d22
+--- /dev/null
++++ b/arch/mips/include/asm/arch-vrx200/switch.h
+@@ -0,0 +1,510 @@
++/*
++ *   This program is free software; you can redistribute it and/or modify
++ *   it under the terms of the GNU General Public License as published by
++ *   the Free Software Foundation; either version 2 of the License, or
++ *   (at your option) any later version.
++ *
++ *   This program is distributed in the hope that it will be useful,
++ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
++ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ *   GNU General Public License for more details.
++ *
++ *   You should have received a copy of the GNU General Public License
++ *   along with this program; if not, write to the Free Software
++ *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
++ *
++ *   Copyright (C) 2012 Daniel Schwierzeck <daniel.schwierzeck@googlemail.com>
++ */
++
++#ifndef __VR9_SWITCH_H__
++#define __VR9_SWITCH_H__
++
++/* Switch core registers */
++struct vr9_switch_core_regs {
++	__be32 swres;
++	/* TODO: implement registers */
++	__be32 rsvd0[0x3f];
++};
++
++/* Switch buffer management registers */
++struct vr9_switch_bm_regs {
++	struct bm_core {
++		__be32 ram_val3;	/* RAM value 3 */
++		__be32 ram_val2;	/* RAM value 2 */
++		__be32 ram_val1;	/* RAM value 1 */
++		__be32 ram_val0;	/* RAM value 0 */
++		__be32 ram_addr;	/* RAM address */
++		__be32 ram_ctrl;	/* RAM access control */
++		__be32 fsqm_gctrl;	/* Free segment queue global control */
++		__be32 cons_sel;	/* Number of consumed segments */
++		__be32 cons_pkt;	/* Number of consumed packet pointers */
++		__be32 gctrl;		/* Global control */
++		__be32 queue_gctrl;	/* Queue manager global control */
++		/* TODO: implement registers */
++		__be32 rsvd0[0x35];
++	} core;
++
++	struct bm_port {
++		__be32 pcfg;		/* Port config */
++		__be32 rmon_ctrl;	/* RMON control */
++	} port[13];
++
++	__be32 rsvd0[0x66];
++
++	struct bm_queue {
++		__be32 rsvd0;
++		__be32 pqm_rs;		/* Packet queue manager rate shape assignment */
++	} queue[32];
++
++	struct bm_shaper {
++		__be32 ctrl;		/* Rate shaper control */
++		__be32 cbs;		/* Rate shaper committed burst size */
++		__be32 ibs;		/* Rate shaper instantaneous burst size */
++		__be32 cir_ext;		/* Rate shaper rate exponent */
++		__be32 cir_mant;	/* Rate shaper rate mantissa */
++	} shaper[16];
++
++	__be32 rsvd1[0x2a8];
++};
++
++/* Switch parser and classification engine registers */
++struct vr9_switch_pce_regs {
++	struct pce_core {
++		__be32 tbl_key[16];	/* Table key data */
++		__be32 tbl_mask;	/* Table mask */
++		__be32 tbl_val[5];	/* Table value */
++		__be32 tbl_addr;	/* Table entry address */
++		__be32 tbl_ctrl;	/* Table access control */
++		__be32 tbl_stat;	/* Table general status */
++		__be32 age_0;		/* Aging counter config 0 */
++		__be32 age_1;		/* Aging counter config 1 */
++		__be32 pmap_1;		/* Port map (monitoring) */
++		__be32 pmap_2;		/* Port map (multicast) */
++		__be32 pmap_3;		/* Port map (unknown unicast) */
++		__be32 gctrl_0;		/* Global control 0 */
++		__be32 gctrl_1;		/* Global control 1 */
++		__be32 tcm_gctrl;	/* Three-color marker global control */
++		__be32 igmp_ctrl;	/* IGMP control */
++		__be32 igmp_drpm;	/* IGMP default router port map */
++		__be32 igmp_age_0;	/* IGMP aging 0 */
++		__be32 igmp_age_1;	/* IGMP aging 1 */
++		__be32 igmp_stat;	/* IGMP status */
++		__be32 wol_gctrl;	/* Wake-on-LAN control */
++		__be32 wol_da_0;	/* Wake-on-LAN destination address 0 */
++		__be32 wol_da_1;	/* Wake-on-LAN destination address 1 */
++		__be32 wol_da_2;	/* Wake-on-LAN destination address 2 */
++		__be32 wol_pw_0;	/* Wake-on-LAN password 0 */
++		__be32 wol_pw_1;	/* Wake-on-LAN password 1 */
++		__be32 wol_pw_2;	/* Wake-on-LAN password 2 */
++		__be32 ier_0;		/* PCE global interrupt enable 0 */
++		__be32 ier_1;		/* PCE global interrupt enable 1 */
++		__be32 isr_0;		/* PCE global interrupt status 0 */
++		__be32 isr_1;		/* PCE global interrupt status 1 */
++		__be32 parser_stat;	/* Parser status */
++		__be32 rsvd0[0x6];
++	} core;
++
++	__be32 rsvd0[0x10];
++
++	struct pce_port {
++		__be32 pctrl_0;		/* Port control 0 */
++		__be32 pctrl_1;		/* Port control 1 */
++		__be32 pctrl_2;		/* Port control 2 */
++		__be32 pctrl_3;		/* Port control 3 */
++		__be32 wol_ctrl;	/* Wake-on-LAN control */
++		__be32 vlan_ctrl;	/* VLAN control */
++		__be32 def_pvid;	/* Default port VID */
++		__be32 pstat;		/* Port status */
++		__be32 pier;		/* Interrupt enable */
++		__be32 pisr;		/* Interrupt status */
++	} port[13];
++
++	__be32 rsvd1[0x7e];
++
++	struct pce_meter {
++		/* TODO: implement registers */
++		__be32 rsvd0[0x7];
++	} meter[8];
++
++	__be32 rsvd2[0x308];
++};
++
++static inline unsigned int to_pce_tbl_key_id(unsigned int id)
++{
++	BUG_ON(id > 15);
++
++	return 15 - id;
++}
++
++static inline unsigned int to_pce_tbl_value_id(unsigned int id)
++{
++	BUG_ON(id > 4);
++
++	return 4 - id;
++}
++
++/* Switch ethernet MAC registers */
++struct vr9_switch_mac_regs {
++	struct mac_core {
++		__be32 test;		/* MAC test */
++		__be32 pfad_cfg;	/* Pause frame source address config */
++		__be32 pfsa_0;		/* Pause frame source address 0 */
++		__be32 pfsa_1;		/* Pause frame source address 1 */
++		__be32 pfsa_2;		/* Pause frame source address 2 */
++		__be32 flen;		/* Frame length */
++		__be32 vlan_etype_0;	/* VLAN ethertype 0 */
++		__be32 vlan_etype_1;	/* VLAN ethertype 1 */
++		__be32 ier;		/* Interrupt enable */
++		__be32 isr;		/* Interrupt status */
++		__be32 rsvd0[0x36];
++	} core;
++
++	struct mac_port {
++		__be32 pstat;		/* Port status */
++		__be32 pisr;		/* Interrupt status */
++		__be32 pier;		/* Interrupt enable */
++		__be32 ctrl_0;		/* Control 0 */
++		__be32 ctrl_1;		/* Control 1 */
++		__be32 ctrl_2;		/* Control 2 */
++		__be32 ctrl_3;		/* Control 3 */
++		__be32 ctrl_4;		/* Control 4 */
++		__be32 ctrl_5;		/* Control 5 */
++		__be32 rsvd0[0x2];
++		__be32 testen;		/* Test enable */
++	} port[13];
++
++	__be32 rsvd0[0xa4];
++};
++
++/* Switch Fetch DMA registers */
++struct vr9_switch_fdma_regs {
++	struct fdma_core {
++		__be32 ctrl;		/* FDMA control */
++		__be32 stetype;		/* Special tag ethertype control */
++		__be32 vtetype;		/* VLAN tag ethertype control */
++		__be32 stat;		/* FDMA status */
++		__be32 ier;		/* FDMA interrupt enable */
++		__be32 isr;		/* FDMA interrupt status */
++	} core;
++
++	__be32 rsvd0[0x3a];
++
++	struct fdma_port {
++		__be32 pctrl;		/* Port control */
++		__be32 prio;		/* Port priority */
++		__be32 pstat_0;		/* Port status 0 */
++		__be32 pstat_1;		/* Port status 1 */
++		__be32 tstamp_0;	/* Egress time stamp 0 */
++		__be32 tstamp_1;	/* Egress time stamp 1 */
++	} port[13];
++
++	__be32 rsvd1[0x72];
++};
++
++/* Switch Store DMA registers */
++struct vr9_switch_sdma_regs {
++	struct sdma_core {
++		__be32 ctrl;		/* SDMA Control */
++		__be32 fcthr_1;		/* Flow control threshold 1 */
++		__be32 rsvd0;
++		__be32 fcthr_3;		/* Flow control threshold 3 */
++		__be32 fcthr_4;		/* Flow control threshold 4 */
++		__be32 fcthr_5;		/* Flow control threshold 5 */
++		__be32 fcthr_6;		/* Flow control threshold 6 */
++		__be32 fcthr_7;		/* Flow control threshold 7 */
++		__be32 stat_0;		/* SDMA status 0 */
++		__be32 stat_1;		/* SDMA status 1 */
++		__be32 stat_2;		/* SDMA status 2 */
++		__be32 ier;		/* SDMA interrupt enable */
++		__be32 isr;		/* SDMA interrupt status */
++	} core;
++
++	__be32 rsvd0[0x73];
++
++	struct sdma_port {
++		__be32 pctrl;		/* Port control */
++		__be32 prio;		/* Port priority */
++		__be32 pstat_0;		/* Port status 0 */
++		__be32 pstat_1;		/* Port status 1 */
++		__be32 tstamp_0;	/* Ingress time stamp 0 */
++		__be32 tstamp_1;	/* Ingress time stamp 1 */
++	} port[13];
++
++	__be32 rsvd1[0x32];
++};
++
++/* Switch MDIO control and status registers */
++struct vr9_switch_mdio_regs {
++	__be32 glob_ctrl;	/* Global control 0 */
++	__be32 rsvd0[7];
++	__be32 mdio_ctrl;	/* MDIO control */
++	__be32 mdio_read;	/* MDIO read data */
++	__be32 mdio_write;	/* MDIO write data */
++	__be32 mdc_cfg_0;	/* MDC clock configuration 0 */
++	__be32 mdc_cfg_1;	/* MDC clock configuration 1 */
++	__be32 rsvd1[0x3];
++	__be32 phy_addr[6];	/* PHY address port 5..0 */
++	__be32 mdio_stat[6];	/* MDIO PHY polling status port 0..5 */
++	__be32 aneg_eee[6];	/* EEE auto-neg overrides port 0..5 */
++	__be32 rsvd2[0x14];
++};
++
++static inline unsigned int to_mdio_phyaddr_id(unsigned int id)
++{
++	BUG_ON(id > 5);
++
++	return 5 - id;
++}
++
++/* Switch xMII control registers */
++struct vr9_switch_mii_regs {
++	__be32 mii_cfg0;	/* xMII port 0 configuration */
++	__be32 pcdu0;		/* Port 0 clock delay configuration */
++	__be32 mii_cfg1;	/* xMII port 1 configuration */
++	__be32 pcdu1;		/* Port 1 clock delay configuration */
++	__be32 rsvd0[0x6];
++	__be32 mii_cfg5;	/* xMII port 5 configuration */
++	__be32 pcdu5;		/* Port 5 clock delay configuration */
++	__be32 rsvd1[0x14];
++	__be32 rxb_ctl_0;	/* Port 0 receive buffer control */
++	__be32 rxb_ctl_1;	/* Port 1 receive buffer control */
++	__be32 rxb_ctl_5;	/* Port 5 receive buffer control */
++	__be32 rsvd2[0x28];
++	__be32 dbg_ctl;		/* Debug control */
++};
++
++/* Switch Pseudo-MAC registers */
++struct vr9_switch_pmac_regs {
++	__be32 hd_ctl;		/* PMAC header control */
++	__be32 tl;		/* PMAC type/length */
++	__be32 sa1;		/* PMAC source address 1 */
++	__be32 sa2;		/* PMAC source address 2 */
++	__be32 sa3;		/* PMAC source address 3 */
++	__be32 da1;		/* PMAC destination address 1 */
++	__be32 da2;		/* PMAC destination address 2 */
++	__be32 da3;		/* PMAC destination address 3 */
++	__be32 vlan;		/* PMAC VLAN */
++	__be32 rx_ipg;		/* PMAC interpacket gap in RX direction */
++	__be32 st_etype;	/* PMAC special tag ethertype */
++	__be32 ewan;		/* PMAC ethernet WAN group */
++	__be32 ctl;		/* PMAC control */
++	__be32 rsvd0[0x2];
++};
++
++struct vr9_switch_regs {
++	struct vr9_switch_core_regs core;
++	struct vr9_switch_bm_regs bm;
++	struct vr9_switch_pce_regs pce;
++	struct vr9_switch_mac_regs mac;
++	struct vr9_switch_fdma_regs fdma;
++	struct vr9_switch_sdma_regs sdma;
++	struct vr9_switch_mdio_regs mdio;
++	struct vr9_switch_mii_regs mii;
++	struct vr9_switch_pmac_regs pmac;
++};
++
++static inline void *to_pce_tbl_key(struct vr9_switch_regs *regs,
++						unsigned int id)
++{
++	return &regs->pce.core.tbl_key[to_pce_tbl_key_id(id)];
++}
++
++static inline void *to_pce_tbl_value(struct vr9_switch_regs *regs,
++						unsigned int id)
++{
++	return &regs->pce.core.tbl_val[to_pce_tbl_value_id(id)];
++}
++
++static inline void *to_mac_ctrl(struct vr9_switch_regs *regs,
++					unsigned int id, unsigned int ctrl)
++{
++	struct mac_port *mac = &regs->mac.port[id];
++
++	switch (ctrl) {
++	case 0:
++		return &mac->ctrl_0;
++	case 1:
++		return &mac->ctrl_1;
++	case 2:
++		return &mac->ctrl_2;
++	case 3:
++		return &mac->ctrl_3;
++	case 4:
++		return &mac->ctrl_4;
++	case 5:
++		return &mac->ctrl_5;
++	default:
++		return NULL;
++	}
++}
++
++static inline void *to_mdio_phyaddr(struct vr9_switch_regs *regs,
++					unsigned int id)
++{
++	return &regs->mdio.phy_addr[to_mdio_phyaddr_id(id)];
++}
++
++static inline void *to_mii_miicfg(struct vr9_switch_regs *regs,
++					unsigned int id)
++{
++	switch (id) {
++	case 0:
++		return &regs->mii.mii_cfg0;
++	case 1:
++		return &regs->mii.mii_cfg1;
++	case 5:
++		return &regs->mii.mii_cfg5;
++	default:
++		return NULL;
++	}
++}
++
++static inline void *to_mii_pcdu(struct vr9_switch_regs *regs,
++					unsigned int id)
++{
++	switch (id) {
++	case 0:
++		return &regs->mii.pcdu0;
++	case 1:
++		return &regs->mii.pcdu1;
++	case 5:
++		return &regs->mii.pcdu5;
++	default:
++		return NULL;
++	}
++}
++
++#define VR9_SWITCH_REG_OFFSET(reg)	(4 * (reg))
++
++#define BUILD_CHECK_VR9_REG(name, offset)	\
++	BUILD_BUG_ON(offsetof(struct vr9_switch_regs, name) != (4 * offset))
++
++static inline void build_check_vr9_registers(void)
++{
++	BUILD_CHECK_VR9_REG(core, 0x0);
++	BUILD_CHECK_VR9_REG(bm.core, 0x40);
++	BUILD_CHECK_VR9_REG(bm.core.queue_gctrl, 0x4a);
++	BUILD_CHECK_VR9_REG(bm.port[0], 0x80);
++	BUILD_CHECK_VR9_REG(bm.queue, 0x100);
++	BUILD_CHECK_VR9_REG(bm.shaper, 0x140);
++	BUILD_CHECK_VR9_REG(pce.core, 0x438);
++	BUILD_CHECK_VR9_REG(pce.core.tbl_ctrl, 0x44f);
++	BUILD_CHECK_VR9_REG(pce.core.parser_stat, 0x469);
++	BUILD_CHECK_VR9_REG(pce.port[0], 0x480);
++	BUILD_CHECK_VR9_REG(pce.meter[0], 0x580);
++	BUILD_CHECK_VR9_REG(mac.core, 0x8c0);
++	BUILD_CHECK_VR9_REG(mac.port[0].pstat, 0x900);
++	BUILD_CHECK_VR9_REG(mac.port[0].ctrl_0, 0x903);
++	BUILD_CHECK_VR9_REG(mac.port[1].pstat, 0x90c);
++	BUILD_CHECK_VR9_REG(mac.port[1].ctrl_0, 0x90f);
++	BUILD_CHECK_VR9_REG(mac.port[2].pstat, 0x918);
++	BUILD_CHECK_VR9_REG(mac.port[2].ctrl_0, 0x91b);
++	BUILD_CHECK_VR9_REG(fdma.core, 0xa40);
++	BUILD_CHECK_VR9_REG(fdma.port[0], 0xa80);
++	BUILD_CHECK_VR9_REG(sdma.core, 0xb40);
++	BUILD_CHECK_VR9_REG(sdma.port[0], 0xbc0);
++	BUILD_CHECK_VR9_REG(mdio, 0xc40);
++	BUILD_CHECK_VR9_REG(mii, (0xc40 + 0x36));
++	BUILD_CHECK_VR9_REG(pmac, (0xc40 + 0x82));
++}
++
++#define BM_GCTRL_F_SRES		1
++
++#define MAC_CTRL0_BM		(1 << 12)
++#define MAC_CTRL0_APADEN	(1 << 11)
++#define MAC_CTRL0_VPAD2EN	(1 << 10)
++#define MAC_CTRL0_VPADEN	(1 << 9)
++#define MAC_CTRL0_PADEN		(1 << 8)
++#define MAC_CTRL0_FCS		(1 << 7)
++#define MAC_CTRL0_FCON_SHIFT	4
++#define MAC_CTRL0_FCON_AUTO	(0x0 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_RX	(0x1 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_TX	(0x2 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_RXTX	(0x3 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FCON_NONE	(0x4 << MAC_CTRL0_FCON_SHIFT)
++#define MAC_CTRL0_FDUP_SHIFT	2
++#define MAC_CTRL0_FDUP_AUTO	(0x0 << MAC_CTRL0_FDUP_SHIFT)
++#define MAC_CTRL0_FDUP_EN	(0x1 << MAC_CTRL0_FDUP_SHIFT)
++#define MAC_CTRL0_FDUP_DIS	(0x3 << MAC_CTRL0_FDUP_SHIFT)
++#define MAC_CTRL0_GMII_AUTO	0x0
++#define MAC_CTRL0_GMII_MII	0x1
++#define MAC_CTRL0_GMII_GMII	0x2
++#define MAC_CTRL0_GMII_GMII_2G	0x3
++
++#define MAC_CTRL1_DEFERMODE	(1 << 15)
++#define MAC_CTRL1_SHORTPRE	(1 << 8)
++
++#define MAC_CTRL2_MLEN		(1 << 3)
++#define MAC_CTRL2_LCHKL		(1 << 2)
++#define MAC_CTRL2_LCHKS_DIS	0x0
++#define MAC_CTRL2_LCHKS_UNTAG	0x1
++#define MAC_CTRL2_LCHKS_TAG	0x2
++
++#define PHY_ADDR_LNKST_SHIFT	13
++#define PHY_ADDR_LNKST_AUTO	(0x0 << PHY_ADDR_LNKST_SHIFT)
++#define PHY_ADDR_LNKST_UP	(0x1 << PHY_ADDR_LNKST_SHIFT)
++#define PHY_ADDR_LNKST_DOWN	(0x2 << PHY_ADDR_LNKST_SHIFT)
++#define PHY_ADDR_SPEED_SHIFT	11
++#define PHY_ADDR_SPEED_M10	(0x0 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_SPEED_M100	(0x1 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_SPEED_G1	(0x2 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_SPEED_AUTO	(0x3 << PHY_ADDR_SPEED_SHIFT)
++#define PHY_ADDR_FDUP_SHIFT	9
++#define PHY_ADDR_FDUP_AUTO	(0x0 << PHY_ADDR_FDUP_SHIFT)
++#define PHY_ADDR_FDUP_EN	(0x1 << PHY_ADDR_FDUP_SHIFT)
++#define PHY_ADDR_FDUP_DIS	(0x3 << PHY_ADDR_FDUP_SHIFT)
++#define PHY_ADDR_FCONTX_SHIFT	7
++#define PHY_ADDR_FCONTX_AUTO	(0x0 << PHY_ADDR_FCONTX_SHIFT)
++#define PHY_ADDR_FCONTX_EN	(0x1 << PHY_ADDR_FCONTX_SHIFT)
++#define PHY_ADDR_FCONTX_DIS	(0x3 << PHY_ADDR_FCONTX_SHIFT)
++#define PHY_ADDR_FCONRX_SHIFT	5
++#define PHY_ADDR_FCONRX_AUTO	(0x0 << PHY_ADDR_FCONRX_SHIFT)
++#define PHY_ADDR_FCONRX_EN	(0x1 << PHY_ADDR_FCONRX_SHIFT)
++#define PHY_ADDR_FCONRX_DIS	(0x3 << PHY_ADDR_FCONRX_SHIFT)
++
++#define MII_CFG_RES		(1 << 15)
++#define MII_CFG_EN		(1 << 14)
++#define MII_CFG_LDCLKDIS	(1 << 12)
++#define MII_CFG_MIIRATE_SHIFT	4
++#define MII_CFG_MIIRATE_MASK	(0x7 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M2P5	(0x0 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M25	(0x1 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M125	(0x2 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_M50	(0x3 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIRATE_AUTO	(0x4 << MII_CFG_MIIRATE_SHIFT)
++#define MII_CFG_MIIMODE_MASK	0xf
++#define MII_CFG_MIIMODE_MIIP	0x0
++#define MII_CFG_MIIMODE_MIIM	0x1
++#define MII_CFG_MIIMODE_RMIIP	0x2
++#define MII_CFG_MIIMODE_RMIIM	0x3
++#define MII_CFG_MIIMODE_RGMII	0x4
++
++#define PMAC_HD_CTL_FC		(1 << 10)
++#define PMAC_HD_CTL_CCRC	(1 << 9)
++#define PMAC_HD_CTL_RST		(1 << 8)
++#define PMAC_HD_CTL_AST		(1 << 7)
++#define PMAC_HD_CTL_RXSH	(1 << 6)
++#define PMAC_HD_CTL_RC		(1 << 4)
++#define PMAC_HD_CTL_AS		(1 << 3)
++#define PMAC_HD_CTL_AC		(1 << 2)
++
++#define PCE_PCTRL_0_IGSTEN	(1 << 11)
++
++#define FDMA_PCTRL_STEN		(1 << 1)
++#define FDMA_PCTRL_EN		(1 << 0)
++
++#define SDMA_PCTRL_EN		(1 << 0)
++
++#define MDIO_GLOB_CTRL_SE	(1 << 15)
++
++#define MDIO_MDC_CFG1_RES	(1 << 15)
++#define MDIO_MDC_CFG1_MCEN	(1 << 8)
++
++#define MDIO_CTRL_MBUSY		(1 << 12)
++#define MDIO_CTRL_OP_READ	(1 << 11)
++#define MDIO_CTRL_OP_WRITE	(1 << 10)
++#define MDIO_CTRL_PHYAD_SHIFT	5
++#define MDIO_CTRL_PHYAD_MASK	(0x1f << MDIO_CTRL_PHYAD_SHIFT)
++#define MDIO_CTRL_REGAD_MASK	0x1f
++
++#endif
+diff --git a/arch/mips/include/asm/lantiq/config.h b/arch/mips/include/asm/lantiq/config.h
+index 686e5d3680b5e830c265e38bfe6cabdab75e2dba..f1cb22ddbeb8d483791614d4b9bbcd65c964de5b 100644
+--- a/arch/mips/include/asm/lantiq/config.h
++++ b/arch/mips/include/asm/lantiq/config.h
+@@ -41,6 +41,7 @@
+ #define CONFIG_CMD_RUN
+ #define CONFIG_CMD_SAVEENV
+ #define CONFIG_CMD_LOADS
++#define CONFIG_CMD_LOADB
+ 
+ /* Other U-Boot settings */
+ #define CONFIG_UBOOT_VERSION
+diff --git a/arch/mips/include/asm/lantiq/dma.h b/arch/mips/include/asm/lantiq/dma.h
+index a962c5b378ac6cc14413cecdcc651d726fa5ef17..159a892b4345d1113af87af098f7e4c1cfe89c73 100644
+--- a/arch/mips/include/asm/lantiq/dma.h
++++ b/arch/mips/include/asm/lantiq/dma.h
+@@ -15,22 +15,34 @@ enum ltq_dma_endianess {
+ 	LTQ_DMA_ENDIANESS_B3_B2_B1_B0,	/* B0B1B2B3 => B3B2B1B0 */
+ };
+ 
++enum ltq_dma_burst_len {
++	LTQ_DMA_BURST_2WORDS = 1,
++	LTQ_DMA_BURST_4WORDS = 2,
++	LTQ_DMA_BURST_8WORDS = 3,
++};
++
++struct ltq_dma_desc {
++	u32 ctl;
++	u32 addr;
++};
++
+ struct ltq_dma_channel {
+-	u8 chan_no;		/* Channel number */
+-	u8 class;		/* Priority class */
+-	u16 num_desc;		/* Number of required DMA descriptors */
+-	size_t mem_size;	/* Size of allocated memory */
+-	void *desc_base;	/* Aligned and segment mapped descriptor base */
+-	void *mem_base;		/* Base of allocated memory */
++	struct ltq_dma_device *dev;
++	u8 chan_no;
++	u8 class;
++	u16 num_desc;
++	struct ltq_dma_desc *desc_base;
++	void *mem_base;
++	u32 dma_addr;
+ };
+ 
+ struct ltq_dma_device {
+-	struct list_head list;
+ 	enum ltq_dma_endianess rx_endian_swap;
+ 	enum ltq_dma_endianess tx_endian_swap;
++	enum ltq_dma_burst_len rx_burst_len;
++	enum ltq_dma_burst_len tx_burst_len;
+ 	struct ltq_dma_channel rx_chan;
+ 	struct ltq_dma_channel tx_chan;
+-	void *priv;
+ 	u8 port;
+ };
+ 
+@@ -40,11 +52,6 @@ struct ltq_dma_device {
+ extern void ltq_dma_init(void);
+ 
+ /**
+- * Allocate a new DMA client context
+- */
+-extern struct ltq_dma_device *ltq_dma_alloc(void);
+-
+-/**
+  * Register given DMA client context
+  *
+  * @returns 0 on success, negative value otherwise
+@@ -55,23 +62,18 @@ extern int ltq_dma_register(struct ltq_dma_device *dev);
+  * Reset and halt all channels related to given DMA client
+  */
+ extern void ltq_dma_reset(struct ltq_dma_device *dev);
++extern void ltq_dma_enable(struct ltq_dma_device *dev);
++extern void ltq_dma_disable(struct ltq_dma_device *dev);
+ 
+ /**
+  * Map RX DMA descriptor to memory region
+  *
+  * @returns 0 on success, negative value otherwise
+  */
+-extern int ltq_dma_map_rx(struct ltq_dma_device *dev, int index,
++extern int ltq_dma_read(struct ltq_dma_device *dev, int index,
+ 				void *data, int len);
+ 
+ /**
+- * Start RX transfer
+- *
+- * @returns 0 on success, negative value otherwise
+- */
+-extern int ltq_dma_read(struct ltq_dma_device *dev, int index);
+-
+-/**
+  * Check if new data is available.
+  *
+  * @returns length of received data, 0 otherwise
+@@ -83,14 +85,10 @@ extern int ltq_dma_read_poll(struct ltq_dma_device *dev, int index);
+  *
+  * @returns 0 on success, negative value otherwise
+  */
+-extern int ltq_dma_map_tx(struct ltq_dma_device *dev, int index,
+-			   void *data, int len);
++extern int ltq_dma_write(struct ltq_dma_device *dev, int index,
++			   void *data, int len, unsigned long timeout);
+ 
+-/**
+- * Start TX transfer
+- *
+- * @returns 0 on success, negative value otherwise
+- */
+-extern int ltq_dma_write(struct ltq_dma_device *dev, int index);
++extern int ltq_dma_write_wait(struct ltq_dma_device *dev, int index,
++				unsigned long timeout);
+ 
+ #endif /* __LANTIQ_DMA_H__ */
+diff --git a/arch/mips/include/asm/mipsregs.h b/arch/mips/include/asm/mipsregs.h
+index 07a3cf6051f15c5fbfd73cb2df16d0eac5b1b9c4..b3bc2556d55889b2ba5bad590e3d4807aca56f3b 100644
+--- a/arch/mips/include/asm/mipsregs.h
++++ b/arch/mips/include/asm/mipsregs.h
+@@ -46,7 +46,10 @@
+ #define CP0_ENTRYLO1 $3
+ #define CP0_CONF $3
+ #define CP0_CONTEXT $4
++#define CP0_CONTEXTCONFIG $4,1
++#define CP0_USERLOCAL $4,1
+ #define CP0_PAGEMASK $5
++#define CP0_PAGEGRAIN $5,1
+ #define CP0_WIRED $6
+ #define CP0_INFO $7
+ #define CP0_BADVADDR $8
+@@ -54,10 +57,19 @@
+ #define CP0_ENTRYHI $10
+ #define CP0_COMPARE $11
+ #define CP0_STATUS $12
++#define CP0_INTCTL $12,1
++#define CP0_SRSCTL $12,2
++#define CP0_SRSMAP $12,3
++#define CP0_SRSHIGH $12,4
+ #define CP0_CAUSE $13
+ #define CP0_EPC $14
+ #define CP0_PRID $15
++#define CP0_EBASE $15,1
+ #define CP0_CONFIG $16
++#define CP0_CONFIG1 $16,1
++#define CP0_CONFIG2 $16,2
++#define CP0_CONFIG3 $16,3
++#define CP0_CONFIG7 $16,7
+ #define CP0_LLADDR $17
+ #define CP0_WATCHLO $18
+ #define CP0_WATCHHI $19
+@@ -70,7 +82,17 @@
+ #define CP0_ECC $26
+ #define CP0_CACHEERR $27
+ #define CP0_TAGLO $28
++#define CP0_ITAGLO $28
++#define CP0_IDATALO $28,1
++#define CP0_DTAGLO $28,2
++#define CP0_DDATALO $28,3
++#define CP0_L23TAGLO $28,4
++#define CP0_L23DATALO $28,5
+ #define CP0_TAGHI $29
++#define CP0_IDATAHI $29,1
++#define CP0_DTAGHI $29,2
++#define CP0_L23TAGHI $29,4
++#define CP0_L23DATAHI $29,5
+ #define CP0_ERROREPC $30
+ #define CP0_DESAVE $31
+ 
+@@ -89,20 +111,6 @@
+ #define CP0_DWATCH $19
+ 
+ /*
+- * Additional Coprocessor 0 register names.
+- * These registers are listed for completeness and are intended
+- * for usage in assembly code.
+- */
+-#define CP0_EBASE	$15,1
+-/* L1 I-Cache */
+-#define CP0_ITAGLO	$28
+-#define CP0_IDATALO	$28,1
+-#define CP0_IDATAHI	$29,1
+-/* L1 D-Cache */
+-#define CP0_DTAGLO	$28,2
+-#define CP0_DDATALO	$28,3
+-
+-/*
+  * Coprocessor 0 Set 1 register names
+  */
+ #define CP0_S1_DERRADDR0  $26
+diff --git a/arch/mips/lib/spl_lantiq.c b/arch/mips/lib/spl_lantiq.c
+index 24fc164c5a12aeca74e3ab5c3487a03260b4bfd2..d8df84438a3276e9601671b5c6c06678eb68368e 100644
+--- a/arch/mips/lib/spl_lantiq.c
++++ b/arch/mips/lib/spl_lantiq.c
+@@ -11,6 +11,7 @@
+ #include <linux/compiler.h>
+ #include <lzma/LzmaDec.h>
+ #include <linux/lzo.h>
++#include <asm/mipsregs.h>
+ 
+ #ifdef CONFIG_LTQ_SPL_DEBUG
+ #define spl_has_console		1
+@@ -45,11 +46,14 @@
+ #define spl_has_lzo		0
+ #endif
+ 
++#define spl_sync()	__asm__ __volatile__("sync");
++
+ struct spl_image {
+ 	ulong data_addr;
+ 	ulong load_addr;
+ 	ulong entry_addr;
+-	size_t size;
++	size_t data_size;
++	size_t load_size;
+ 	u8 comp;
+ };
+ 
+@@ -86,7 +90,8 @@ static int spl_parse_image(const image_header_t *hdr, struct spl_image *spl)
+ 
+ 	spl->data_addr += image_get_header_size();
+ 	spl->entry_addr = image_get_load(hdr);
+-	spl->size = image_get_data_size(hdr);
++	spl->data_size = image_get_data_size(hdr);
++	spl->load_size = spl->data_size;
+ 	spl->comp = image_get_comp(hdr);
+ 
+ 	if (spl->comp == IH_COMP_NONE)
+@@ -115,23 +120,28 @@ static int spl_load_spi_flash(struct spl_image *spl)
+ 	spl->data_addr = (ulong) &__image_copy_end - CONFIG_SPL_TEXT_BASE + 24;
+ 
+ 	spl_debug("SPL: probing SPI flash\n");
++
+ 	spi_init();
+ 	ret = spi_flash_probe_spl(&sf, CONFIG_SPL_SPI_BUS, CONFIG_SPL_SPI_CS,
+ 				CONFIG_SPL_SPI_MAX_HZ, CONFIG_SPL_SPI_MODE);
+ 	if (ret)
+ 		return ret;
+ 
+-	spl_debug("SPL: checking image header at offset %lx\n", spl->data_addr);
++	spl_debug("SPL: reading image header at offset %lx\n", spl->data_addr);
++
+ 	ret = spi_flash_read(&sf, spl->data_addr, sizeof(hdr), &hdr);
+ 	if (ret)
+ 		return ret;
+ 
++	spl_debug("SPL: checking image header at offset %lx\n", spl->data_addr);
++
+ 	ret = spl_parse_image(&hdr, spl);
+ 	if (ret)
+ 		return ret;
+ 
+ 	spl_debug("SPL: loading U-Boot to RAM at %08lx\n", spl->load_addr);
+-	ret = spi_flash_read(&sf, spl->data_addr, spl->size,
++
++	ret = spi_flash_read(&sf, spl->data_addr, spl->data_size,
+ 				(void *) spl->load_addr);
+ 
+ 	return ret;
+@@ -150,16 +160,18 @@ static int spl_load_nor_flash(struct spl_image *spl)
+ 	 * - U-Boot binary
+ 	 */
+ 	spl->data_addr = (ulong) &__image_copy_end;
+-
+ 	hdr = (const image_header_t *) &__image_copy_end;
++
+ 	spl_debug("SPL: checking image header at address %p\n", hdr);
++
+ 	ret = spl_parse_image(hdr, spl);
+ 	if (ret)
+ 		return ret;
+ 
+ 	spl_debug("SPL: loading U-Boot to RAM at %08lx\n", spl->load_addr);
++
+ 	memcpy((void *) spl->load_addr, (const void *) spl->data_addr,
+-		spl->size);
++		spl->data_size);
+ 
+ 	return 0;
+ }
+@@ -196,7 +208,7 @@ static void spl_lzma_free(void *p, void *addr)
+ {
+ }
+ 
+-static int spl_uncompress_lzma(const struct spl_image *spl)
++static int spl_uncompress_lzma(struct spl_image *spl)
+ {
+ 	SRes res;
+ 	const Byte *prop = (const Byte *) spl->load_addr;
+@@ -204,7 +216,7 @@ static int spl_uncompress_lzma(const struct spl_image *spl)
+ 							sizeof(uint64_t);
+ 	Byte *dest = (Byte *) spl->entry_addr;
+ 	SizeT dest_len = 0xFFFFFFFF;
+-	SizeT src_len = spl->size - LZMA_PROPS_SIZE;
++	SizeT src_len = spl->data_size - LZMA_PROPS_SIZE;
+ 	ELzmaStatus status = 0;
+ 	ISzAlloc alloc;
+ 
+@@ -214,31 +226,30 @@ static int spl_uncompress_lzma(const struct spl_image *spl)
+ 	spl_mem_size = CONFIG_SPL_MALLOC_SIZE;
+ 
+ 	res = LzmaDecode(dest, &dest_len, src, &src_len, prop, LZMA_PROPS_SIZE,
+-				LZMA_FINISH_ANY, &status, &alloc);
++		LZMA_FINISH_ANY, &status, &alloc);
+ 	if (res != SZ_OK)
+ 		return -1;
+ 
++	spl->load_size = dest_len;
++
+ 	return 0;
+ }
+ 
+-static int spl_uncompress_lzo(const struct spl_image *spl)
++static int spl_uncompress_lzo(struct spl_image *spl)
+ {
+ 	size_t len;
+ 	int ret;
+ 
+ 	ret = lzop_decompress(
+-			(const unsigned char*) spl->load_addr, spl->size,
+-			(unsigned char *) spl->entry_addr, &len);
++		(const unsigned char*) spl->load_addr, spl->data_size,
++		(unsigned char *) spl->entry_addr, &len);
+ 
+-	if (ret)
+-		return ret;
+-
+-	flush_cache(spl->entry_addr, len);
++	spl->load_size = len;
+ 
+ 	return 0;
+ }
+ 
+-static int spl_uncompress(const struct spl_image *spl)
++static int spl_uncompress(struct spl_image *spl)
+ {
+ 	int ret;
+ 
+@@ -271,6 +282,17 @@ void __noreturn spl_lantiq_init(void)
+ 
+ 	spl_debug("SPL: initializing\n");
+ 
++#if 0
++	spl_debug("CP0_CONFIG:   %08x\n", read_c0_config());
++	spl_debug("CP0_CONFIG1:  %08x\n", read_c0_config1());
++	spl_debug("CP0_CONFIG2:  %08x\n", read_c0_config2());
++	spl_debug("CP0_CONFIG3:  %08x\n", read_c0_config3());
++	spl_debug("CP0_CONFIG6:  %08x\n", read_c0_config6());
++	spl_debug("CP0_CONFIG7:  %08x\n", read_c0_config7());
++	spl_debug("CP0_STATUS:   %08x\n", read_c0_status());
++	spl_debug("CP0_PRID:     %08x\n", read_c0_prid());
++#endif
++
+ 	board_early_init_f();
+ 	timer_init();
+ 
+@@ -282,7 +304,10 @@ void __noreturn spl_lantiq_init(void)
+ 	if (ret)
+ 		goto hang;
+ 
+-	spl_debug("SPL: starting U-Boot\n\n\n\n\n\n");
++	spl_debug("SPL: starting U-Boot at %08lx\n", spl.entry_addr);
++
++	flush_cache(spl.entry_addr, spl.load_size);
++	spl_sync();
+ 
+ 	uboot = (void *) spl.entry_addr;
+ 	uboot();
+diff --git a/drivers/dma/lantiq_dma.c b/drivers/dma/lantiq_dma.c
+index abda77336ae72f16525b0eaa5dfa27cb62c421c3..6a40a175c21cf6d62c962bbedf9d0b8f92367c9e 100644
+--- a/drivers/dma/lantiq_dma.c
++++ b/drivers/dma/lantiq_dma.c
+@@ -2,71 +2,62 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ * Copyright (C) 2011-2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+ #include <malloc.h>
+-#include <linux/list.h>
++#include <watchdog.h>
++#include <linux/compiler.h>
+ #include <asm/lantiq/io.h>
+ #include <asm/lantiq/dma.h>
+ #include <asm/lantiq/pm.h>
+ #include <asm/lantiq/reset.h>
+ #include <asm/arch/soc.h>
+-
+-#define LTQ_DNA_CTRL_RESET		(1 << 0)
+-
+-#define LTQ_DMA_CPOLL_EN		(1 << 31)
+-#define LTQ_DMA_CPOLL_CNT_SHIFT	4
+-#define LTQ_DMA_CPOLL_CNT_MASK		(0xFFF << LTQ_DMA_CPOLL_CNT_SHIFT)
+-
+-#define LTQ_DMA_CCTRL_TXWGT_SHIFT	16
+-#define LTQ_DMA_CCTRL_TXWGT_MASK	(0x3 << LTQ_DMA_CCTRL_TXWGT_SHIFT)
+-#define LTQ_DMA_CCTRL_CLASS_SHIFT	9
+-#define LTQ_DMA_CCTRL_CLASS_MASK	(0x3 << LTQ_DMA_CCTRL_CLASS_SHIFT)
+-#define LTQ_DMA_CCTRL_RST		(1 << 1)
+-#define LTQ_DMA_CCTRL_ONOFF		(1 << 0)
+-
+-#define LTQ_DMA_CDBA_CDBA_MASK		0x0FFFFFF8
+-
+-#define LTQ_DMA_PCTRL_DEFAULT		0x1068
+-#define LTQ_DMA_PCTR_TXENDI_SHIFT	10
+-#define LTQ_DMA_PCTR_TXENDI_MASK	(0x3 << LTQ_DMA_PCTR_TXENDI_SHIFT)
+-#define LTQ_DMA_PCTR_RXENDI_SHIFT	8
+-#define LTQ_DMA_PCTR_RXENDI_MASK	(0x3 << LTQ_DMA_PCTR_RXENDI_SHIFT)
+-
+-#define LTQ_DMA_DESCRIPTOR_SIZE		8	/* bytes */
+-#define LTQ_DMA_DESCRIPTOR_COUNT	32
+-#define LTQ_DMA_DESCRIPTOR_ALIGN	8	/* bytes */
+-#define LTQ_DMA_DESCRIPTOR_DATA_MASK	0x0FFFFFF0
+-
+-enum ltq_dma_desc_owner {
+-	LTQ_DMA_DESC_OWNER_CPU = 0,
+-	LTQ_DMA_DESC_OWNER_DMA = 1,
+-};
+-
+-struct ltq_dma_rx_desc {
+-	unsigned own:1;
+-	unsigned c:1;
+-	unsigned sop:1;
+-	unsigned eop:1;
+-	unsigned res1:3;
+-	unsigned byte_offset:2;
+-	unsigned res2:7;
+-	unsigned data_length:16;
+-	unsigned data_pointer:32;
+-};
+-
+-struct ltq_dma_tx_desc {
+-	unsigned own:1;
+-	unsigned c:1;
+-	unsigned sop:1;
+-	unsigned eop:1;
+-	unsigned byte_offset:5;
+-	unsigned res1:7;
+-	unsigned data_length:16;
+-	unsigned data_pointer:32;
+-};
++#include <asm/processor.h>
++
++#define DNA_CTRL_PKTARB			(1 << 31)
++#define DNA_CTRL_MBRSTARB		(1 << 30)
++#define DNA_CTRL_MBRSTCNT_SHIFT		16
++#define DNA_CTRL_MBRSTCNT_MASK		(0x3ff << DNA_CTRL_MBRSTCNT_SHIFT)
++#define DNA_CTRL_DRB			(1 << 8)
++#define DNA_CTRL_RESET			(1 << 0)
++
++#define DMA_CPOLL_EN			(1 << 31)
++#define DMA_CPOLL_CNT_SHIFT		4
++#define DMA_CPOLL_CNT_MASK		(0xFFF << DMA_CPOLL_CNT_SHIFT)
++
++#define DMA_CCTRL_TXWGT_SHIFT		16
++#define DMA_CCTRL_TXWGT_MASK		(0x3 << DMA_CCTRL_TXWGT_SHIFT)
++#define DMA_CCTRL_CLASS_SHIFT		9
++#define DMA_CCTRL_CLASS_MASK		(0x3 << DMA_CCTRL_CLASS_SHIFT)
++#define DMA_CCTRL_RST			(1 << 1)
++#define DMA_CCTRL_ONOFF			(1 << 0)
++
++#define DMA_PCTRL_TXBL_SHIFT		4
++#define DMA_PCTRL_TXBL_2WORDS		(1 << DMA_PCTRL_TXBL_SHIFT)
++#define DMA_PCTRL_TXBL_4WORDS		(2 << DMA_PCTRL_TXBL_SHIFT)
++#define DMA_PCTRL_TXBL_8WORDS		(3 << DMA_PCTRL_TXBL_SHIFT)
++#define DMA_PCTRL_RXBL_SHIFT		2
++#define DMA_PCTRL_RXBL_2WORDS		(1 << DMA_PCTRL_RXBL_SHIFT)
++#define DMA_PCTRL_RXBL_4WORDS		(2 << DMA_PCTRL_RXBL_SHIFT)
++#define DMA_PCTRL_RXBL_8WORDS		(3 << DMA_PCTRL_RXBL_SHIFT)
++#define DMA_PCTRL_TXENDI_SHIFT		10
++#define DMA_PCTRL_TXENDI_MASK		(0x3 << DMA_PCTRL_TXENDI_SHIFT)
++#define DMA_PCTRL_RXENDI_SHIFT		8
++#define DMA_PCTRL_RXENDI_MASK		(0x3 << DMA_PCTRL_RXENDI_SHIFT)
++
++#define DMA_DESCRIPTOR_SIZE		8	/* bytes */
++#define DMA_DESCRIPTOR_ALIGN		8	/* bytes */
++#define DMA_DESC_POOL_SIZE		32
++
++#define DMA_DESC_OWN			(1 << 31)
++#define DMA_DESC_C			(1 << 30)
++#define DMA_DESC_SOP			(1 << 29)
++#define DMA_DESC_EOP			(1 << 28)
++#define DMA_DESC_TX_OFFSET(x)		((x & 0x1f) << 23)
++#define DMA_DESC_RX_OFFSET(x)		((x & 0x3) << 23)
++#define DMA_DESC_LENGTH(x)		(x & 0xffff)
+ 
+ struct ltq_dma_regs {
+ 	u32	clc;		/* Clock control */
+@@ -92,115 +83,178 @@ struct ltq_dma_regs {
+ 	u32	irnicr;		/* Interrupt capture */
+ };
+ 
+-static struct list_head ltq_dma_devs;
+-
+ static struct ltq_dma_regs *ltq_dma_regs =
+ 	(struct ltq_dma_regs *) CKSEG1ADDR(LTQ_DMA_BASE);
+ 
++static inline unsigned long ltq_dma_addr_to_virt(u32 dma_addr)
++{
++	return KSEG0ADDR(dma_addr);
++}
++
++static inline u32 ltq_virt_to_dma_addr(void *addr)
++{
++	return CPHYSADDR(addr);
++}
++
++static inline int ltq_dma_burst_align(enum ltq_dma_burst_len burst_len)
++{
++	switch (burst_len) {
++	case LTQ_DMA_BURST_2WORDS:
++		return 2 * 4;
++	case LTQ_DMA_BURST_4WORDS:
++		return 4 * 4;
++	case LTQ_DMA_BURST_8WORDS:
++		return 8 * 4;
++	}
++
++	return 0;
++}
++
++static inline void ltq_dma_sync(void)
++{
++	__asm__ __volatile__("sync");
++}
++
++static inline void ltq_dma_dcache_wb_inv(const void *ptr, size_t size)
++{
++	unsigned long addr = (unsigned long) ptr;
++
++	flush_dcache_range(addr, addr + size);
++	ltq_dma_sync();
++}
++
++static inline void ltq_dma_dcache_inv(const void *ptr, size_t size)
++{
++	unsigned long addr = (unsigned long) ptr;
++
++	invalidate_dcache_range(addr, addr + size);
++	ltq_dma_sync();
++}
++
+ void ltq_dma_init(void)
+ {
+ 	/* Power up DMA */
+ 	ltq_pm_enable(LTQ_PM_DMA);
+ 
+ 	/* Reset DMA */
+-	ltq_reset_once(LTQ_RESET_DMA, 1);
++	ltq_setbits(&ltq_dma_regs->ctrl, DNA_CTRL_RESET);
+ 
+ 	/* Disable and clear all interrupts */
+ 	ltq_writel(&ltq_dma_regs->irnen, 0);
+ 	ltq_writel(&ltq_dma_regs->irncr, 0xFFFFF);
+ 
+-	/* Enable polling for descriptor fetching for all channels */
+-	ltq_writel(&ltq_dma_regs->cpoll, LTQ_DMA_CPOLL_EN |
+-		    (4 << LTQ_DMA_CPOLL_CNT_SHIFT));
++#if 0
++	/* Enable packet arbitration */
++	ltq_setbits(&ltq_dma_regs->ctrl, DNA_CTRL_PKTARB);
++#endif
++
++#if 0
++	/* Enable descriptor read back */
++	ltq_setbits(&ltq_dma_regs->ctrl, DNA_CTRL_DRB);
++#endif
+ 
+-	INIT_LIST_HEAD(&ltq_dma_devs);
++	/* Enable polling for descriptor fetching for all channels */
++	ltq_writel(&ltq_dma_regs->cpoll, DMA_CPOLL_EN |
++		(4 << DMA_CPOLL_CNT_SHIFT));
+ }
+ 
+ static void ltq_dma_channel_reset(struct ltq_dma_channel *chan)
+ {
+ 	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
+-	ltq_setbits(&ltq_dma_regs->cctrl, LTQ_DMA_CCTRL_RST);
++	ltq_setbits(&ltq_dma_regs->cctrl, DMA_CCTRL_RST);
++	wmb();
+ 
+-	memset(chan->mem_base, 0, chan->mem_size);
++	while (ltq_readl(&ltq_dma_regs->cctrl) & DMA_CCTRL_RST)
++		cpu_relax();
+ }
+ 
+ static void ltq_dma_channel_enable(struct ltq_dma_channel *chan)
+ {
+ 	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
+-	ltq_setbits(&ltq_dma_regs->cctrl, LTQ_DMA_CCTRL_ONOFF);
++	ltq_setbits(&ltq_dma_regs->cctrl, DMA_CCTRL_ONOFF);
+ }
+ 
+-static void ltq_dma_port_init(struct ltq_dma_device *dev)
++static void ltq_dma_channel_disable(struct ltq_dma_channel *chan)
+ {
+-	u32 data;
+-
+-	data = LTQ_DMA_PCTRL_DEFAULT;
+-	data |= dev->rx_endian_swap << LTQ_DMA_PCTR_RXENDI_SHIFT;
+-	data |= dev->tx_endian_swap << LTQ_DMA_PCTR_TXENDI_SHIFT;
++	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
++	ltq_clrbits(&ltq_dma_regs->cctrl, DMA_CCTRL_ONOFF);
++	wmb();
+ 
+-	ltq_writel(&ltq_dma_regs->ps, dev->port);
+-	ltq_writel(&ltq_dma_regs->pctrl, data);
++	while (ltq_readl(&ltq_dma_regs->cctrl) & DMA_CCTRL_ONOFF)
++		cpu_relax();
+ }
+ 
+-struct ltq_dma_device *ltq_dma_alloc(void)
++static void ltq_dma_port_init(struct ltq_dma_device *dev)
+ {
+-	struct ltq_dma_device *dev;
+-
+-	dev = calloc(1, sizeof(*dev));
+-	if (!dev)
+-		return NULL;
++	u32 pctrl;
+ 
+-	INIT_LIST_HEAD(&dev->list);
++	pctrl = dev->tx_endian_swap << DMA_PCTRL_TXENDI_SHIFT;
++	pctrl |= dev->rx_endian_swap << DMA_PCTRL_RXENDI_SHIFT;
++	pctrl |= dev->tx_burst_len << DMA_PCTRL_TXBL_SHIFT;
++	pctrl |= dev->rx_burst_len << DMA_PCTRL_RXBL_SHIFT;
+ 
+-	return dev;
++	ltq_writel(&ltq_dma_regs->ps, dev->port);
++	ltq_writel(&ltq_dma_regs->pctrl, pctrl);
+ }
+ 
+-static int ltq_dma_alloc_descriptors(struct ltq_dma_channel *chan)
++static int ltq_dma_alloc_descriptors(struct ltq_dma_device *dev,
++					struct ltq_dma_channel *chan)
+ {
+-	void *mem_base, *desc_base;
+-	size_t size;
+-
+-	size = LTQ_DMA_DESCRIPTOR_SIZE * chan->num_desc +
+-		LTQ_DMA_DESCRIPTOR_ALIGN;
++	size_t size = DMA_DESCRIPTOR_SIZE * chan->num_desc;
+ 
+-	mem_base = calloc(1, size);
+-	if (!mem_base)
++	chan->mem_base = memalign(DMA_DESCRIPTOR_ALIGN, size);
++	if (!chan->mem_base)
+ 		return 1;
+ 
++	memset(chan->mem_base, 0, size);
++	ltq_dma_dcache_wb_inv(chan->mem_base, size);
++
+ 	/* Align descriptor base to 8 bytes */
+-	desc_base = mem_base + (LTQ_DMA_DESCRIPTOR_ALIGN - 1);
+-	desc_base -= (u32) desc_base % LTQ_DMA_DESCRIPTOR_ALIGN;
++	chan->desc_base = (void *) CKSEG1ADDR(chan->mem_base);
++	chan->dma_addr = CPHYSADDR(chan->mem_base);
++	chan->dev = dev;
+ 
+-	chan->mem_size = size;
+-	chan->mem_base = mem_base;
+-	chan->desc_base = (void *) CKSEG1ADDR(desc_base);
++	debug("DMA: desc_base %p, size %u\n", chan->desc_base, size);
+ 
+ 	/* Configure hardware with location of descriptor list */
+ 	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
+-	ltq_writel(&ltq_dma_regs->cdba, (u32) chan->desc_base &
+-			LTQ_DMA_CDBA_CDBA_MASK);
++
++	ltq_writel(&ltq_dma_regs->cctrl, DMA_CCTRL_RST);
++	wmb();
++	ltq_writel(&ltq_dma_regs->cdba, chan->dma_addr);
+ 	ltq_writel(&ltq_dma_regs->cdlen, chan->num_desc);
++	ltq_writel(&ltq_dma_regs->cctrl, (3 << DMA_CCTRL_TXWGT_SHIFT) |
++		(chan->class << DMA_CCTRL_CLASS_SHIFT));
+ 
+ 	return 0;
+ }
+ 
++static void ltq_dma_free_descriptors(struct ltq_dma_channel *chan)
++{
++	ltq_writel(&ltq_dma_regs->cs, chan->chan_no);
++	ltq_writel(&ltq_dma_regs->cdba, 0);
++	ltq_writel(&ltq_dma_regs->cdlen, 0);
++
++	ltq_dma_channel_reset(chan);
++
++	free(chan->mem_base);
++}
++
+ int ltq_dma_register(struct ltq_dma_device *dev)
+ {
+ 	int ret;
+ 
+-	ltq_dma_channel_reset(&dev->rx_chan);
+-	ltq_dma_channel_reset(&dev->tx_chan);
+ 	ltq_dma_port_init(dev);
+ 
+-	ret = ltq_dma_alloc_descriptors(&dev->rx_chan);
++	ret = ltq_dma_alloc_descriptors(dev, &dev->rx_chan);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = ltq_dma_alloc_descriptors(&dev->tx_chan);
+-	if (ret)
++	ret = ltq_dma_alloc_descriptors(dev, &dev->tx_chan);
++	if (ret) {
++		ltq_dma_free_descriptors(&dev->rx_chan);
+ 		return ret;
+-
+-	list_add_tail(&dev->list, &ltq_dma_devs);
++	}
+ 
+ 	return 0;
+ }
+@@ -211,80 +265,127 @@ void ltq_dma_reset(struct ltq_dma_device *dev)
+ 	ltq_dma_channel_reset(&dev->tx_chan);
+ }
+ 
+-int ltq_dma_map_rx(struct ltq_dma_device *dev, int index, void *data, int len)
++void ltq_dma_enable(struct ltq_dma_device *dev)
+ {
+-	struct ltq_dma_rx_desc *rx_desc_base = dev->rx_chan.desc_base;
+-	struct ltq_dma_rx_desc *rx_desc = &rx_desc_base[index];
+-
+-	rx_desc->own = LTQ_DMA_DESC_OWNER_CPU;
+-	rx_desc->sop = 0;
+-	rx_desc->eop = 0;
+-	rx_desc->byte_offset = 0;
+-	rx_desc->data_pointer = (u32) data & LTQ_DMA_DESCRIPTOR_DATA_MASK;
+-	rx_desc->data_length = len;
++	ltq_dma_channel_enable(&dev->rx_chan);
++	ltq_dma_channel_enable(&dev->tx_chan);
++}
+ 
+-	return 0;
++void ltq_dma_disable(struct ltq_dma_device *dev)
++{
++	ltq_dma_channel_disable(&dev->rx_chan);
++	ltq_dma_channel_disable(&dev->tx_chan);
+ }
+ 
+-int ltq_dma_read(struct ltq_dma_device *dev, int index)
++int ltq_dma_read(struct ltq_dma_device *dev, int index, void *data, int len)
+ {
+-	struct ltq_dma_rx_desc *rx_desc_base = dev->rx_chan.desc_base;
+-	struct ltq_dma_rx_desc *rx_desc = &rx_desc_base[index];
++	struct ltq_dma_channel *chan = &dev->rx_chan;
++	struct ltq_dma_desc *desc = &chan->desc_base[index];
++	u32 dma_addr = ltq_virt_to_dma_addr(data);
++	unsigned int offset;
+ 
+-	if (rx_desc->own == LTQ_DMA_DESC_OWNER_DMA)
+-		return 1;
++	offset = dma_addr % ltq_dma_burst_align(dev->rx_burst_len);
+ 
+-	ltq_dma_channel_enable(&dev->rx_chan);
++	ltq_dma_dcache_inv(data, len);
++
++#if 0
++	printf("%s: index %d, data %p, dma_addr %08x, offset %u, len %d\n",
++		__func__, index, data, dma_addr, offset, len);
++#endif
++
++
++	desc->addr = dma_addr - offset;
++	desc->ctl = DMA_DESC_OWN | DMA_DESC_RX_OFFSET(offset) |
++			DMA_DESC_LENGTH(len);
++	wmb();
+ 
+-	rx_desc->c = 0;
+-	rx_desc->own = LTQ_DMA_DESC_OWNER_DMA;
++#if 0
++	printf("%s: index %d, desc %p, desc->ctl %08x\n",
++		__func__, index, desc, desc->ctl);
++#endif
+ 
+ 	return 0;
+ }
+ 
+ int ltq_dma_read_poll(struct ltq_dma_device *dev, int index)
+ {
+-	struct ltq_dma_rx_desc *rx_desc_base = dev->rx_chan.desc_base;
+-	struct ltq_dma_rx_desc *rx_desc = &rx_desc_base[index];
++	struct ltq_dma_channel *chan = &dev->rx_chan;
++	struct ltq_dma_desc *desc = &chan->desc_base[index];
++	int len;
+ 
+-	if (rx_desc->own == LTQ_DMA_DESC_OWNER_DMA)
+-		return 0;
++#if 0
++	printf("%s: index %d, desc %p, desc->ctl %08x\n",
++		__func__, index, desc, desc->ctl);
++#endif
+ 
+-	if (rx_desc->c)
+-		return rx_desc->data_length;
++	if ((desc->ctl & (DMA_DESC_OWN | DMA_DESC_C)) != DMA_DESC_C)
++		return -1;
+ 
+-	return 0;
+-}
++	rmb();
++	len = DMA_DESC_LENGTH(desc->ctl);
+ 
+-int ltq_dma_map_tx(struct ltq_dma_device *dev, int index, void *data, int len)
+-{
+-	struct ltq_dma_tx_desc *tx_desc_base = dev->tx_chan.desc_base;
+-	struct ltq_dma_tx_desc *tx_desc = &tx_desc_base[index];
++#if 0
++	printf("%s: index %d, len %d\n", __func__, index, len);
++#endif
+ 
+-	if (tx_desc->own == LTQ_DMA_DESC_OWNER_DMA)
+-		return 1;
++	return len;
++}
+ 
+-	tx_desc->sop = 1;
+-	tx_desc->eop = 1;
+-	tx_desc->byte_offset = 0;
+-	tx_desc->data_pointer = (u32) data & LTQ_DMA_DESCRIPTOR_DATA_MASK;
+-	tx_desc->data_length = len;
++int ltq_dma_write(struct ltq_dma_device *dev, int index, void *data, int len,
++			unsigned long timeout)
++{
++	struct ltq_dma_channel *chan = &dev->tx_chan;
++	struct ltq_dma_desc *desc = &chan->desc_base[index];
++	unsigned int offset;
++	unsigned long timebase = get_timer(0);
++	u32 dma_addr = ltq_virt_to_dma_addr(data);
++
++	while (desc->ctl & DMA_DESC_OWN) {
++		WATCHDOG_RESET();
++
++		if (get_timer(timebase) >= timeout) {
++#if 0
++			printf("%s: timeout: index %d, desc %p, desc->ctl %08x\n",
++				__func__, index, desc, desc->ctl);
++#endif
++			return -1;
++		}
++	}
++
++	offset = dma_addr % ltq_dma_burst_align(dev->rx_burst_len);
++
++#if 0
++	printf("%s: index %d, desc %p, data %p, dma_addr %08x, offset %u, len %d\n",
++		__func__, index, desc, data, dma_addr, offset, len);
++#endif
++
++	ltq_dma_dcache_wb_inv(data, len);
++
++	desc->addr = dma_addr - offset;
++	desc->ctl = DMA_DESC_OWN | DMA_DESC_SOP | DMA_DESC_EOP |
++			DMA_DESC_TX_OFFSET(offset) | DMA_DESC_LENGTH(len);
++	wmb();
++#if 0
++	printf("%s: index %d, desc %p, desc->ctl %08x\n",
++		__func__, index, desc, desc->ctl);
++#endif
+ 
+ 	return 0;
+ }
+ 
+-int ltq_dma_write(struct ltq_dma_device *dev, int index)
++int ltq_dma_write_wait(struct ltq_dma_device *dev, int index,
++			unsigned long timeout)
+ {
+-	struct ltq_dma_tx_desc *tx_desc_base = dev->tx_chan.desc_base;
+-	struct ltq_dma_tx_desc *tx_desc = &tx_desc_base[index];
+-
+-	if (tx_desc->own == LTQ_DMA_DESC_OWNER_DMA)
+-		return 1;
++	struct ltq_dma_channel *chan = &dev->tx_chan;
++	struct ltq_dma_desc *desc = &chan->desc_base[index];
++	unsigned long timebase = get_timer(0);
+ 
+-	ltq_dma_channel_enable(&dev->tx_chan);
++	while ((desc->ctl & (DMA_DESC_OWN | DMA_DESC_C)) != DMA_DESC_C) {
++		WATCHDOG_RESET();
+ 
+-	tx_desc->c = 0;
+-	tx_desc->own = LTQ_DMA_DESC_OWNER_DMA;
++		if (get_timer(timebase) >= timeout)
++			return -1;
++	}
+ 
+ 	return 0;
+ }
+diff --git a/drivers/net/lantiq_vrx200_switch.c b/drivers/net/lantiq_vrx200_switch.c
+index dcd22660dc3f2e1c22e8efefc1ae7e2a85966d3e..b6d784be93998166551f7d43f927358d287fe0ab 100644
+--- a/drivers/net/lantiq_vrx200_switch.c
++++ b/drivers/net/lantiq_vrx200_switch.c
+@@ -12,31 +12,21 @@
+ #include <malloc.h>
+ #include <netdev.h>
+ #include <miiphy.h>
++#include <linux/compiler.h>
+ #include <asm/gpio.h>
++#include <asm/processor.h>
+ #include <asm/lantiq/io.h>
+ #include <asm/lantiq/eth.h>
+ #include <asm/lantiq/pm.h>
+ #include <asm/lantiq/reset.h>
+ #include <asm/lantiq/dma.h>
+ #include <asm/arch/soc.h>
+-
+-#define LTQ_ETHSW_MAC_CTRL0_PADEN		(1 << 8)
+-#define LTQ_ETHSW_MAC_CTRL0_FCS			(1 << 7)
+-#define LTQ_ETHSW_MAC_CTRL1_SHORTPRE		(1 << 8)
+-#define LTQ_ETHSW_MAC_CTRL2_MLEN		(1 << 3)
+-#define LTQ_ETHSW_MAC_CTRL2_LCHKL		(1 << 2)
+-#define LTQ_ETHSW_MAC_CTRL2_LCHKS_DIS		0
+-#define LTQ_ETHSW_MAC_CTRL2_LCHKS_UNTAG		1
+-#define LTQ_ETHSW_MAC_CTRL2_LCHKS_TAG		2
+-#define LTQ_ETHSW_MAC_CTRL6_RBUF_DLY_WP_SHIFT	9
+-#define LTQ_ETHSW_MAC_CTRL6_RXBUF_BYPASS	(1 << 6)
+-#define LTQ_ETHSW_GLOB_CTRL_SE			(1 << 15)
+-#define LTQ_ETHSW_MDC_CFG1_MCEN			(1 << 8)
+-#define LTQ_ETHSW_PMAC_HD_CTL_FC		(1 << 10)
+-#define LTQ_ETHSW_PMAC_HD_CTL_RC		(1 << 4)
+-#define LTQ_ETHSW_PMAC_HD_CTL_AC		(1 << 2)
++#include <asm/arch/switch.h>
+ 
+ #define LTQ_ETH_RX_BUFFER_CNT		PKTBUFSRX
++#define LTQ_ETH_TX_BUFFER_CNT		8
++#define LTQ_ETH_RX_DATA_SIZE		PKTSIZE_ALIGN
++#define LTQ_ETH_IP_ALIGN		2
+ 
+ #define LTQ_MDIO_DRV_NAME		"ltq-mdio"
+ #define LTQ_ETH_DRV_NAME		"ltq-eth"
+@@ -44,78 +34,6 @@
+ #define LTQ_ETHSW_MAX_GMAC		6
+ #define LTQ_ETHSW_PMAC			6
+ 
+-struct ltq_ethsw_mac_pdi_x_regs {
+-	u32	pstat;		/* Port status */
+-	u32	pisr;		/* Interrupt status */
+-	u32	pier;		/* Interrupt enable */
+-	u32	ctrl_0;		/* Control 0 */
+-	u32	ctrl_1;		/* Control 1 */
+-	u32	ctrl_2;		/* Control 2 */
+-	u32	ctrl_3;		/* Control 3 */
+-	u32	ctrl_4;		/* Control 4 */
+-	u32	ctrl_5;		/* Control 5 */
+-	u32	ctrl_6;		/* Control 6 */
+-	u32	bufst;		/* TX/RX buffer control */
+-	u32	testen;		/* Test enable */
+-};
+-
+-struct ltq_ethsw_mac_pdi_regs {
+-	struct ltq_ethsw_mac_pdi_x_regs	mac[12];
+-};
+-
+-struct ltq_ethsw_mdio_pdi_regs {
+-	u32	glob_ctrl;	/* Global control 0 */
+-	u32	rsvd0[7];
+-	u32	mdio_ctrl;	/* MDIO control */
+-	u32	mdio_read;	/* MDIO read data */
+-	u32	mdio_write;	/* MDIO write data */
+-	u32	mdc_cfg_0;	/* MDC clock configuration 0 */
+-	u32	mdc_cfg_1;	/* MDC clock configuration 1 */
+-	u32	rsvd[3];
+-	u32	phy_addr_5;	/* PHY address port 5 */
+-	u32	phy_addr_4;	/* PHY address port 4 */
+-	u32	phy_addr_3;	/* PHY address port 3 */
+-	u32	phy_addr_2;	/* PHY address port 2 */
+-	u32	phy_addr_1;	/* PHY address port 1 */
+-	u32	phy_addr_0;	/* PHY address port 0 */
+-	u32	mdio_stat_0;	/* MDIO PHY polling status port 0 */
+-	u32	mdio_stat_1;	/* MDIO PHY polling status port 1 */
+-	u32	mdio_stat_2;	/* MDIO PHY polling status port 2 */
+-	u32	mdio_stat_3;	/* MDIO PHY polling status port 3 */
+-	u32	mdio_stat_4;	/* MDIO PHY polling status port 4 */
+-	u32	mdio_stat_5;	/* MDIO PHY polling status port 5 */
+-};
+-
+-struct ltq_ethsw_mii_pdi_regs {
+-	u32	mii_cfg0;	/* xMII port 0 configuration */
+-	u32	pcdu0;		/* Port 0 clock delay configuration */
+-	u32	mii_cfg1;	/* xMII port 1 configuration */
+-	u32	pcdu1;		/* Port 1 clock delay configuration */
+-	u32	mii_cfg2;	/* xMII port 2 configuration */
+-	u32	rsvd0;
+-	u32	mii_cfg3;	/* xMII port 3 configuration */
+-	u32	rsvd1;
+-	u32	mii_cfg4;	/* xMII port 4 configuration */
+-	u32	rsvd2;
+-	u32	mii_cfg5;	/* xMII port 5 configuration */
+-	u32	pcdu5;		/* Port 5 clock delay configuration */
+-};
+-
+-struct ltq_ethsw_pmac_pdi_regs {
+-	u32	hd_ctl;		/* PMAC header control */
+-	u32	tl;		/* PMAC type/length */
+-	u32	sa1;		/* PMAC source address 1 */
+-	u32	sa2;		/* PMAC source address 2 */
+-	u32	sa3;		/* PMAC source address 3 */
+-	u32	da1;		/* PMAC destination address 1 */
+-	u32	da2;		/* PMAC destination address 2 */
+-	u32	da3;		/* PMAC destination address 3 */
+-	u32	vlan;		/* PMAC VLAN */
+-	u32	rx_ipg;		/* PMAC interpacket gap in RX direction */
+-	u32	st_etype;	/* PMAC special tag ethertype */
+-	u32	ewan;		/* PMAC ethernet WAN group */
+-};
+-
+ struct ltq_mdio_phy_addr_reg {
+ 	union {
+ 		struct {
+@@ -191,164 +109,87 @@ enum ltq_mii_mii_cfg_miimode {
+ };
+ 
+ struct ltq_eth_priv {
+-	struct ltq_dma_device *dma_dev;
++	struct ltq_dma_device dma_dev;
+ 	struct mii_dev *bus;
+ 	struct eth_device *dev;
+ 	struct phy_device *phymap[LTQ_ETHSW_MAX_GMAC];
+ 	int rx_num;
++	int tx_num;
+ };
+ 
+-enum ltq_mdio_mbusy {
+-	LTQ_MDIO_MBUSY_IDLE = 0,
+-	LTQ_MDIO_MBUSY_BUSY = 1,
+-};
++static struct vr9_switch_regs *switch_regs =
++	(struct vr9_switch_regs *) CKSEG1ADDR(LTQ_SWITCH_BASE);
+ 
+-enum ltq_mdio_op {
+-	LTQ_MDIO_OP_WRITE = 1,
+-	LTQ_MDIO_OP_READ = 2,
+-};
+-
+-struct ltq_mdio_access {
+-	union {
+-		struct {
+-			unsigned rsvd:3;
+-			unsigned mbusy:1;
+-			unsigned op:2;
+-			unsigned phyad:5;
+-			unsigned regad:5;
+-		} bits;
+-		u16 val;
+-	};
+-};
+-
+-static struct ltq_ethsw_mac_pdi_regs *ltq_ethsw_mac_pdi_regs =
+-	(struct ltq_ethsw_mac_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_MAC_PDI_0_BASE);
+-
+-static struct ltq_ethsw_mdio_pdi_regs *ltq_ethsw_mdio_pdi_regs =
+-	(struct ltq_ethsw_mdio_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_MDIO_PDI_BASE);
+-
+-static struct ltq_ethsw_mii_pdi_regs *ltq_ethsw_mii_pdi_regs =
+-	(struct ltq_ethsw_mii_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_MII_PDI_BASE);
+-
+-static struct ltq_ethsw_pmac_pdi_regs *ltq_ethsw_pmac_pdi_regs =
+-	(struct ltq_ethsw_pmac_pdi_regs *) CKSEG1ADDR(LTQ_SWITCH_PMAC_PDI_BASE);
+-
+-static inline int ltq_mdio_poll(struct mii_dev *bus)
++static inline void vr9_switch_sync(void)
+ {
+-	struct ltq_mdio_access acc;
+-	unsigned cnt = 10000;
+-
+-	while (likely(cnt--)) {
+-		acc.val = ltq_readl(&ltq_ethsw_mdio_pdi_regs->mdio_ctrl);
+-		if (!acc.bits.mbusy)
+-			return 0;
+-	}
+-
+-	return 1;
++	__asm__("sync");
+ }
+ 
+-static int ltq_mdio_read(struct mii_dev *bus, int addr, int dev_addr,
+-				int regnum)
++static inline int vr9_switch_mdio_is_busy(void)
+ {
+-	struct ltq_mdio_access acc;
+-	int ret;
+-
+-	acc.val = 0;
+-	acc.bits.mbusy = LTQ_MDIO_MBUSY_BUSY;
+-	acc.bits.op = LTQ_MDIO_OP_READ;
+-	acc.bits.phyad = addr;
+-	acc.bits.regad = regnum;
++	u32 mdio_ctrl = ltq_readl(&switch_regs->mdio.mdio_ctrl);
+ 
+-	ret = ltq_mdio_poll(bus);
+-	if (ret)
+-		goto timeout;
++	return mdio_ctrl & MDIO_CTRL_MBUSY;
++}
+ 
+-	ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdio_ctrl, acc.val);
++static inline void vr9_switch_mdio_poll(void)
++{
++	while (vr9_switch_mdio_is_busy())
++		cpu_relax();
++}
+ 
+-	ret = ltq_mdio_poll(bus);
+-	if (ret)
+-		goto timeout;
++static int vr9_switch_mdio_read(struct mii_dev *bus, int phyad, int devad,
++					int regad)
++{
++	u32 mdio_ctrl;
++	int retval;
+ 
+-	ret = ltq_readl(&ltq_ethsw_mdio_pdi_regs->mdio_read);
++	mdio_ctrl = MDIO_CTRL_OP_READ |
++		((phyad << MDIO_CTRL_PHYAD_SHIFT) & MDIO_CTRL_PHYAD_MASK) |
++		(regad & MDIO_CTRL_REGAD_MASK);
+ 
+-	return ret;
++	vr9_switch_mdio_poll();
++	ltq_writel(&switch_regs->mdio.mdio_ctrl, mdio_ctrl);
++	vr9_switch_mdio_poll();
++	retval = ltq_readl(&switch_regs->mdio.mdio_read);
+ 
+-timeout:
+-	return -1;
++	return retval;
+ }
+ 
+-static int ltq_mdio_write(struct mii_dev *bus, int addr, int dev_addr,
+-				int regnum, u16 val)
++static int vr9_switch_mdio_write(struct mii_dev *bus, int phyad, int devad,
++					int regad, u16 val)
+ {
+-	struct ltq_mdio_access acc;
+-	int ret;
++	u32 mdio_ctrl;
+ 
+-	acc.val = 0;
+-	acc.bits.mbusy = LTQ_MDIO_MBUSY_BUSY;
+-	acc.bits.op = LTQ_MDIO_OP_WRITE;
+-	acc.bits.phyad = addr;
+-	acc.bits.regad = regnum;
++	mdio_ctrl = MDIO_CTRL_OP_WRITE |
++		((phyad << MDIO_CTRL_PHYAD_SHIFT) & MDIO_CTRL_PHYAD_MASK) |
++		(regad & MDIO_CTRL_REGAD_MASK);
+ 
+-	ret = ltq_mdio_poll(bus);
+-	if (ret)
+-		return ret;
+-
+-	ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdio_write, val);
+-	ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdio_ctrl, acc.val);
++	vr9_switch_mdio_poll();
++	ltq_writel(&switch_regs->mdio.mdio_write, val);
++	ltq_writel(&switch_regs->mdio.mdio_ctrl, mdio_ctrl);
+ 
+ 	return 0;
+ }
+ 
+-static const void *ltq_eth_phy_addr_reg(int num)
++static void ltq_eth_gmac_update(struct phy_device *phydev, int num)
+ {
+-	switch (num) {
+-	case 0:
+-		return &ltq_ethsw_mdio_pdi_regs->phy_addr_0;
+-	case 1:
+-		return &ltq_ethsw_mdio_pdi_regs->phy_addr_1;
+-	case 2:
+-		return &ltq_ethsw_mdio_pdi_regs->phy_addr_2;
+-	case 3:
+-		return &ltq_ethsw_mdio_pdi_regs->phy_addr_3;
+-	case 4:
+-		return &ltq_ethsw_mdio_pdi_regs->phy_addr_4;
+-	case 5:
+-		return &ltq_ethsw_mdio_pdi_regs->phy_addr_5;
+-	}
++	struct ltq_mdio_phy_addr_reg phy_addr_reg;
++	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
+ 
+-	return NULL;
+-}
++	phy_addr_reg.val = ltq_readl(to_mdio_phyaddr(switch_regs, num));
+ 
+-static const void *ltq_eth_mii_cfg_reg(int num)
+-{
+ 	switch (num) {
+ 	case 0:
+-		return &ltq_ethsw_mii_pdi_regs->mii_cfg0;
+ 	case 1:
+-		return &ltq_ethsw_mii_pdi_regs->mii_cfg1;
+-	case 2:
+-		return &ltq_ethsw_mii_pdi_regs->mii_cfg2;
+-	case 3:
+-		return &ltq_ethsw_mii_pdi_regs->mii_cfg3;
+-	case 4:
+-		return &ltq_ethsw_mii_pdi_regs->mii_cfg4;
+ 	case 5:
+-		return &ltq_ethsw_mii_pdi_regs->mii_cfg5;
++		mii_cfg_reg.val = ltq_readl(to_mii_miicfg(switch_regs, num));
++		break;
++	default:
++		mii_cfg_reg.val = 0;
++		break;
+ 	}
+ 
+-	return NULL;
+-}
+-
+-static void ltq_eth_gmac_update(struct phy_device *phydev, int num)
+-{
+-	struct ltq_mdio_phy_addr_reg phy_addr_reg;
+-	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
+-	const void *phy_addr = ltq_eth_phy_addr_reg(num);
+-	const void *mii_cfg = ltq_eth_mii_cfg_reg(num);
+-
+-	phy_addr_reg.val = ltq_readl(phy_addr);
+-	mii_cfg_reg.val = ltq_readl(mii_cfg);
+-
+ 	phy_addr_reg.bits.addr = phydev->addr;
+ 
+ 	if (phydev->link)
+@@ -384,15 +225,35 @@ static void ltq_eth_gmac_update(struct phy_device *phydev, int num)
+ 	else
+ 		phy_addr_reg.bits.fdup = LTQ_MDIO_PHY_ADDR_FDUP_DISABLE;
+ 
+-	ltq_writel(phy_addr, phy_addr_reg.val);
+-	ltq_writel(mii_cfg, mii_cfg_reg.val);
++	ltq_writel(to_mdio_phyaddr(switch_regs, num), phy_addr_reg.val);
++
++	switch (num) {
++	case 0:
++	case 1:
++	case 5:
++		ltq_writel(to_mii_miicfg(switch_regs, num), mii_cfg_reg.val);
++		break;
++	default:
++		break;
++	}
++}
++
++static inline u8 *ltq_eth_rx_packet_align(int rx_num)
++{
++	u8 *packet = (u8 *) NetRxPackets[rx_num];
++
++	/*
++	 * IP header needs
++	 */
++	return packet + LTQ_ETH_IP_ALIGN;
+ }
+ 
+ static int ltq_eth_init(struct eth_device *dev, bd_t * bis)
+ {
+ 	struct ltq_eth_priv *priv = dev->priv;
++	struct ltq_dma_device *dma_dev = &priv->dma_dev;
+ 	struct phy_device *phydev;
+-	int i, ret;
++	int i;
+ 
+ 	for (i = 0; i < LTQ_ETHSW_MAX_GMAC; i++) {
+ 		phydev = priv->phymap[i];
+@@ -403,19 +264,16 @@ static int ltq_eth_init(struct eth_device *dev, bd_t * bis)
+ 		ltq_eth_gmac_update(phydev, i);
+ 	}
+ 
+-	for (i = 0; i < LTQ_ETH_RX_BUFFER_CNT; i++) {
+-		ret = ltq_dma_map_rx(priv->dma_dev, i,
+-					(void *) NetRxPackets[i],
+-					PKTSIZE_ALIGN);
+-		if (ret)
+-			return ret;
++	ltq_dma_reset(dma_dev);
+ 
+-		ret = ltq_dma_read(priv->dma_dev, i);
+-		if (ret)
+-			return ret;
+-	}
++	for (i = 0; i < LTQ_ETH_RX_BUFFER_CNT; i++)
++		ltq_dma_read(dma_dev, i, ltq_eth_rx_packet_align(i),
++			LTQ_ETH_RX_DATA_SIZE);
++
++	ltq_dma_enable(dma_dev);
+ 
+ 	priv->rx_num = 0;
++	priv->tx_num = 0;
+ 
+ 	return 0;
+ }
+@@ -423,50 +281,73 @@ static int ltq_eth_init(struct eth_device *dev, bd_t * bis)
+ static void ltq_eth_halt(struct eth_device *dev)
+ {
+ 	struct ltq_eth_priv *priv = dev->priv;
++	struct ltq_dma_device *dma_dev = &priv->dma_dev;
++	struct phy_device *phydev;
++	int i;
++
++	ltq_dma_reset(dma_dev);
+ 
+-	ltq_dma_reset(priv->dma_dev);
++	for (i = 0; i < LTQ_ETHSW_MAX_GMAC; i++) {
++		phydev = priv->phymap[i];
++		if (!phydev)
++			continue;
++
++		phy_shutdown(phydev);
++		phydev->link = 0;
++		ltq_eth_gmac_update(phydev, i);
++	}
+ }
+ 
+ static int ltq_eth_send(struct eth_device *dev, volatile void *packet,
+ 			int length)
+ {
+ 	struct ltq_eth_priv *priv = dev->priv;
+-	int ret;
+-
+-	/* Minimum payload length w/ CRC is 60 bytes */
+-	if (length < 60)
+-		length = 60;
++	struct ltq_dma_device *dma_dev = &priv->dma_dev;
++	int err;
+ 
+-	ret = ltq_dma_map_tx(priv->dma_dev, 0, (void *) packet, length);
+-	if (ret)
+-		return ret;
++#if 0
++	printf("%s: packet %p, len %d\n", __func__, packet, length);
++#endif
+ 
+-	flush_dcache_range((ulong) packet, (ulong) packet + length);
++	err = ltq_dma_write(dma_dev, priv->tx_num, (void *) packet,
++		length, 10);
++	if (err) {
++		puts("NET: timeout on waiting for TX descriptor\n");
++		return -1;
++	}
+ 
+-	ret = ltq_dma_write(priv->dma_dev, 0);
++	priv->tx_num = (priv->tx_num + 1) % LTQ_ETH_TX_BUFFER_CNT;
+ 
+-	return ret;
++	return 0;
+ }
+ 
+ static int ltq_eth_recv(struct eth_device *dev)
+ {
+ 	struct ltq_eth_priv *priv = dev->priv;
++	struct ltq_dma_device *dma_dev = &priv->dma_dev;
++	u8 *packet;
+ 	int len;
+ 
+ 	for (;;) {
+-		len = ltq_dma_read_poll(priv->dma_dev, priv->rx_num);
+-		if (!len)
++#if 0
++		printf("%s: rx_num %d\n", __func__, priv->rx_num);
++#endif
++		len = ltq_dma_read_poll(dma_dev, priv->rx_num);
++		if (len < 0)
+ 			return 0;
+ 
+-		invalidate_dcache_range((ulong) NetRxPackets[priv->rx_num],
+-				(ulong) NetRxPackets[priv->rx_num] + len);
++		packet = ltq_eth_rx_packet_align(priv->rx_num);
+ 
+-		NetReceive(NetRxPackets[priv->rx_num], len);
++#if 0
++		printf("%s: received: packet %p, len %u, rx_num %d\n",
++			__func__, packet, len, priv->rx_num);
++#endif
+ 
+-		ltq_dma_map_rx(priv->dma_dev, priv->rx_num,
+-				(void *) NetRxPackets[priv->rx_num],
+-				PKTSIZE_ALIGN);
+-		ltq_dma_read(priv->dma_dev, priv->rx_num);
++		if (len)
++			NetReceive(packet, len);
++
++		ltq_dma_read(dma_dev, priv->rx_num, packet,
++			LTQ_ETH_RX_DATA_SIZE);
+ 
+ 		priv->rx_num = (priv->rx_num + 1) % LTQ_ETH_RX_BUFFER_CNT;
+ 	};
+@@ -478,101 +359,106 @@ static void ltq_eth_gmac_init(int num)
+ {
+ 	struct ltq_mdio_phy_addr_reg phy_addr_reg;
+ 	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
+-	const void *phy_addr = ltq_eth_phy_addr_reg(num);
+-	const void *mii_cfg = ltq_eth_mii_cfg_reg(num);
+-	struct ltq_ethsw_mac_pdi_x_regs *mac_pdi_regs;
+-
+-	mac_pdi_regs = &ltq_ethsw_mac_pdi_regs->mac[num];
+ 
+ 	/* Reset PHY status to link down */
+-	phy_addr_reg.val = ltq_readl(phy_addr);
++	phy_addr_reg.val = ltq_readl(to_mdio_phyaddr(switch_regs, num));
+ 	phy_addr_reg.bits.addr = num;
+ 	phy_addr_reg.bits.lnkst = LTQ_MDIO_PHY_ADDR_LNKST_DOWN;
+ 	phy_addr_reg.bits.speed = LTQ_MDIO_PHY_ADDR_SPEED_M10;
+ 	phy_addr_reg.bits.fdup = LTQ_MDIO_PHY_ADDR_FDUP_DISABLE;
+-	ltq_writel(phy_addr, phy_addr_reg.val);
++	ltq_writel(to_mdio_phyaddr(switch_regs, num), phy_addr_reg.val);
+ 
+ 	/* Reset and disable MII interface */
+-	mii_cfg_reg.val = ltq_readl(mii_cfg);
+-	mii_cfg_reg.bits.en = 0;
+-	mii_cfg_reg.bits.res = 1;
+-	mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M2P5;
+-	ltq_writel(mii_cfg, mii_cfg_reg.val);
++	switch (num) {
++	case 0:
++	case 1:
++	case 5:
++		mii_cfg_reg.val = ltq_readl(to_mii_miicfg(switch_regs, num));
++		mii_cfg_reg.bits.en = 0;
++		mii_cfg_reg.bits.res = 1;
++		mii_cfg_reg.bits.miirate = LTQ_MII_MII_CFG_MIIRATE_M2P5;
++		ltq_writel(to_mii_miicfg(switch_regs, num), mii_cfg_reg.val);
++		break;
++	default:
++		break;
++	}
+ 
+ 	/* TODO: make configurable */
+ #ifdef CONFIG_BOARD_SPH_ISDN_SIP_GATEWAY
+ 	if (num == 5) {
+ 		/* Set TX delay to 3 * 500 psec */
+-		ltq_writel(&ltq_ethsw_mii_pdi_regs->pcdu5, 3);
++		ltq_writel(to_mii_pcdu(switch_regs, 5), 3);
+ 	}
+ #endif
+ 
+ 	/*
+-	 * Enable padding of short frames, enable frame checksum generation
+-	 * in transmit direction
++	 * - enable frame checksum generation
++	 * - enable padding of short frames
++	 * - disable flow control
+ 	 */
+-	ltq_writel(&mac_pdi_regs->ctrl_0, LTQ_ETHSW_MAC_CTRL0_PADEN |
+-			LTQ_ETHSW_MAC_CTRL0_FCS);
++	ltq_writel(to_mac_ctrl(switch_regs, num, 0),
++		MAC_CTRL0_PADEN | MAC_CTRL0_FCS | MAC_CTRL0_FCON_NONE);
+ 
+-	/* Set inter packet gap size to 12 bytes */
+-	ltq_writel(&mac_pdi_regs->ctrl_1, 12);
+-
+-	/*
+-	 * Configure frame length checks:
+-	 * - allow jumbo frames
+-	 * - enable long length check
+-	 * - enable short length without VLAN tags
+-	 */
+-	ltq_writel(&mac_pdi_regs->ctrl_2, LTQ_ETHSW_MAC_CTRL2_MLEN |
+-			LTQ_ETHSW_MAC_CTRL2_LCHKL |
+-			LTQ_ETHSW_MAC_CTRL2_LCHKS_UNTAG);
++	vr9_switch_sync();
+ }
+ 
+ static void ltq_eth_pmac_init(void)
+ {
+-	struct ltq_ethsw_mac_pdi_x_regs *mac_pdi_regs;
+-
+-	mac_pdi_regs = &ltq_ethsw_mac_pdi_regs->mac[LTQ_ETHSW_PMAC];
+-
+ 	/*
+-	 * Enable padding of short frames, enable frame checksum generation
+-	 * in transmit direction
++	 * WAR: buffer congestion:
++	 * - shorten preambel to 1 byte
++	 * - set TX IPG to 7 bytes
+ 	 */
+-	ltq_writel(&mac_pdi_regs->ctrl_0, LTQ_ETHSW_MAC_CTRL0_PADEN |
+-			LTQ_ETHSW_MAC_CTRL0_FCS);
++#if 1
++	ltq_writel(to_mac_ctrl(switch_regs, LTQ_ETHSW_PMAC, 1),
++		MAC_CTRL1_SHORTPRE | 7);
++#endif
+ 
+ 	/*
+-	 * Configure frame length checks:
+-	 * - allow jumbo frames
+-	 * - enable long length check
+-	 * - enable short length without VLAN tags
++	 * WAR: systematical concept weakness ACM bug
++	 * - set maximum number of used buffer segments to 254
++	 * - soft-reset BM FSQM
+ 	 */
+-	ltq_writel(&mac_pdi_regs->ctrl_2, LTQ_ETHSW_MAC_CTRL2_MLEN |
+-			LTQ_ETHSW_MAC_CTRL2_LCHKL |
+-			LTQ_ETHSW_MAC_CTRL2_LCHKS_UNTAG);
++#if 1
++	ltq_writel(&switch_regs->bm.core.fsqm_gctrl, 253);
++	ltq_setbits(&switch_regs->bm.core.gctrl, BM_GCTRL_F_SRES);
++	ltq_clrbits(&switch_regs->bm.core.gctrl, BM_GCTRL_F_SRES);
++#endif
+ 
+ 	/*
+-	 * Apply workaround for buffer congestion:
+-	 * - shorten preambel to 1 byte
+-	 * - set minimum inter packet gap size to 7 bytes
+-	 * - enable receive buffer bypass mode
++	 * WAR: switch MAC drop bug
+ 	 */
+-	ltq_writel(&mac_pdi_regs->ctrl_1, LTQ_ETHSW_MAC_CTRL1_SHORTPRE | 7);
+-	ltq_writel(&mac_pdi_regs->ctrl_6,
+-			(6 << LTQ_ETHSW_MAC_CTRL6_RBUF_DLY_WP_SHIFT) |
+-			LTQ_ETHSW_MAC_CTRL6_RXBUF_BYPASS);
+-
+-	/* Set request assertion threshold to 8, IPG counter to 11 */
+-	ltq_writel(&ltq_ethsw_pmac_pdi_regs->rx_ipg, 0x8B);
++#if 1
++	ltq_writel(to_pce_tbl_key(switch_regs, 0), 0xf);
++	ltq_writel(to_pce_tbl_value(switch_regs, 0), 0x40);
++	ltq_writel(&switch_regs->pce.core.tbl_addr, 0x3);
++	ltq_writel(&switch_regs->pce.core.tbl_ctrl, 0x902f);
++#endif
+ 
+ 	/*
+ 	 * Configure frame header control:
+-	 * - enable reaction on pause frames (flow control)
+-	 * - remove CRC for packets from PMAC to DMA
++	 * - enable flow control
++	 * - enable CRC check for packets from DMA to PMAC
++	 * - remove special tag from packets from PMAC to DMA
+ 	 * - add CRC for packets from DMA to PMAC
+ 	 */
+-	ltq_writel(&ltq_ethsw_pmac_pdi_regs->hd_ctl, LTQ_ETHSW_PMAC_HD_CTL_FC |
+-			LTQ_ETHSW_PMAC_HD_CTL_RC | LTQ_ETHSW_PMAC_HD_CTL_AC);
++	ltq_writel(&switch_regs->pmac.hd_ctl, /*PMAC_HD_CTL_FC |*/
++		PMAC_HD_CTL_CCRC | PMAC_HD_CTL_RST | PMAC_HD_CTL_AC |
++		PMAC_HD_CTL_RC);
++
++#if 1
++	ltq_writel(&switch_regs->pmac.rx_ipg, 0x8b);
++#endif
++
++	/*
++	 * - enable frame checksum generation
++	 * - enable padding of short frames
++	 * - disable flow control
++	 */
++	ltq_writel(to_mac_ctrl(switch_regs, LTQ_ETHSW_PMAC, 0),
++		MAC_CTRL0_PADEN | MAC_CTRL0_FCS | MAC_CTRL0_FCON_NONE);
++
++	vr9_switch_sync();
+ }
+ 
+ static void ltq_eth_hw_init(void)
+@@ -583,14 +469,15 @@ static void ltq_eth_hw_init(void)
+ 	ltq_pm_enable(LTQ_PM_ETH);
+ 
+ 	/* Reset ethernet and switch subsystems */
++#if 0
+ 	ltq_reset_once(LTQ_RESET_ETH, 10);
++#endif
+ 
+ 	/* Enable switch macro */
+-	ltq_setbits(&ltq_ethsw_mdio_pdi_regs->glob_ctrl,
+-		LTQ_ETHSW_GLOB_CTRL_SE);
++	ltq_setbits(&switch_regs->mdio.glob_ctrl, MDIO_GLOB_CTRL_SE);
+ 
+ 	/* Disable MDIO auto-polling for all ports */
+-	ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdc_cfg_0, 0);
++	ltq_writel(&switch_regs->mdio.mdc_cfg_0, 0);
+ 
+ 	/*
+ 	 * Enable and set MDIO management clock to 2.5 MHz. This is the
+@@ -601,8 +488,10 @@ static void ltq_eth_hw_init(void)
+ 	 * x = ----------- - 1
+ 	 *      2 * f_MDC
+ 	 */
+-	ltq_writel(&ltq_ethsw_mdio_pdi_regs->mdc_cfg_1,
+-		LTQ_ETHSW_MDC_CFG1_MCEN | 9);
++	ltq_writel(&switch_regs->mdio.mdc_cfg_1, MDIO_MDC_CFG1_RES |
++		MDIO_MDC_CFG1_MCEN | 5);
++
++	vr9_switch_sync();
+ 
+ 	/* Init MAC connected to CPU  */
+ 	ltq_eth_pmac_init();
+@@ -616,15 +505,16 @@ static void ltq_eth_port_config(struct ltq_eth_priv *priv,
+ 					const struct ltq_eth_port_config *port)
+ {
+ 	struct ltq_mii_mii_cfg_reg mii_cfg_reg;
+-	const void *mii_cfg = ltq_eth_mii_cfg_reg(port->num);
+ 	struct phy_device *phydev;
+ 	int setup_gpio = 0;
+ 
+-	mii_cfg_reg.val = ltq_readl(mii_cfg);
+-
+ 	switch (port->num) {
+ 	case 0:	/* xMII0 */
+ 	case 1:	/* xMII1 */
++		mii_cfg_reg.val = ltq_readl(to_mii_miicfg(switch_regs,
++					port->num));
++		mii_cfg_reg.bits.en = port->flags ? 1 : 0;
++
+ 		switch (port->phy_if) {
+ 		case PHY_INTERFACE_MODE_MII:
+ 			if (port->flags & LTQ_ETH_PORT_PHY)
+@@ -657,6 +547,9 @@ static void ltq_eth_port_config(struct ltq_eth_priv *priv,
+ 		default:
+ 			break;
+ 		}
++
++		ltq_writel(to_mii_miicfg(switch_regs, port->num),
++			mii_cfg_reg.val);
+ 		break;
+ 	case 2:	/* internal GPHY0 */
+ 	case 3:	/* internal GPHY0 */
+@@ -664,9 +557,6 @@ static void ltq_eth_port_config(struct ltq_eth_priv *priv,
+ 		switch (port->phy_if) {
+ 		case PHY_INTERFACE_MODE_MII:
+ 		case PHY_INTERFACE_MODE_GMII:
+-			/* MII MAC mode, connected to internal GPHY */
+-			mii_cfg_reg.bits.miimode =
+-				LTQ_MII_MII_CFG_MIIMODE_MIIM;
+ 			setup_gpio = 1;
+ 			break;
+ 		default:
+@@ -674,6 +564,10 @@ static void ltq_eth_port_config(struct ltq_eth_priv *priv,
+ 		}
+ 		break;
+ 	case 5:	/* internal GPHY1 or xMII2 */
++		mii_cfg_reg.val = ltq_readl(to_mii_miicfg(switch_regs,
++					port->num));
++		mii_cfg_reg.bits.en = port->flags ? 1 : 0;
++
+ 		switch (port->phy_if) {
+ 		case PHY_INTERFACE_MODE_MII:
+ 			/* MII MAC mode, connected to internal GPHY */
+@@ -690,15 +584,14 @@ static void ltq_eth_port_config(struct ltq_eth_priv *priv,
+ 		default:
+ 			break;
+ 		}
++
++		ltq_writel(to_mii_miicfg(switch_regs, port->num),
++			mii_cfg_reg.val);
+ 		break;
+ 	default:
+ 		break;
+ 	}
+ 
+-	/* Enable MII interface */
+-	mii_cfg_reg.bits.en = port->flags ? 1 : 0;
+-	ltq_writel(mii_cfg, mii_cfg_reg.val);
+-
+ 	/* Setup GPIOs for MII with external PHYs/MACs */
+ 	if (setup_gpio) {
+ 		/* MII/MDIO */
+@@ -728,6 +621,8 @@ int ltq_eth_initialize(const struct ltq_eth_board_config *board_config)
+ 	struct ltq_dma_device *dma_dev;
+ 	int i, ret;
+ 
++	build_check_vr9_registers();
++
+ 	ltq_dma_init();
+ 	ltq_eth_hw_init();
+ 
+@@ -743,10 +638,6 @@ int ltq_eth_initialize(const struct ltq_eth_board_config *board_config)
+ 	if (!bus)
+ 		return -1;
+ 
+-	dma_dev = ltq_dma_alloc();
+-	if (!dma_dev)
+-		return -1;
+-
+ 	sprintf(dev->name, LTQ_ETH_DRV_NAME);
+ 	dev->priv = priv;
+ 	dev->init = ltq_eth_init;
+@@ -755,22 +646,23 @@ int ltq_eth_initialize(const struct ltq_eth_board_config *board_config)
+ 	dev->send = ltq_eth_send;
+ 
+ 	sprintf(bus->name, LTQ_MDIO_DRV_NAME);
+-	bus->read = ltq_mdio_read;
+-	bus->write = ltq_mdio_write;
++	bus->read = vr9_switch_mdio_read;
++	bus->write = vr9_switch_mdio_write;
+ 	bus->priv = priv;
+ 
++	dma_dev = &priv->dma_dev;
+ 	dma_dev->port = 0;
+ 	dma_dev->rx_chan.chan_no = 0;
+ 	dma_dev->rx_chan.class = 0;
+ 	dma_dev->rx_chan.num_desc = LTQ_ETH_RX_BUFFER_CNT;
+ 	dma_dev->rx_endian_swap = LTQ_DMA_ENDIANESS_B3_B2_B1_B0;
++	dma_dev->rx_burst_len = LTQ_DMA_BURST_2WORDS;
+ 	dma_dev->tx_chan.chan_no = 1;
+ 	dma_dev->tx_chan.class = 0;
+-	dma_dev->tx_chan.num_desc = 1;
++	dma_dev->tx_chan.num_desc = LTQ_ETH_TX_BUFFER_CNT;
+ 	dma_dev->tx_endian_swap = LTQ_DMA_ENDIANESS_B3_B2_B1_B0;
+-	dma_dev->priv = priv;
++	dma_dev->tx_burst_len = LTQ_DMA_BURST_2WORDS;
+ 
+-	priv->dma_dev = dma_dev;
+ 	priv->bus = bus;
+ 	priv->dev = dev;
+ 
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index ace01db3b6a4e7feecb57f86259b26fb211cfde5..c0466919d8a145337740e2c3914c1b6583f857ae 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -30,6 +30,7 @@
+ #define CONFIG_SPL_SPI_MAX_HZ		25000000
+ #define CONFIG_SPL_SPI_MODE		0
+ #define CONFIG_LTQ_SPL_COMP_LZO
++#define CONFIG_LTQ_SPL_DEBUG
+ 
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE

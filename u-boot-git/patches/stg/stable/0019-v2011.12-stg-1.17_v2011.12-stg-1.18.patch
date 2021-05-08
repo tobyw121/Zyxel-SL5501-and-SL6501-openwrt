@@ -1,0 +1,117 @@
+diff --git a/Makefile b/Makefile
+index b990fa79a5743d4bf4372d086fa0ab5b060b72ca..9f9519d677b3169ecc668706c94a49389c5877cc 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.17
++EXTRAVERSION = -stg-1.18
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/lib/spl_lantiq.c b/arch/mips/lib/spl_lantiq.c
+index d8df84438a3276e9601671b5c6c06678eb68368e..30290ea91670c2cfa22137826736d1d69da5746f 100644
+--- a/arch/mips/lib/spl_lantiq.c
++++ b/arch/mips/lib/spl_lantiq.c
+@@ -232,7 +232,7 @@ static int spl_uncompress_lzma(struct spl_image *spl)
+ 
+ 	spl->load_size = dest_len;
+ 
+-	return 0;
++	return res;
+ }
+ 
+ static int spl_uncompress_lzo(struct spl_image *spl)
+@@ -246,7 +246,7 @@ static int spl_uncompress_lzo(struct spl_image *spl)
+ 
+ 	spl->load_size = len;
+ 
+-	return 0;
++	return ret;
+ }
+ 
+ static int spl_uncompress(struct spl_image *spl)
+diff --git a/board/sphairon/isdn_sip_gw/ddr_settings.h b/board/sphairon/isdn_sip_gw/ddr_settings.h
+index cdb90b096b604baf2986b737bd02ae49c3ad0cf7..2f206c1690970434d448eb3444f74c64ce53a472 100644
+--- a/board/sphairon/isdn_sip_gw/ddr_settings.h
++++ b/board/sphairon/isdn_sip_gw/ddr_settings.h
+@@ -14,11 +14,11 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x0
++#define	MC_CCR09_VALUE	0x1000000
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000401
++#define	MC_CCR11_VALUE	0x2000301
+ #define	MC_CCR12_VALUE	0x30000
+-#define	MC_CCR13_VALUE	0x203
++#define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+ #define	MC_CCR15_VALUE	0x2040F
+ #define	MC_CCR16_VALUE	0x40000
+@@ -26,10 +26,10 @@
+ #define	MC_CCR18_VALUE	0x4020002
+ #define	MC_CCR19_VALUE	0x30302
+ #define	MC_CCR20_VALUE	0x8000700
+-#define	MC_CCR21_VALUE	0x40F020C
++#define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401B04
++#define	MC_CCR24_VALUE	0x4401503
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,12 +40,12 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1D445D
++#define	MC_CCR35_VALUE	0x1536b0
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x141F04
+-#define	MC_CCR40_VALUE	0x142704
++#define	MC_CCR39_VALUE	0x142404
++#define	MC_CCR40_VALUE	0x142604
+ #define	MC_CCR41_VALUE	0x141b42
+ #define	MC_CCR42_VALUE	0x141b42
+ #define	MC_CCR43_VALUE	0x566504
+@@ -62,8 +62,8 @@
+ #define	MC_CCR54_VALUE	0xF3014B27
+ #define	MC_CCR55_VALUE	0xF3014B27
+ #define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7c00301
+-#define	MC_CCR58_VALUE	0x7c00301
+-#define	MC_CCR59_VALUE	0x7c00301
+-#define	MC_CCR60_VALUE	0x7c00301
++#define	MC_CCR57_VALUE	0x7C00301
++#define	MC_CCR58_VALUE	0x7C00301
++#define	MC_CCR59_VALUE	0x7C00301
++#define	MC_CCR60_VALUE	0x7C00301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 867db467fef67d34a4fc3e4ebbc9d41e5e27b1b1..7863cacde9ab364fc53800cc3ba5fad047dd02d4 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -325,7 +325,7 @@ int sas_flash_partial_erase(const struct sas_flash_partition *part,
+ {
+ 	struct erase_info instr;
+ 	int ret;
+-	ulong pre_start = 0, pre_end = 0, post_start = 0, post_end = 0;
++	ulong pre_start = 0, post_start = 0, post_end = 0;
+ 	ulong erase_start, erase_end;
+ 	size_t pre_size, post_size, erase_len, retlen;
+ 	void *pre_data = NULL, *post_data = NULL;
+@@ -340,7 +340,6 @@ int sas_flash_partial_erase(const struct sas_flash_partition *part,
+ 	if (pre_size) {
+ 		pre_start = off - pre_size;
+ 		pre_size--;
+-		pre_end = off - 1;
+ 		erase_start = pre_start;
+ 
+ 		pre_data = malloc(pre_size);

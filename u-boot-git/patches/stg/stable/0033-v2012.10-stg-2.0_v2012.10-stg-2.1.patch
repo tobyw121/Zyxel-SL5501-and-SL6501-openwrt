@@ -1,0 +1,783 @@
+diff --git a/Makefile b/Makefile
+index dda7a19815cd8d53bf71449fed67f23173b36e11..23b79a9eae9c769fd4c3f7fe5bbd31a2fa8e0cd5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.0
++EXTRAVERSION = -stg-2.1
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/vrx200/ebu.c b/arch/mips/cpu/mips32/vrx200/ebu.c
+index 243fb756798e428a765d02f0376427ad65ff58b7..ffd10148ee44ed8a7a5ac8839a457b0890f0c7b7 100644
+--- a/arch/mips/cpu/mips32/vrx200/ebu.c
++++ b/arch/mips/cpu/mips32/vrx200/ebu.c
+@@ -9,9 +9,46 @@
+ #include <asm/arch/soc.h>
+ #include <asm/lantiq/io.h>
+ 
+-#define LTQ_EBU_CON_0_RST_VAL	0x8001D7FF
++#define EBU_CON_0_RST_VAL		0x8001D7FF
++#define EBU_CON_1_RST_VAL		0x40F295
+ 
+-#define LTQ_EBU_CON_WRDIS	(1 << 31)
++#define EBU_ADDRSEL_MASK(mask)		((mask & 0xf) << 4)
++#define EBU_ADDRSEL_REGEN		(1 << 0)
++
++#define EBU_CON_WRDIS			(1 << 31)
++#define EBU_CON_AGEN_DEMUX		(0x00 << 24)
++#define EBU_CON_AGEN_MUX		(0x10 << 24)
++#define EBU_CON_SETUP			(1 << 22)
++#define EBU_CON_WAIT_DIS		(0x00 << 20)
++#define EBU_CON_WAIT_ASYNC		(0x01 << 20)
++#define EBU_CON_WAIT_SYNC		(0x10 << 20)
++#define EBU_CON_WINV			(1 << 19)
++#define EBU_CON_PW_8BIT			(0x00 << 16)
++#define EBU_CON_PW_16BIT		(0x01 << 16)
++#define EBU_CON_ALEC(cycles)		((cycles & 0x3) << 14)
++#define EBU_CON_BCGEN_CS		(0x00 << 12)
++#define EBU_CON_BCGEN_INTEL		(0x01 << 12)
++#define EBU_CON_BCGEN_MOTOROLA		(0x10 << 12)
++#define EBU_CON_WAITWRC(cycles)		((cycles & 0x7) << 8)
++#define EBU_CON_WAITRDC(cycles)		((cycles & 0x3) << 6)
++#define EBU_CON_HOLDC(cycles)		((cycles & 0x3) << 4)
++#define EBU_CON_RECOVC(cycles)		((cycles & 0x3) << 2)
++#define EBU_CON_CMULT_1			0x00
++#define EBU_CON_CMULT_4			0x01
++#define EBU_CON_CMULT_8			0x10
++#define EBU_CON_CMULT_16		0x11
++
++#if defined(CONFIG_LTQ_SUPPORT_NOR_FLASH)
++#define ebu_region0_enable		1
++#else
++#define ebu_region0_enable		0
++#endif
++
++#if defined(CONFIG_LTQ_SUPPORT_NAND_FLASH)
++#define ebu_region1_enable		1
++#else
++#define ebu_region1_enable		0
++#endif
+ 
+ struct ltq_ebu_regs {
+ 	u32	clc;
+@@ -36,19 +73,40 @@ static struct ltq_ebu_regs *ltq_ebu_regs =
+ 
+ void ltq_ebu_init(void)
+ {
+-	/*
+-	 * Map EBU region 0 to range 0x10000000-0x13ffffff and enable
+-	 * region control. This supports up to 32 MiB NOR flash in
+-	 * bank 0.
+-	 */
+-	ltq_writel(&ltq_ebu_regs->addr_sel_0, 0x10000011);
+-
+-	/*
+-	 * Restore reset value to fix modifications by internal BootROM.
+-	 * Also disable write protection.
+-	 */
+-	ltq_writel(&ltq_ebu_regs->con_0,
+-			LTQ_EBU_CON_0_RST_VAL & ~LTQ_EBU_CON_WRDIS);
++	if (ebu_region0_enable) {
++		/*
++		 * Map EBU region 0 to range 0x10000000-0x13ffffff and enable
++		 * region control. This supports up to 32 MiB NOR flash in
++		 * bank 0.
++		 */
++		ltq_writel(&ltq_ebu_regs->addr_sel_0, LTQ_EBU_REGION0_BASE |
++			EBU_ADDRSEL_MASK(1) | EBU_ADDRSEL_REGEN);
++
++		ltq_writel(&ltq_ebu_regs->con_0, EBU_CON_AGEN_DEMUX |
++			EBU_CON_WAIT_DIS | EBU_CON_PW_16BIT |
++			EBU_CON_ALEC(3) | EBU_CON_BCGEN_INTEL |
++			EBU_CON_WAITWRC(7) | EBU_CON_WAITRDC(3) |
++			EBU_CON_HOLDC(3) | EBU_CON_RECOVC(3) |
++			EBU_CON_CMULT_16);
++	} else
++		ltq_clrbits(&ltq_ebu_regs->addr_sel_0, EBU_ADDRSEL_REGEN);
++
++	if (ebu_region1_enable) {
++		/*
++		 * Map EBU region 1 to range 0x14000000-0x13ffffff and enable
++		 * region control. This supports NAND flash in bank 1.
++		 */
++		ltq_writel(&ltq_ebu_regs->addr_sel_1, LTQ_EBU_REGION1_BASE |
++			EBU_ADDRSEL_MASK(3) | EBU_ADDRSEL_REGEN);
++
++		ltq_writel(&ltq_ebu_regs->con_1, EBU_CON_AGEN_DEMUX |
++			EBU_CON_SETUP | EBU_CON_WAIT_DIS | EBU_CON_PW_8BIT |
++			EBU_CON_ALEC(3) | EBU_CON_BCGEN_INTEL |
++			EBU_CON_WAITWRC(2) | EBU_CON_WAITRDC(2) |
++			EBU_CON_HOLDC(1) | EBU_CON_RECOVC(1) |
++			EBU_CON_CMULT_4);
++	} else
++		ltq_clrbits(&ltq_ebu_regs->addr_sel_1, EBU_ADDRSEL_REGEN);
+ }
+ 
+ void *flash_swap_addr(unsigned long addr)
+diff --git a/arch/mips/cpu/mips32/vrx200/mem_init.S b/arch/mips/cpu/mips32/vrx200/mem_init.S
+index 9d81900bdddf3b4d4706ef1de2c668d128fe3593..b4dca15baa05c62fc56c56b5685424faada4c62e 100644
+--- a/arch/mips/cpu/mips32/vrx200/mem_init.S
++++ b/arch/mips/cpu/mips32/vrx200/mem_init.S
+@@ -22,6 +22,8 @@
+ #define CCS_AHBM_CR_BURST_EN		(1 << 2)
+ #define CCS_FPIM_CR_BURST_EN		(1 << 1)
+ 
++#define CCR03_EIGHT_BANK_MODE		(1 << 0)
++
+ 	/* Store given value in MC DDR CCRx register */
+ 	.macro ccr_sw num, val
+ 	li	t1, \val
+@@ -105,10 +107,14 @@ LEAF(ltq_mem_init)
+ 	li	t5, CCS_AHBM_CR_BURST_EN
+ 	sw	t5, CCS_ALWAYS_LAST(t4)
+ 
++	/* Init abort condition for DRAM probe */
++	move	t4, zero
++
+ 	/*
+ 	 * Put memory controller in active mode and start initialitation
+ 	 * sequence for connected DDR-SDRAM device
+ 	 */
++mc_start:
+ 	lw	t1, LTQ_MC_DDR_CCR_OFFSET(7)(t0)
+ 	li	t2, LTQ_MC_DDR_START
+ 	or	t1, t1, t2
+@@ -128,6 +134,101 @@ wait_ready:
+ 	and	t2, t2, t1
+ 	bne	t1, t2, wait_ready
+ 
++#ifdef CONFIG_SYS_DRAM_PROBE
++dram_probe:
++	/* Initialization is finished after the second MC start */
++	bnez	t4, mc_finished
++
++	/*
++	 * Preload register values for CCR03 and CCR11. Initial settings
++	 * are 8-bank mode enabled, 14 use address row bits, 10 used
++	 * column address bits.
++	 */
++	li	t1, CONFIG_SYS_SDRAM_BASE_UC
++	li	t5, MC_CCR03_VALUE
++	li	t6, MC_CCR11_VALUE
++	addi	t4, t4, 1
++
++	/*
++	 * Store test values to DRAM at offsets 0 and 2^13 (bit 2 in bank select
++	 * address BA[3]) and read back the value at offset 0. If the resulting
++	 * value is equal to 1 we can skip to the next test. Otherwise
++	 * the 8-bank mode does not work with the current DRAM device,
++	 * thus we need to clear the according bit in register CCR03.
++	 */
++	li	t2, 1
++	sw	t2, 0x0(t1)
++	li	t3, (1 << 13)
++	add	t3, t3, t1
++	sw	zero, 0(t3)
++	lw	t3, 0(t1)
++	bnez	t3, row_col_test
++
++	/* Clear CCR03.EIGHT_BANK_MODE */
++	li	t3, ~CCR03_EIGHT_BANK_MODE
++	and	t5, t5, t3
++
++row_col_test:
++	/*
++	 * Store test values to DRAM at offsets 0, 2^27 (bit 13 of row address
++	 * RA[14]) and 2^26 (bit 12 of RA[14]). The chosen test values
++	 * represent the difference between max. row address bits (14) and used
++	 * row address bits. Then the read back value at offset 0 indicates
++	 * the useable row address bits with the current DRAM device. This
++	 * value must be set in the CCR11 register.
++	 */
++	sw	zero, 0(t1)
++
++	li	t2, 1
++	li	t3, (1 << 27)
++	add	t3, t3, t1
++	sw	t2, 0(t3)
++
++	li	t2, 2
++	li	t3, (1 << 26)
++	add	t3, t3, t1
++	sw	t2, 0(t3)
++
++	/* Update CCR11.ADDR_PINS */
++	lw	t3, 0(t1)
++	add	t6, t6, t3
++
++	/*
++	 * Store test values to DRAM at offsets 0, 2^10 (bit 9 of column address
++	 * CA[10]) and 2^9 (bit 8 of CA[10]). The chosen test values represent
++	 * the difference between max. column address bits (12) and used
++	 * column address bits. Then the read back value at offset 0 indicates
++	 * the useable column address bits with the current DRAM device. This
++	 * value must be set in the CCR11 register.
++	 */
++	sw	zero, 0(t1)
++
++	li	t2, 1
++	li	t3, (1 << 10)
++	add	t3, t3, t1
++	sw	t2, 0(t3)
++
++	li	t2, 2
++	li	t3, (1 << 9)
++	add	t3, t3, t1
++	sw	t2, 0(t3)
++
++	/* Update CCR11.COLUMN_SIZE */
++	lw	t3, 0(t1)
++	sll	t3, t3, 24
++	add	t6, t6, t3
++
++	/* Put memory controller in inactive mode */
++	sw	zero, LTQ_MC_DDR_CCR_OFFSET(7)(t0)
++
++	/* Update CCR03 and CCR11 and restart memory controller initialiation */
++	sw	t5, LTQ_MC_DDR_CCR_OFFSET(3)(t0)
++	sw	t6, LTQ_MC_DDR_CCR_OFFSET(11)(t0)
++	b	mc_start
++
++mc_finished:
++#endif /* CONFIG_SYS_DRAM_PROBE */
++
+ 	jr	ra
+ 
+ 	END(ltq_mem_init)
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index 6b16a793f9a4b740b65f288cf6c53d0b0cad1218..234263b29a680938351c8b09af16ee88c6e7e4f3 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -65,6 +65,7 @@
+ /* RAM */
+ #define CONFIG_NR_DRAM_BANKS		1
+ #define CONFIG_SYS_SDRAM_BASE		0x80000000
++#define CONFIG_SYS_SDRAM_BASE_UC	0xa0000000
+ #define CONFIG_SYS_MEMTEST_START	0x81000000
+ #define CONFIG_SYS_MEMTEST_END		0x82000000
+ #define CONFIG_SYS_LOAD_ADDR		0x81000000
+@@ -110,6 +111,14 @@
+ #define CONFIG_CMD_SPI
+ #endif
+ 
++#if defined(CONFIG_LTQ_SUPPORT_NAND_FLASH)
++#define CONFIG_NAND_LANTIQ
++#define CONFIG_SYS_MAX_NAND_DEVICE	1
++#define CONFIG_SYS_NAND_BASE		0xB4000000
++
++#define CONFIG_CMD_NAND
++#endif
++
+ #if defined(CONFIG_LTQ_SUPPORT_ETHERNET)
+ #define CONFIG_LANTIQ_DMA
+ #define CONFIG_LANTIQ_VRX200_SWITCH
+diff --git a/arch/mips/include/asm/arch-vrx200/nand.h b/arch/mips/include/asm/arch-vrx200/nand.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..15b1504c7469b7ba7c32669431174cb22404f06b
+--- /dev/null
++++ b/arch/mips/include/asm/arch-vrx200/nand.h
+@@ -0,0 +1,14 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#ifndef __VRX200_NAND_H__
++#define __VRX200_NAND_H__
++
++struct nand_chip;
++int ltq_nand_init(struct nand_chip *nand);
++
++#endif /* __VRX200_NAND_H__ */
+diff --git a/arch/mips/include/asm/arch-vrx200/soc.h b/arch/mips/include/asm/arch-vrx200/soc.h
+index 9bd7fc9b4199e681319893282710520224850af3..d4cb48c9a660a65a966f37a551d670140c90a057 100644
+--- a/arch/mips/include/asm/arch-vrx200/soc.h
++++ b/arch/mips/include/asm/arch-vrx200/soc.h
+@@ -17,9 +17,8 @@
+ 
+ #define LTQ_EBU_BASE			0x1E105300
+ #define LTQ_EBU_REGION0_BASE		0x10000000
+-#define LTQ_EBU_REGION0_SIZE		(64 * 1024 * 1024)
+ #define LTQ_EBU_REGION1_BASE		0x14000000
+-#define LTQ_EBU_REGION1_SIZE		(32 * 1024 * 1024)
++#define LTQ_EBU_NAND_BASE		(LTQ_EBU_BASE + 0xB0)
+ 
+ #define LTQ_SWITCH_BASE			0x1E108000
+ #define LTQ_SWITCH_CORE_BASE		LTQ_SWITCH_BASE
+diff --git a/arch/mips/include/asm/bitops.h b/arch/mips/include/asm/bitops.h
+index 1c8f4c05003ba83ff0aacf66d94268d901dbf21a..f2dc5335690de97517c58ff5bbaf7627fbc3636f 100644
+--- a/arch/mips/include/asm/bitops.h
++++ b/arch/mips/include/asm/bitops.h
+@@ -566,7 +566,7 @@ static __inline__ int __test_and_change_bit(int nr, volatile void * addr)
+  * @nr: bit number to test
+  * @addr: Address to start counting from
+  */
+-static __inline__ int test_bit(int nr, volatile void *addr)
++static __inline__ int test_bit(int nr, const volatile void *addr)
+ {
+ 	return ((1UL << (nr & 31)) & (((const unsigned int *) addr)[nr >> 5])) != 0;
+ }
+diff --git a/board/lantiq/easy80920/ddr_settings.h b/board/lantiq/easy80920/ddr_settings.h
+index 4aa301ad73575f33e3da49543df74b568ca13562..b04ec172ab1372adf86d4eea112b5141ae4e37a3 100644
+--- a/board/lantiq/easy80920/ddr_settings.h
++++ b/board/lantiq/easy80920/ddr_settings.h
+@@ -9,7 +9,7 @@
+ #define	MC_CCR00_VALUE	0x101
+ #define	MC_CCR01_VALUE	0x1000100
+ #define	MC_CCR02_VALUE	0x1010000
+-#define	MC_CCR03_VALUE	0x100
++#define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+ #define	MC_CCR05_VALUE	0x1000101
+ #define	MC_CCR06_VALUE	0x1000100
+@@ -17,7 +17,7 @@
+ #define	MC_CCR08_VALUE	0x1000101
+ #define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000401
++#define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+diff --git a/board/sphairon/isdn_sip_gw/ddr_settings.h b/board/sphairon/isdn_sip_gw/ddr_settings.h
+index 2f206c1690970434d448eb3444f74c64ce53a472..7b77fa8888bbdb47ba83200c756c9d1c0d4996c2 100644
+--- a/board/sphairon/isdn_sip_gw/ddr_settings.h
++++ b/board/sphairon/isdn_sip_gw/ddr_settings.h
+@@ -8,7 +8,7 @@
+ #define	MC_CCR00_VALUE	0x101
+ #define	MC_CCR01_VALUE	0x1000100
+ #define	MC_CCR02_VALUE	0x1010000
+-#define	MC_CCR03_VALUE	0x100
++#define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+ #define	MC_CCR05_VALUE	0x1000101
+ #define	MC_CCR06_VALUE	0x1000100
+@@ -16,7 +16,7 @@
+ #define	MC_CCR08_VALUE	0x1000101
+ #define	MC_CCR09_VALUE	0x1000000
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000301
++#define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index c6136476716809fe2523c0eb36531fa6cb962b56..d66f7a589cdaaa90459512f84d30e1615d496f49 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -55,11 +55,16 @@ static inline void gpio_init(void)
+ 	/* USB port1 power enable, disabled at startup */
+ 	gpio_direction_output(33, 0);
+ 
+-	/* TODO: move to NAND driver */
+ 	/* EBU.FL_CS1 as output for NAND CE */
+ 	gpio_set_altfunc(23, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 	/* EBU.FL_A23 as output for NAND CLE */
+ 	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A24 as output for NAND ALE */
++	gpio_set_altfunc(13, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* GPIO 3.0 as input for NAND Ready Busy */
++	gpio_set_altfunc(48, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
++	/* GPIO 3.1 as output for NAND Read */
++	gpio_set_altfunc(49, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 
+ 	/* Watchdog trigger line for MAX6722, needs clarification */
+ 	/* gpio_direction_output(8, 1); */
+diff --git a/board/sphairon/sl550x/ddr_settings.h b/board/sphairon/sl550x/ddr_settings.h
+index 0ac3c511401f1c438e0cba4c9bb4e23e5a15c6a6..7b77fa8888bbdb47ba83200c756c9d1c0d4996c2 100644
+--- a/board/sphairon/sl550x/ddr_settings.h
++++ b/board/sphairon/sl550x/ddr_settings.h
+@@ -14,9 +14,9 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x0
++#define	MC_CCR09_VALUE	0x1000000
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000401
++#define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401B04
++#define	MC_CCR24_VALUE	0x4401503
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,12 +40,12 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1D445D
++#define	MC_CCR35_VALUE	0x1536b0
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x141F04
+-#define	MC_CCR40_VALUE	0x142704
++#define	MC_CCR39_VALUE	0x142404
++#define	MC_CCR40_VALUE	0x142604
+ #define	MC_CCR41_VALUE	0x141b42
+ #define	MC_CCR42_VALUE	0x141b42
+ #define	MC_CCR43_VALUE	0x566504
+@@ -62,8 +62,8 @@
+ #define	MC_CCR54_VALUE	0xF3014B27
+ #define	MC_CCR55_VALUE	0xF3014B27
+ #define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7800301
+-#define	MC_CCR58_VALUE	0x7800301
+-#define	MC_CCR59_VALUE	0x7800301
+-#define	MC_CCR60_VALUE	0x7800301
++#define	MC_CCR57_VALUE	0x7C00301
++#define	MC_CCR58_VALUE	0x7C00301
++#define	MC_CCR59_VALUE	0x7C00301
++#define	MC_CCR60_VALUE	0x7C00301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index 5ca1e66938651534bc06f43d4e45e0b290c49573..9d54e68fa3b4d9bb5e4f38e9793d23160d452f8c 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -67,13 +67,16 @@ static inline void gpio_init(void)
+ 	/* USB port1 power enable, disabled at startup */
+ 	gpio_direction_output(33, 0);
+ 
+-	/* TODO: move to NAND driver */
+ 	/* EBU.FL_CS1 as output for NAND CE */
+ 	gpio_set_altfunc(23, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 	/* EBU.FL_A23 as output for NAND CLE */
+ 	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+-	/* EBU.FL_A24 as output for NAND AL */
++	/* EBU.FL_A24 as output for NAND ALE */
+ 	gpio_set_altfunc(13, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* GPIO 3.0 as input for NAND Ready Busy */
++	gpio_set_altfunc(48, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_IN);
++	/* GPIO 3.1 as output for NAND Read */
++	gpio_set_altfunc(49, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
+ 
+ 	/* Ralink iNIC WLAN reset, low-active, asserted at startup */
+ 	gpio_direction_output(15, 0);
+diff --git a/drivers/mtd/nand/Makefile b/drivers/mtd/nand/Makefile
+index beb99cacb6636291e4c91a65f79710214e31cb35..734ca72d9f12b6f4e7ae62ca4c3b44c981102dad 100644
+--- a/drivers/mtd/nand/Makefile
++++ b/drivers/mtd/nand/Makefile
+@@ -54,6 +54,7 @@ COBJS-$(CONFIG_NAND_JZ4740) += jz4740_nand.o
+ COBJS-$(CONFIG_NAND_KB9202) += kb9202_nand.o
+ COBJS-$(CONFIG_NAND_KIRKWOOD) += kirkwood_nand.o
+ COBJS-$(CONFIG_NAND_KMETER1) += kmeter1_nand.o
++COBJS-$(CONFIG_NAND_LANTIQ) += lantiq_nand.o
+ COBJS-$(CONFIG_NAND_MPC5121_NFC) += mpc5121_nfc.o
+ COBJS-$(CONFIG_NAND_MXC) += mxc_nand.o
+ COBJS-$(CONFIG_NAND_MXS) += mxs_nand.o
+diff --git a/drivers/mtd/nand/lantiq_nand.c b/drivers/mtd/nand/lantiq_nand.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b45fe3f3f77f5bc9d43d101b5358d2080c573cb
+--- /dev/null
++++ b/drivers/mtd/nand/lantiq_nand.c
+@@ -0,0 +1,127 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#include <common.h>
++#include <linux/mtd/nand.h>
++#include <linux/compiler.h>
++#include <asm/arch/soc.h>
++#include <asm/arch/nand.h>
++#include <asm/lantiq/io.h>
++
++#define NAND_CON_ECC_ON		(1 << 31)
++#define NAND_CON_LATCH_PRE	(1 << 23)
++#define NAND_CON_LATCH_WP	(1 << 22)
++#define NAND_CON_LATCH_SE	(1 << 21)
++#define NAND_CON_LATCH_CS	(1 << 20)
++#define NAND_CON_LATCH_CLE	(1 << 19)
++#define NAND_CON_LATCH_ALE	(1 << 18)
++#define NAND_CON_OUT_CS1	(1 << 10)
++#define NAND_CON_IN_CS1		(1 << 8)
++#define NAND_CON_PRE_P		(1 << 7)
++#define NAND_CON_WP_P		(1 << 6)
++#define NAND_CON_SE_P		(1 << 5)
++#define NAND_CON_CS_P		(1 << 4)
++#define NAND_CON_CLE_P		(1 << 3)
++#define NAND_CON_ALE_P		(1 << 2)
++#define NAND_CON_CSMUX		(1 << 1)
++#define NAND_CON_NANDM		(1 << 0)
++
++#define NAND_WAIT_WR_C		(1 << 3)
++#define NAND_WAIT_RDBY		(1 << 0)
++
++#define NAND_CMD_ALE		(1 << 2)
++#define NAND_CMD_CLE		(1 << 3)
++#define NAND_CMD_CS		(1 << 4)
++#define NAND_CMD_SE		(1 << 5)
++#define NAND_CMD_WP		(1 << 6)
++#define NAND_CMD_PRE		(1 << 7)
++
++struct ltq_nand_regs {
++	__be32	con;		/* NAND controller control */
++	__be32	wait;		/* NAND Flash Device RD/BY State */
++	__be32	ecc0;		/* NAND Flash ECC Register 0 */
++	__be32	ecc_ac;		/* NAND Flash ECC Register address counter */
++	__be32	ecc_cr;		/* NAND Flash ECC Comparison */
++};
++
++static struct ltq_nand_regs *ltq_nand_regs =
++	(struct ltq_nand_regs *) CKSEG1ADDR(LTQ_EBU_NAND_BASE);
++
++static void ltq_nand_wait_ready(void)
++{
++	while ((ltq_readl(&ltq_nand_regs->wait) & NAND_WAIT_WR_C) == 0)
++		;
++}
++
++static int ltq_nand_dev_ready(struct mtd_info *mtd)
++{
++	u32 data = ltq_readl(&ltq_nand_regs->wait);
++	return data & NAND_WAIT_RDBY;
++}
++
++static void ltq_nand_select_chip(struct mtd_info *mtd, int chip)
++{
++	if (chip == 0) {
++		ltq_setbits(&ltq_nand_regs->con, NAND_CON_NANDM);
++		ltq_setbits(&ltq_nand_regs->con, NAND_CON_LATCH_CS);
++	} else {
++		ltq_clrbits(&ltq_nand_regs->con, NAND_CON_LATCH_CS);
++		ltq_clrbits(&ltq_nand_regs->con, NAND_CON_NANDM);
++	}
++}
++
++static void ltq_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
++{
++	struct nand_chip *chip = mtd->priv;
++	unsigned long addr = (unsigned long) chip->IO_ADDR_W;
++
++	if (ctrl & NAND_CTRL_CHANGE) {
++		if (ctrl & NAND_ALE)
++			addr |= NAND_CMD_ALE;
++		else
++			addr &= ~NAND_CMD_ALE;
++
++		if (ctrl & NAND_CLE)
++			addr |= NAND_CMD_CLE;
++		else
++			addr &= ~NAND_CMD_CLE;
++
++		chip->IO_ADDR_W = (void __iomem *) addr;
++	}
++
++	if (cmd != NAND_CMD_NONE) {
++		writeb(cmd, chip->IO_ADDR_W);
++		ltq_nand_wait_ready();
++	}
++}
++
++int ltq_nand_init(struct nand_chip *nand)
++{
++	/* Enable NAND, set NAND CS to EBU CS1, enable EBU CS mux */
++	ltq_writel(&ltq_nand_regs->con, NAND_CON_OUT_CS1 | NAND_CON_IN_CS1 |
++		NAND_CON_PRE_P | NAND_CON_WP_P | NAND_CON_SE_P |
++		NAND_CON_CS_P | NAND_CON_CSMUX);
++
++	nand->dev_ready = ltq_nand_dev_ready;
++	nand->select_chip = ltq_nand_select_chip;
++	nand->cmd_ctrl = ltq_nand_cmd_ctrl;
++
++	nand->chip_delay = 30;
++	nand->options = 0;
++	nand->ecc.mode = NAND_ECC_SOFT;
++
++	/* Enable CS bit in address offset */
++	nand->IO_ADDR_R = nand->IO_ADDR_R + NAND_CMD_CS;
++	nand->IO_ADDR_W = nand->IO_ADDR_W + NAND_CMD_CS;
++
++	return 0;
++}
++
++__weak int board_nand_init(struct nand_chip *chip)
++{
++	return ltq_nand_init(chip);
++}
+diff --git a/drivers/mtd/spi/spansion.c b/drivers/mtd/spi/spansion.c
+index f98784c27b5611a79d59cf477be7513dc4f24832..eb17bf1c23793890f7d98de36b34c80f71531193 100644
+--- a/drivers/mtd/spi/spansion.c
++++ b/drivers/mtd/spi/spansion.c
+@@ -116,7 +116,7 @@ static const struct spansion_spi_flash_params spansion_spi_flash_table[] = {
+ 	},
+ 	{
+ 		.idcode1 = 0x0220,
+-		.idcode2 = 0,
++		.idcode2 = 0x4d00,
+ 		.pages_per_sector = 1024,
+ 		.nr_sectors = 256,
+ 		.name = "S25FL512S_256K",
+diff --git a/include/configs/easy80920.h b/include/configs/easy80920.h
+index eb8979fe25466be2e99a462a713abd31304ecb1c..ca663a2b66da1e9b849a772bd8f7868beaa50ddf 100644
+--- a/include/configs/easy80920.h
++++ b/include/configs/easy80920.h
+@@ -31,6 +31,8 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_DEBUG
+ 
++#define CONFIG_SYS_DRAM_PROBE
++
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index c27e608bbeccedec8a96bdbc4b28bc1f65499cd2..ed141452e472a1542b42773dfd15708abfb20612 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -24,6 +24,8 @@
+ #define CONFIG_SPI_FLASH_EON		/* Supports EN25QH256 serial flash */
+ #define CONFIG_SPI_FLASH_4BYTE_MODE
+ 
++#define CONFIG_LTQ_SUPPORT_NAND_FLASH
++
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+ #define CONFIG_SPL_SPI_CS		4
+@@ -32,6 +34,8 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_DEBUG
+ 
++#define CONFIG_SYS_DRAM_PROBE
++
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index 37186fef358fa4ae87b9a706dc81b7c6b56d2b06..587c48ec212646ac18d2a2fb8e0f66a6ea800519 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -24,6 +24,8 @@
+ #define CONFIG_SPI_FLASH_EON		/* Supports EN25QH256 serial flash */
+ #define CONFIG_SPI_FLASH_4BYTE_MODE
+ 
++#define CONFIG_LTQ_SUPPORT_NAND_FLASH
++
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+ #define CONFIG_SPL_SPI_CS		4
+@@ -32,6 +34,8 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_DEBUG
+ 
++#define CONFIG_SYS_DRAM_PROBE
++
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index b09fe3442bdd6650c7dc99392afb889d9369a7a1..9acc34450bd1fae7915eb3403105b3d16cde9bd0 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -245,12 +245,9 @@ int sas_boot_scan_images(void)
+ 		switch (flash_layout) {
+ 		case SAS_LAYOUT_PLATFORM_ONLY_SINGLE:
+ 		case SAS_LAYOUT_PLATFORM_ONLY_MIRRORED:
+-			if (has_platformfs)
+-				state_new = SAS_BOOT_AVAILABLE;
+-			break;
+ 		case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+ 		case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-			if (has_platformfs || has_servicefs)
++			if (has_platformfs)
+ 				state_new = SAS_BOOT_AVAILABLE;
+ 			break;
+ 		default:
+@@ -269,7 +266,7 @@ int sas_boot_scan_images(void)
+ 
+ struct sas_boot_priv {
+ 	unsigned int active_image;
+-	int protect_uboot;
++	int ptest_mode;
+ 	int dev_cnt;
+ 	int part_cnt;
+ 	int mtd_cnt;
+@@ -367,9 +364,6 @@ static void sas_boot_part_cb(struct sas_flash_partition *part, void *data)
+ 
+ 	switch (part->type) {
+ 	case SAS_PART_UBOOT_FIX:
+-		sas_boot_mtd_part_add(priv, part->size, part->offset,
+-					part->mtd->name, priv->protect_uboot);
+-		break;
+ 	case SAS_PART_UBOOT_CFG:
+ 	case SAS_PART_UBOOT_UPDATE:
+ 	case SAS_PART_IMAGES1:
+@@ -444,6 +438,9 @@ static void sas_boot_mtd_cb(struct mtd_info *mtd, void *data)
+ 	struct sas_flash_partition *boot_part;
+ 	int n;
+ 
++	if (strcmp(sas_flash_boot_device(), mtd->name))
++		return;
++
+ 	if (priv->dev_cnt)
+ 		*(priv->pos++) = ';';
+ 
+@@ -463,14 +460,14 @@ static void sas_boot_mtd_cb(struct mtd_info *mtd, void *data)
+ 	priv->dev_cnt++;
+ }
+ 
+-void sas_boot_init_mtdparts(unsigned int active_image, int protect_uboot,
++void sas_boot_init_mtdparts(unsigned int active_image, int ptest_mode,
+ 				char *buf)
+ {
+ 	struct sas_boot_priv priv;
+ 	int n;
+ 
+ 	priv.active_image = active_image;
+-	priv.protect_uboot = protect_uboot;
++	priv.ptest_mode = ptest_mode;
+ 	priv.dev_cnt = 0;
+ 	priv.part_cnt = 0;
+ 	priv.mtd_cnt = 0;
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 3a9eead7ce3c23b906d0c4fde7fc04f760690c5f..f93652f5225df42991ca5a69f83b73c366f3a35d 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -417,7 +417,7 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 		if (ret)
+ 			goto done;
+ 
+-		sas_boot_init_mtdparts(active_image, !ptest_mode, mtdparts);
++		sas_boot_init_mtdparts(active_image, ptest_mode, mtdparts);
+ 
+ 		ret = sas_load_fs(active_image, rootfs, SAS_IMG_ROOTFS);
+ 		if (ret)
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 37614dbf618fcb0b5d2d4c1ad858653f7dea7a9b..6201890367ec828dbf8c75e300cd421b7e3e5752 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -20,6 +20,7 @@
+ 
+ /* should be ltq-nor for upstream linux */
+ #define SAS_MTDID_LTQ_NOR	"bank1";
++#define SAS_MTDID_LTQ_NAND	"ifx_nand";
+ #define SAS_MTDID_M25P80	"spi0.4";
+ 
+ extern struct mtd_info *mtd_table[MAX_MTD_DEVICES];
+@@ -87,6 +88,10 @@ const char * sas_flash_linux_mtdid(const struct mtd_info *mtd)
+ 	if (0 == strcmp(mtd->name, "nor0"))
+ 		return SAS_MTDID_M25P80;
+ #endif
++#if defined(CONFIG_CMD_NAND)
++	if (0 == strcmp(mtd->name, "nand0"))
++		return SAS_MTDID_LTQ_NAND;
++#endif
+ 
+ 	return NULL;
+ }

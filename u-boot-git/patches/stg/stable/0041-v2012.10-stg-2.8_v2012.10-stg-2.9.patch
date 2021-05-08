@@ -1,0 +1,132 @@
+diff --git a/Makefile b/Makefile
+index 9c78629e65d0beb2b5bea7ea09f7f64fe599cb08..a86dd5f8f77f637c438393d20465f2fc28ac788c 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2012
+ PATCHLEVEL = 10
+ SUBLEVEL =
+-EXTRAVERSION = -stg-2.8
++EXTRAVERSION = -stg-2.9
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/flash.h b/include/sas/flash.h
+index 35ba3fcb01b9307623ed35a98365c7b47e8dd0da..102b13d5bed7ec501f2b89b04fcfec4dd3c784c5 100644
+--- a/include/sas/flash.h
++++ b/include/sas/flash.h
+@@ -42,7 +42,7 @@ struct sas_flash_partition {
+ /**
+  * sas_flash_init - init the flash subsystem
+  */
+-void sas_flash_init(void);
++int sas_flash_init(void);
+ 
+ /**
+  * sas_flash_verbose_set - set verbosity of flash subsystem
+diff --git a/lib/sphairon/flash.c b/lib/sphairon/flash.c
+index 9f4cb27c32a427b9067f4f1f6374f7920daa9a98..e62e4165529eeb7a8fe8066ec40469a91e0df5df 100644
+--- a/lib/sphairon/flash.c
++++ b/lib/sphairon/flash.c
+@@ -19,9 +19,36 @@
+ static struct list_head sas_flash_partitions;
+ static int sas_flash_verbose;
+ 
+-void sas_flash_init(void)
++int sas_flash_init(void)
+ {
++	char *nand;
++	char mtdids[64];
++	unsigned int pos;
++
+ 	INIT_LIST_HEAD(&sas_flash_partitions);
++
++	snprintf(mtdids, sizeof(mtdids - 1), "%s", MTDIDS_DEFAULT);
++
++	/* strip nand0 from mtdids if not assembled */
++	if (!sas_flash_data_device()) {
++		/* check if nand0 is configured */
++		nand = strstr(mtdids, "nand0");
++		if (nand) {
++			pos = nand - mtdids;
++			if (mtdids[pos - 1] == ',')
++				pos--;
++
++			mtdids[pos] = 0;
++		}
++	}
++
++	/* init env variables mtdparts and mtdids */
++	setenv("mtdids", mtdids);
++	setenv("mtdparts", MTDPARTS_DEFAULT);
++	setenv("partition", NULL);
++	mtdparts_init();
++
++	return 0;
+ }
+ 
+ void sas_flash_verbose_set(int v)
+@@ -117,11 +144,16 @@ struct mtd_info *
+ sas_flash_part_mtd_parent(const struct sas_flash_partition *part)
+ {
+ 	struct mtd_device *dev = part->pinfo->dev;
++	struct mtd_info *mtd;
+ 	char mtd_dev[16];
+ 
+ 	sprintf(mtd_dev, "%s%d", MTD_DEV_TYPE(dev->id->type), dev->id->num);
+ 
+-	return get_mtd_device_nm(mtd_dev);
++	mtd = get_mtd_device_nm(mtd_dev);
++	if (IS_ERR(mtd))
++		return NULL;
++
++	return mtd;
+ }
+ 
+ int sas_flash_part_mtd_register(struct mtd_info *mtd,
+@@ -168,8 +200,12 @@ struct mtd_info *sas_flash_rootfs_device(void)
+ 
+ struct mtd_info *sas_flash_data_device(void)
+ {
+-#ifdef CONFIG_LTQ_SUPPORT_NAND_FLASH
+-	return get_mtd_device_nm("nand0");
++#ifdef CONFIG_CMD_NAND
++	struct mtd_info *mtd = get_mtd_device_nm("nand0");
++	if (IS_ERR(mtd))
++		return NULL;
++
++	return mtd;
+ #else
+ 	return NULL;
+ #endif
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index 65ec9e88a9f33c895d664583fae472c57a59a872..93dd7583886ff10c277b822583e670ff0de27f5c 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -67,10 +67,6 @@ int sas_flash_layout_static_init(void)
+ 
+ 	sas_flash_layout = SAS_LAYOUT_BASIC;
+ 
+-	err = sas_run_command("mtdparts default");
+-	if (err)
+-		return 1;
+-
+ 	err = sas_flash_layout_static_part_init(SAS_PART_UBOOT_FIX);
+ 	if (err)
+ 		return 1;
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index 7dfc27337632d58775bb90a1fa7087857ad4e56e..7439ebc0fe3a5420504a4b767be2e9d1a3cc69d8 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -40,7 +40,10 @@ int sas_init_r(void)
+ 
+ 	printf("Reloc: offset @ 0x%08lx\n", gd->reloc_off);
+ 
+-	sas_flash_init();
++	ret = sas_flash_init();
++	if (ret)
++		goto err;
++
+ 	sas_boot_init();
+ 
+ 	if (init_flash_layout) {

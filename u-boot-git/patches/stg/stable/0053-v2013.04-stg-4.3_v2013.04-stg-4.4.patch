@@ -1,0 +1,367 @@
+diff --git a/Makefile b/Makefile
+index 3f2617d0f8006efa195d97349dd69d3cbbfc128c..93575d64a973b7a7bea8ab16ee46bedeb1c9dd32 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -stg-4.3
++EXTRAVERSION = -stg-4.4
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/configs/tl7201.h b/include/configs/tl7201.h
+index 553b8ae93ba2d630575313057a42653568dcaf81..74d0d1020dfb0c2213772cfbf062fc747ca2eef4 100644
+--- a/include/configs/tl7201.h
++++ b/include/configs/tl7201.h
+@@ -29,19 +29,25 @@
+ #define CONFIG_MTD_PARTITIONS
+ #define CONFIG_FLASH_CFI_MTD
+ #define CONFIG_CMD_MTD
++#define MTDIDS_DEFAULT			"nor0=bank0"
+ 
+ /* Environment */
+ #if defined(CONFIG_SYS_BOOT_NOR)
+ #define CONFIG_ENV_IS_IN_FLASH
+ #define CONFIG_ENV_OVERWRITE
+ #define CONFIG_ENV_OFFSET		(256 * 1024)
+-#define CONFIG_ENV_SIZE			(8 * 1024)
+ #define CONFIG_ENV_SECT_SIZE		(128 * 1024)
++
++#define MTDPARTS_DEFAULT		\
++	"mtdparts=bank0:256k(uboot_fix),128k(uboot_cfg)"
+ #else
+ #define CONFIG_ENV_IS_NOWHERE
+-#define CONFIG_ENV_SIZE			(2 * 1024)
++
++#define MTDPARTS_DEFAULT		"mtdparts="
+ #endif
+ 
++#define CONFIG_ENV_SIZE			(8 * 1024)
++
+ #define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
+ 
+ /* Console */
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index 547df0fdb2ff49b1613dda467d8bbe5a204ef68f..b157cae62f3a9a23df012ea5b5d1b6eb9efbb2eb 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -6,13 +6,20 @@
+  */
+ 
+ #include <common.h>
++#include <malloc.h>
+ #include <linux/compiler.h>
+ 
+ #include <sas/etl.h>
+ #include <sas/util.h>
+ #include <sas/flash.h>
+ 
+-static char sas_etl_map[SAS_ETL_ID_LAST][SAS_ETL_MAX_VALUE_CHARS];
++struct sas_etl_map_entry {
++	struct list_head link;
++	enum sas_etl_id idx;
++	char val[SAS_ETL_MAX_VALUE_CHARS];
++};
++
++static struct list_head sas_etl_map;
+ static int sas_etl_ver;
+ 
+ int sas_etl_init(void)
+@@ -20,6 +27,8 @@ int sas_etl_init(void)
+ 	const unsigned long addr = CONFIG_LOADADDR;
+ 	int ret;
+ 
++	INIT_LIST_HEAD(&sas_etl_map);
++
+ 	ret = sas_etl_flash_read(addr);
+ 	if (ret)
+ 		return ret;
+@@ -77,14 +86,86 @@ int sas_etl_flash_erase(void)
+ 	return ret;
+ }
+ 
++static struct sas_etl_map_entry *
++sas_etl_entry_create(enum sas_etl_id idx)
++{
++	struct sas_etl_map_entry *entry;
++
++	entry = malloc(sizeof(*entry));
++	if (!entry) {
++		debug("%s: failed to create entry\n", __func__);
++		return NULL;
++	}
++
++	memset(entry, 0, sizeof(*entry));
++	INIT_LIST_HEAD(&entry->link);
++	entry->idx = idx;
++
++	debug("%s: creating entry %d\n", __func__, entry->idx);
++
++	return entry;
++}
++
++static void sas_etl_entry_add(struct sas_etl_map_entry *entry)
++{
++	debug("%s: adding entry %d\n", __func__, entry->idx);
++	list_add_tail(&entry->link, &sas_etl_map);
++}
++
++static struct sas_etl_map_entry *sas_etl_entry_find(enum sas_etl_id idx)
++{
++	struct sas_etl_map_entry *entry;
++
++	if (!idx || idx >= SAS_ETL_ID_LAST)
++		return NULL;
++
++	list_for_each_entry(entry, &sas_etl_map, link) {
++		if (idx == entry->idx)
++			return entry;
++	}
++
++	return NULL;
++}
++
++static struct sas_etl_map_entry *
++sas_etl_entry_find_or_create(enum sas_etl_id idx)
++{
++	struct sas_etl_map_entry *entry = sas_etl_entry_find(idx);
++
++	if (entry)
++		return entry;
++
++	entry = sas_etl_entry_create(idx);
++	if (!entry)
++		return NULL;
++
++	sas_etl_entry_add(entry);
++
++	return entry;
++}
++
++static void sas_etl_entries_clear(void)
++{
++	struct sas_etl_map_entry *entry;
++	struct list_head *pos, *q;
++
++	sas_etl_ver = 0;
++
++	list_for_each_safe(pos, q, &sas_etl_map) {
++		entry = list_entry(pos, struct sas_etl_map_entry, link);
++		debug("%s: deleting entry %d\n", __func__, entry->idx);
++		list_del(pos);
++		free(entry);
++	}
++}
++
+ int sas_etl_import(unsigned long addr)
+ {
+ 	const u8 *buf = (const u8 *)addr;
++	struct sas_etl_map_entry *entry;
+ 	u8 idx, len;
+-	char *str;
+ 
+-	sas_etl_ver = 0;
+-	memset(&sas_etl_map, 0, sizeof(sas_etl_map));
++	sas_etl_entries_clear();
+ 
+ 	/* Check for empty flash and ETL version */
+ 	if (buf[0] == 0xff || buf[SAS_ETL_V2_SIZE - 1] == 0xff) {
+@@ -120,8 +201,13 @@ int sas_etl_import(unsigned long addr)
+ 			return 1;
+ 		}
+ 
+-		str = &sas_etl_map[idx][0];
+-		memcpy(str, buf, len);
++		entry = sas_etl_entry_create(idx);
++		if (!entry)
++			return 1;
++
++		memcpy(entry->val, buf, len);
++		sas_etl_entry_add(entry);
++
+ 		buf += len;
+ 	} while ((buf - (const u8 *)addr) < SAS_ETL_V2_SIZE);
+ 
+@@ -131,23 +217,22 @@ int sas_etl_import(unsigned long addr)
+ int sas_etl_export(unsigned long addr)
+ {
+ 	u8 *buf = (u8 *)addr;
+-	char *str;
+-	enum sas_etl_id idx;
++	struct sas_etl_map_entry *entry;
+ 	u8 len;
+ 
+ 	memset(buf, 0, SAS_ETL_V2_SIZE);
+ 
+-	for (idx = SAS_ETL_HW_VERSION; idx < SAS_ETL_ID_LAST; idx++) {
+-		str = &sas_etl_map[idx][0];
+-
+-		if (sas_etl_is_hex(idx))
++	list_for_each_entry(entry, &sas_etl_map, link) {
++		if (sas_etl_is_hex(entry->idx))
+ 			len = 4;
+ 		else
+-			len = strlen(str);
++			len = strlen(entry->val);
++
++		debug("%s: idx %u, len %u\n", __func__, entry->idx, len);
+ 
+-		*buf++ = idx;
++		*buf++ = entry->idx;
+ 		*buf++ = len;
+-		memcpy(buf, str, len);
++		memcpy(buf, entry->val, len);
+ 		buf += len;
+ 	}
+ 
+@@ -163,7 +248,7 @@ static void sas_etl_env_set_default(enum sas_etl_id idx, const char *name,
+ 	const char *etl_val = sas_etl_get_string(idx);
+ 	const char *env_val;
+ 
+-	if (etl_val && strlen(etl_val))
++	if (etl_val)
+ 		env_val = etl_val;
+ 	else
+ 		env_val = defval;
+@@ -178,7 +263,7 @@ static void sas_etl_env_set_fill(enum sas_etl_id idx, const char *name,
+ 	const char *env_val;
+ 	char tmp[40];
+ 
+-	if (etl_val && strlen(etl_val))
++	if (etl_val)
+ 		env_val = etl_val;
+ 	else {
+ 		memset(tmp, fillval, len);
+@@ -325,38 +410,40 @@ void sas_etl_env_save(int *save_env)
+ 
+ const char *sas_etl_get_string(enum sas_etl_id idx)
+ {
+-	if (!idx || idx >= SAS_ETL_ID_LAST)
++	const struct sas_etl_map_entry *entry = sas_etl_entry_find(idx);
++
++	if (!entry)
+ 		return NULL;
+ 
+-	return &sas_etl_map[idx][0];
++	return entry->val;
+ }
+ 
+ int sas_etl_get_integer(enum sas_etl_id idx)
+ {
+-	const char *str = sas_etl_get_string(idx);
+-	int val;
++	const struct sas_etl_map_entry *entry = sas_etl_entry_find(idx);
++	unsigned long val;
+ 
+-	if (!str)
++	if (!entry)
+ 		return 0;
+ 
+-	strict_strtoul(str, 10, (unsigned long *)&val);
++	strict_strtoul(entry->val, 10, &val);
+ 
+ 	return val;
+ }
+ 
+ unsigned long sas_etl_get_hex(enum sas_etl_id idx, unsigned int len)
+ {
+-	const char *str = sas_etl_get_string(idx);
++	const struct sas_etl_map_entry *entry = sas_etl_entry_find(idx);
+ 	unsigned long val;
+ 	unsigned int i;
+ 
+-	if (!str)
++	if (!entry)
+ 		return 0;
+ 
+-	val = str[0];
++	val = entry->val[0];
+ 	for (i = 1; i < len; i++) {
+ 		val <<= 8;
+-		val |= str[i];
++		val |= entry->val[i];
+ 	}
+ 
+ 	return val;
+@@ -364,47 +451,41 @@ unsigned long sas_etl_get_hex(enum sas_etl_id idx, unsigned int len)
+ 
+ void sas_etl_set_string(enum sas_etl_id idx, const char *val)
+ {
+-	char *str;
++	struct sas_etl_map_entry *entry = sas_etl_entry_find_or_create(idx);
+ 
+-	if (!idx || idx >= SAS_ETL_ID_LAST)
++	if (!entry)
+ 		return;
+ 
+-	str = &sas_etl_map[idx][0];
+-
+ 	if (val)
+-		snprintf(str, SAS_ETL_MAX_VALUE_CHARS - 1, "%s", val);
++		snprintf(entry->val, SAS_ETL_MAX_VALUE_CHARS - 1, "%s", val);
+ 	else
+-		memset(str, 0, SAS_ETL_MAX_VALUE_CHARS);
++		memset(entry->val, 0, SAS_ETL_MAX_VALUE_CHARS);
+ }
+ 
+ void sas_etl_set_integer(enum sas_etl_id idx, int val)
+ {
+-	char *str;
++	struct sas_etl_map_entry *entry = sas_etl_entry_find_or_create(idx);
+ 
+-	if (!idx || idx >= SAS_ETL_ID_LAST)
++	if (!entry)
+ 		return;
+ 
+-	str = &sas_etl_map[idx][0];
+-
+-	snprintf(str, SAS_ETL_MAX_VALUE_CHARS - 1, "%d", val);
++	snprintf(entry->val, SAS_ETL_MAX_VALUE_CHARS - 1, "%d", val);
+ }
+ 
+ void sas_etl_set_hex(enum sas_etl_id idx, unsigned int len, unsigned long val)
+ {
+-	char *str;
++	struct sas_etl_map_entry *entry = sas_etl_entry_find_or_create(idx);
+ 
+-	if (!idx || idx >= SAS_ETL_ID_LAST)
++	if (!entry)
+ 		return;
+ 
+-	str = &sas_etl_map[idx][0];
+-
+ 	val <<= (4 - len) * 8;
+-	memcpy(str, &val, 4);
++	memcpy(entry->val, &val, 4);
+ }
+ 
+ static void sas_etl_banner_print(const char *name, const char *buf)
+ {
+-	sas_banner_content_print("%-25s%-s ", name, buf);
++	sas_banner_content_print("%-25s%-s ", name, buf ? buf : "");
+ }
+ 
+ void sas_etl_print(void)
+@@ -452,6 +533,7 @@ void sas_etl_print(void)
+ void sas_etl_dump(void)
+ {
+ 	enum sas_etl_id idx;
++	const char *str;
+ 
+ 	for (idx = SAS_ETL_HW_VERSION; idx < SAS_ETL_ID_LAST; idx++) {
+ 		printf("%03d: %s = ", idx, sas_etl_id_str(idx));
+@@ -461,8 +543,10 @@ void sas_etl_dump(void)
+ 		else if (sas_etl_is_hex(idx))
+ 			printf("0x%0*lx\n", 2 * sas_etl_hex_size(idx),
+ 				sas_etl_get_hex(idx, sas_etl_hex_size(idx)));
+-		else
+-			printf("%s\n", sas_etl_get_string(idx));
++		else {
++			str = sas_etl_get_string(idx);
++			printf("%s\n", str ? str : "");
++		}
+ 	}
+ }
+ 

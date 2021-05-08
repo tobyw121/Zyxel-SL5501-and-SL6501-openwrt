@@ -1,0 +1,43 @@
+diff --git a/Makefile b/Makefile
+index b3b8995799a10b935103351e268791d5a1ebaa7b..bc0a0b87a9dc635f1b35cd3cecff9789ca913fdd 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.19
++EXTRAVERSION = -stg-1.20
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 73cf41b56741610095509fdde3657293aeae2b6f..73524e6ceb4b2edf720541230aa2b08403ed8415 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -395,7 +395,8 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 			active_image_prev = active_image;
+ 
+ 			part = sas_flash_layout_image_partition(active_image - 1);
+-		}
++		} else
++			can_boot = 1;
+ 
+ 		sas_boot_mtdparts_init(active_image, protect_uboot, mtdparts);
+ 
+@@ -415,11 +416,11 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 		if (ret)
+ 			goto done;
+ 
+-		if (boot_logic && active_image) {
++		if (boot_logic && active_image)
+ 			can_boot = sas_boot_state_update(active_image, &save_env);
+-			if (can_boot)
+-				break;
+-		}
++
++		if (can_boot)
++			break;
+ 	}
+ 
+ 	sas_linux_fixup(loadaddr);

@@ -1,0 +1,499 @@
+diff --git a/Makefile b/Makefile
+index 40a8562d85ca9114b50c779fad499afb48caf710..69f401ae33e0e28ca15e98aac3dc5c1d05563308 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2011
+ PATCHLEVEL = 12
+ SUBLEVEL =
+-EXTRAVERSION = -stg-1.27
++EXTRAVERSION = -stg-1.28
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/lib/spl_lantiq.c b/arch/mips/lib/spl_lantiq.c
+index 30290ea91670c2cfa22137826736d1d69da5746f..ea3dda99b618b4641bd1f9e42f8f7c7f5f1d6232 100644
+--- a/arch/mips/lib/spl_lantiq.c
++++ b/arch/mips/lib/spl_lantiq.c
+@@ -296,6 +296,8 @@ void __noreturn spl_lantiq_init(void)
+ 	board_early_init_f();
+ 	timer_init();
+ 
++	memset(&spl, 0, sizeof(spl));
++
+ 	ret = spl_load(&spl);
+ 	if (ret)
+ 		goto hang;
+diff --git a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+index 168864e07bc741a4984ac697946f0425bfd6a6bc..c6136476716809fe2523c0eb36531fa6cb962b56 100644
+--- a/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
++++ b/board/sphairon/isdn_sip_gw/isdn_sip_gw.c
+@@ -12,6 +12,7 @@
+ #include <asm/lantiq/chipid.h>
+ #include <asm/arch/gphy.h>
+ #include <asm/arch/cpu.h>
++#include <sas/controlfile.h>
+ 
+ #if defined(CONFIG_SPL_BUILD)
+ #define do_gpio_init	1
+@@ -201,3 +202,9 @@ void spi_cs_deactivate(struct spi_slave *slave)
+ 	if (gpio >= 0)
+ 		gpio_set_value(gpio, 1);
+ }
++
++int sas_cf_check_board(void)
++{
++	/* check if reset button is pressed */
++	return 0 == gpio_get_value(46);
++}
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index 877c9832922dced4dbba97a1965f269e7add9c9f..5ca1e66938651534bc06f43d4e45e0b290c49573 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -12,6 +12,7 @@
+ #include <asm/lantiq/chipid.h>
+ #include <asm/arch/gphy.h>
+ #include <asm/arch/cpu.h>
++#include <sas/controlfile.h>
+ 
+ #if defined(CONFIG_SPL_BUILD)
+ #define do_gpio_init	1
+@@ -171,3 +172,9 @@ void spi_cs_deactivate(struct spi_slave *slave)
+ 		break;
+ 	}
+ }
++
++int sas_cf_check_board(void)
++{
++	/* check if reset button is pressed */
++	return 0 == gpio_get_value(47);
++}
+diff --git a/drivers/mtd/spi/macronix.c b/drivers/mtd/spi/macronix.c
+index 1d7b9d60535ecd912bb29d79d89e452a53eec65b..6516f3e0cd311ba9e330fdd20423d660cd07c91b 100644
+--- a/drivers/mtd/spi/macronix.c
++++ b/drivers/mtd/spi/macronix.c
+@@ -134,6 +134,15 @@ static const struct macronix_spi_flash_params macronix_spi_flash_table[] = {
+ 		.use_4byte_addr = 1,
+ 		.name = "MX25L25635E",
+ 	},
++	{
++		.idcode = 0x201A,
++		.page_size = 256,
++		.pages_per_sector = 16,
++		.sectors_per_block = 16,
++		.nr_blocks = 1024,
++		.use_4byte_addr = 1,
++		.name = "MX66L51235L",
++	},
+ };
+ 
+ static int macronix_write_status(struct spi_flash *flash, u8 sr)
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index f9dec2729fe049c7a4e3465ff5f24bab77d7edda..767913bc362f362a4b21b27dfcd26c286988796b 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -15,6 +15,7 @@
+ #define CONFIG_CMD_GPIO
+ #define CONFIG_CMD_PING
+ #define CONFIG_CMD_MISC
++#define CONFIG_CMD_ECHO
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_SPI_FLASH)
+ #define CONFIG_CMD_SPI
+diff --git a/include/sas/controlfile.h b/include/sas/controlfile.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..983933fcf97bacfc7f9122935f5c34126081cca3
+--- /dev/null
++++ b/include/sas/controlfile.h
+@@ -0,0 +1,21 @@
++/*
++ * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ *
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ */
++
++#ifndef __SAS_CONTROLFILE_H__
++#define __SAS_CONTROLFILE_H__
++
++enum sas_cf_state {
++	CF_STARTED,
++	CF_FINISHED,
++	CF_FAILED,
++};
++
++int sas_cf_check_board(void);
++void sas_cf_status_board(enum sas_cf_state state);
++void sas_cf_run(void);
++
++#endif /* __SAS_CONTROLFILE_H__ */
+diff --git a/lib/sphairon/Makefile b/lib/sphairon/Makefile
+index 3f47beed94cbb01eca5266a9d65742bfe50df2f0..6dd9b473b7d83f4549c60abc10cd340c6cd69770 100644
+--- a/lib/sphairon/Makefile
++++ b/lib/sphairon/Makefile
+@@ -16,9 +16,11 @@ COBJS-y	+= flash.o flashlayout.o
+ COBJS-y	+= etl.o
+ COBJS-y	+= boot.o image.o
+ COBJS-y	+= init.o
++COBJS-y	+= controlfile.o
+ COBJS-y	+= cmd_sas_boot.o
+ COBJS-y	+= cmd_sas_upgrade.o
+ COBJS-$(CONFIG_SPI_FLASH) += cmd_sas_test_sf.o
++COBJS-y	+= cmd_sas_controlfile.o
+ SOBJS-y	+=
+ 
+ COBJS	:= $(COBJS-y)
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index 9cbc691f9d9443aa7a334e900abb6fbe76a999b7..7ccc0c2e6936a4d827e3fafcd25d7860da0370f1 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -242,7 +242,7 @@ int sas_boot_scan_images(void)
+ 			break;
+ 		case SAS_LAYOUT_PLATFORM_SERVICE_SINGLE:
+ 		case SAS_LAYOUT_PLATFORM_SERVICE_MIRRORED:
+-			if (has_platformfs && has_servicefs)
++			if (has_platformfs || has_servicefs)
+ 				state_new = SAS_BOOT_AVAILABLE;
+ 			break;
+ 		default:
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index 66bafc37280d9d0144c36897670e8a05ecf40d89..eac63d3344f5caa4e39939af769d573687a2e9bf 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -169,10 +169,8 @@ static int sas_load_fs(int active_image, sas_image_src_t src,
+ 		sprintf(buf, "%s=%s", name, sas_image_src_str(src));
+ 		setenv(name, buf);
+ 		break;
+-	case SAS_NONE:
+-		break;
+ 	case SAS_PTEST:
+-		setenv("ptest", "ptest=1");
++	case SAS_NONE:
+ 		break;
+ 	default:
+ 		ret = 1;
+@@ -237,8 +235,11 @@ static void sas_env_mtdparts_set(const char *mtdparts)
+ 	setenv("mtdparts", mtdparts);
+ }
+ 
+-static void sas_env_bootargs_init(void)
++static void sas_env_bootargs_init(int ptest_mode)
+ {
++	if (ptest_mode)
++		setenv("ptest", "ptest=1");
++
+ 	sas_run_command("run addconsole addeth addip addmachtype addbootargs");
+ }
+ 
+@@ -444,7 +445,7 @@ static int do_sas_boot(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[]
+ 		/* Handle transient env variables */
+ 		sas_env_linux_fixup(loadaddr);
+ 		sas_env_mtdparts_set(mtdparts);
+-		sas_env_bootargs_init();
++		sas_env_bootargs_init(ptest_mode);
+ 
+ 		/* Perform boot */
+ 		sas_bootm(loadaddr);
+diff --git a/lib/sphairon/cmd_sas_controlfile.c b/lib/sphairon/cmd_sas_controlfile.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..5c17b0f47204b722c7c415f2531c168b8dd40922
+--- /dev/null
++++ b/lib/sphairon/cmd_sas_controlfile.c
+@@ -0,0 +1,52 @@
++/*
++ * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ *
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ */
++
++#define DEBUG
++
++#include <common.h>
++#include <command.h>
++#include <hush.h>
++#include <malloc.h>
++#include <sas/controlfile.h>
++#include <sas/util.h>
++
++#define SAS_CF_FILENAME		"control.script"
++
++static int do_sas_controlfile(cmd_tbl_t * cmdtp, int flag, int argc, char *const argv[])
++{
++	size_t size;
++	unsigned long loadaddr;
++	int ret;
++	char *cmd;
++
++	loadaddr = getenv_ulong("loadaddr", 16, 0);
++	size = sas_run_tftpboot(loadaddr, SAS_CF_FILENAME);
++	if (!size) {
++		ret = -1;
++		goto done;
++	}
++
++	cmd = malloc(size + 1);
++	if (!cmd) {
++		ret = -1;
++		goto done;
++	}
++
++	memmove(cmd, (char *)loadaddr, size);
++	cmd[size] = 0;
++
++	ret = parse_string_outer(cmd, FLAG_PARSE_SEMICOLON);
++	free(cmd);
++
++done:
++	sas_cf_status_board(ret ? CF_FAILED : CF_FINISHED);
++
++	return ret;
++}
++
++U_BOOT_CMD(sas_controlfile, 1, 0, do_sas_controlfile,
++	   "Sphairon control file execution", NULL);
+diff --git a/lib/sphairon/cmd_sas_upgrade.c b/lib/sphairon/cmd_sas_upgrade.c
+index 8c30c631b8d1c60c8ea741ec3b210f1b579afd20..338556b241a0385bce1bba9ab266b7efd91f01f3 100644
+--- a/lib/sphairon/cmd_sas_upgrade.c
++++ b/lib/sphairon/cmd_sas_upgrade.c
+@@ -126,6 +126,11 @@ static int sas_upgrade_image_check(ulong addr, sas_image_type_t image_type)
+ 	return 1;
+ }
+ 
++static int sas_upgrade_check_forced(int argc, char *const argv[])
++{
++	return (argc == 2 || argc == 4) && !strcmp(argv[1], "-f");
++}
++
+ static int do_sas_upgrade_uboot(cmd_tbl_t * cmdtp, int flag,
+ 				int argc, char *const argv[])
+ {
+@@ -134,9 +139,14 @@ static int do_sas_upgrade_uboot(cmd_tbl_t * cmdtp, int flag,
+ 	size_t size;
+ 	int ret;
+ 
+-	ret = sas_confirm("Caution: this can damage your board");
+-	if (!ret)
+-		return 0;
++	if (sas_upgrade_check_forced(argc, argv)) {
++		argc--;
++		argv++;
++	} else {
++		ret = sas_confirm("Caution: this can damage your board");
++		if (!ret)
++			return 0;
++	}
+ 
+ 	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
+ 	if (!part)
+@@ -166,9 +176,10 @@ static int do_sas_upgrade_uboot(cmd_tbl_t * cmdtp, int flag,
+ 	return ret;
+ }
+ 
+-U_BOOT_CMD(sas_upgrade_uboot, 3, 0, do_sas_upgrade_uboot,
+-	"Update U-Boot in flash", "[addr] [size]\n");
++U_BOOT_CMD(sas_upgrade_uboot, 4, 0, do_sas_upgrade_uboot,
++	"Update U-Boot in flash", "[-f] [addr size]\n");
+ 
++#if 0
+ static int do_sas_upgrade_uboot_alt(cmd_tbl_t * cmdtp, int flag,
+ 				    int argc, char *const argv[])
+ {
+@@ -221,6 +232,7 @@ static int do_sas_erase_uboot_alt(cmd_tbl_t * cmdtp, int flag,
+ 
+ U_BOOT_CMD(sas_erase_uboot_alt, 1, 0, do_sas_erase_uboot_alt,
+ 	"Erase second U-Boot in flash", "");
++#endif
+ 
+ static int do_sas_upgrade_etl(cmd_tbl_t * cmdtp, int flag,
+ 			      int argc, char *const argv[])
+@@ -230,9 +242,14 @@ static int do_sas_upgrade_etl(cmd_tbl_t * cmdtp, int flag,
+ 	size_t size;
+ 	int ret;
+ 
+-	ret = sas_confirm("Caution: this can damage your board");
+-	if (!ret)
+-		return 0;
++	if (sas_upgrade_check_forced(argc, argv)) {
++		argc--;
++		argv++;
++	} else {
++		ret = sas_confirm("Caution: this can damage your board");
++		if (!ret)
++			return 0;
++	}
+ 
+ 	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
+ 	if (!part)
+@@ -259,8 +276,8 @@ static int do_sas_upgrade_etl(cmd_tbl_t * cmdtp, int flag,
+ 	return ret;
+ }
+ 
+-U_BOOT_CMD(sas_upgrade_etl, 3, 0, do_sas_upgrade_etl,
+-	"Update ETL in flash", "[addr] [size]\n");
++U_BOOT_CMD(sas_upgrade_etl, 4, 0, do_sas_upgrade_etl,
++	"Update ETL in flash", "[-f] [addr size]\n");
+ 
+ static int do_sas_erase_etl(cmd_tbl_t * cmdtp, int flag,
+ 			    int argc, char *const argv[])
+@@ -269,9 +286,11 @@ static int do_sas_erase_etl(cmd_tbl_t * cmdtp, int flag,
+ 	int ret;
+ 	ulong etl_offset;
+ 
+-	ret = sas_confirm("Caution: this can damage your board");
+-	if (!ret)
+-		return 0;
++	if (!sas_upgrade_check_forced(argc, argv)) {
++		ret = sas_confirm("Caution: this can damage your board");
++		if (!ret)
++			return 0;
++	}
+ 
+ 	part = sas_flash_partition_get(SAS_PART_UBOOT_FIX);
+ 	if (!part)
+@@ -294,8 +313,8 @@ done:
+ 	return ret;
+ }
+ 
+-U_BOOT_CMD(sas_erase_etl, 1, 0, do_sas_erase_etl,
+-	"Erase ETL in flash", "");
++U_BOOT_CMD(sas_erase_etl, 2, 0, do_sas_erase_etl,
++	"Erase ETL in flash", "[-f]");
+ 
+ static int do_sas_erase_uboot_cfg(cmd_tbl_t * cmdtp, int flag,
+ 			    int argc, char *const argv[])
+diff --git a/lib/sphairon/controlfile.c b/lib/sphairon/controlfile.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a6f136d6f2d19d86f89d700829b2dd692275561
+--- /dev/null
++++ b/lib/sphairon/controlfile.c
+@@ -0,0 +1,64 @@
++/*
++ * (C) Copyright 2012 Daniel Schwierzeck, daniel.schwierzeck@sphairon.com
++ *
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ */
++
++#define DEBUG
++
++#include <common.h>
++#include <watchdog.h>
++#include <linux/compiler.h>
++
++#include <sas/controlfile.h>
++
++__weak int sas_cf_check_board(void)
++{
++	return 0;
++}
++
++__weak void sas_cf_status_board(enum sas_cf_state state)
++{
++	puts("control file ");
++
++	switch (state) {
++	case CF_STARTED:
++		puts("started\n");
++		break;
++	case CF_FINISHED:
++		puts("finished\n");
++		break;
++	case CF_FAILED:
++		puts("failed\n");
++		break;
++	}
++}
++
++static int sas_cf_debounce(unsigned long interval)
++{
++	unsigned long timebase = get_timer(0);
++
++	while (sas_cf_check_board()) {
++		WATCHDOG_RESET();
++
++		if (get_timer(timebase) > interval)
++			return 1;
++	}
++
++	return 0;
++}
++
++void sas_cf_run(void)
++{
++	int status;
++
++	status = sas_cf_debounce(2000);
++	if (!status)
++		return;
++
++	sas_cf_status_board(CF_STARTED);
++
++	setenv("bootcmd", "sas_controlfile");
++	setenv("bootdelay", "2");
++}
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index de1860614a680c15252ac6bb510ebdd4efb0d1f9..33e3ca3482fce93661847dca8a9debeed86ae79e 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -26,7 +26,7 @@
+ #endif
+ 
+ #define UBOOT_UPDATE_MIN_SIZE		(128 * 1024)
+-#define SYSCFG_MIN_SIZE			(128 * 1024)
++#define SYSCFG_MIN_SIZE			(256 * 1024)
+ 
+ struct sas_layout_map {
+ 	const char name[4];
+@@ -67,14 +67,6 @@ static void sas_flash_layout_default(struct mtd_info *mtd)
+ 					size, offset, 1);
+ 	}
+ 
+-	/* uboot_update: size = env offset */
+-	if (sas_have_mtd_uboot_update) {
+-		offset += size;
+-		size = sas_round_size(mtd, UBOOT_UPDATE_MIN_SIZE);
+-		sas_flash_partition_add(mtd, SAS_PART_UBOOT_UPDATE,
+-					size, offset, 0);
+-	}
+-
+ 	sas_flash_layout_offset = offset + size;
+ 	sas_flash_layout = SAS_LAYOUT_BASIC;
+ }
+@@ -86,13 +78,13 @@ static void sas_flash_layout_extended(struct mtd_info *mtd,
+ 	const int image_cnt =
+ 		sas_flash_layout_image_partitions(layout);
+ 
+-	/* syscfg1: 128k */
++	/* syscfg1: 256k */
+ 	offset = sas_flash_layout_offset;
+ 	size = sas_round_size(mtd, SYSCFG_MIN_SIZE);
+ 	sas_flash_partition_add(mtd, SAS_PART_SYSCFG1,
+ 				size, offset, 0);
+ 
+-	/* syscfg2: 128k */
++	/* syscfg2: 256k */
+ 	if (sas_flash_layout_is_mirrored(layout)) {
+ 		offset += size;
+ 		size = sas_round_size(mtd, SYSCFG_MIN_SIZE);
+diff --git a/lib/sphairon/init.c b/lib/sphairon/init.c
+index ce7170cb12d6362611ddff0cf001806d6de5343e..e1889f4b14f4521feec7b36db4d016748149d487 100644
+--- a/lib/sphairon/init.c
++++ b/lib/sphairon/init.c
+@@ -18,6 +18,7 @@
+ #include <sas/flashlayout.h>
+ #include <sas/etl.h>
+ #include <sas/boot.h>
++#include <sas/controlfile.h>
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -86,6 +87,8 @@ int sas_init_r(void)
+ 
+ 	sas_setenv_num("sas_saveenv", save_env, NULL);
+ 
++	sas_cf_run();
++
+ 	return 0;
+ 
+ err:
