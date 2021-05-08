@@ -1,0 +1,25 @@
+diff --git a/Makefile b/Makefile
+index 991b2af1e1cddebb5c68056dfb64769bfbbcdbbf..f92fe749c6aef4e937c0bc1488a07c9fc1efd01b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.15
++EXTRAVERSION = -sphairon4.16
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/cmd_sas_boot.c b/lib/sphairon/cmd_sas_boot.c
+index a2842890fdadfe00f31c280713919fcf11f689c8..3e8607d0086b8366a6030d87ebc073592d1ae072 100644
+--- a/lib/sphairon/cmd_sas_boot.c
++++ b/lib/sphairon/cmd_sas_boot.c
+@@ -274,6 +274,7 @@ static void sas_env_bootargs_init(int ptest_mode)
+ 	sas_env_bootargs_add("console=$consoledev,$baudrate");
+ 	sas_env_bootargs_add("ip=$ipaddr:$serverip::::$netdev:off");
+ 	sas_env_bootargs_add("ethaddr=$ethaddr");
++	sas_env_bootargs_add("machtype=" CONFIG_MACH_TYPE);
+ 	sas_env_bootargs_add("base_platform=$base_platform");
+ 	sas_env_bootargs_add("$kernelcmdline $mtdparts $flash_layout");
+ 	sas_env_bootargs_add("$rootfs $servicefs $defconfig");

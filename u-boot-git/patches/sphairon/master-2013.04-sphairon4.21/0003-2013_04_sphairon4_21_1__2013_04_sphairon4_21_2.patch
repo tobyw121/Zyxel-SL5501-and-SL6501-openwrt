@@ -1,0 +1,65 @@
+diff --git a/Makefile b/Makefile
+index cdacccf3aa357f9e35a4b81b6f403fdf79958aa7..39709d120e4367587d4ad1de0c0eaf9d02c4cd4b 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.21.1
++EXTRAVERSION = -sphairon4.21.2
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index f7cc600e2857f76a292b78f3ae4bd780e892d71c..68bfe318a9195b233343ac2b205a8298a3de67a9 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -36,6 +36,7 @@ enum sas_etl_id
+ 	SAS_ETL_DATA_PART_LOC		= 24,
+ 	SAS_ETL_ACS_AUTH		= 25,
+ 	SAS_ETL_WLAN_SSID_EXTRA		= 26,
++	SAS_ETL_GUI_AUTH		= 27,
+ 	SAS_ETL_ID_LAST,
+ };
+ 
+@@ -103,6 +104,8 @@ static inline int sas_etl_is_string(enum sas_etl_id idx)
+ 	case SAS_ETL_SERIAL_EXTRA:
+ 	case SAS_ETL_ACS_AUTH:
+ 	case SAS_ETL_IDENT_NO:
++	case SAS_ETL_WLAN_SSID_EXTRA:
++	case SAS_ETL_GUI_AUTH:
+ 		return 1;
+ 	default:
+ 		return 0;
+diff --git a/lib/sphairon/etl.c b/lib/sphairon/etl.c
+index c8f4ffcfcd834e2fe924b93789974581c6d6b86a..f35188f15f64384cc2e4044e7c3b935768f265f4 100644
+--- a/lib/sphairon/etl.c
++++ b/lib/sphairon/etl.c
+@@ -407,6 +407,9 @@ void sas_etl_env_save(int *save_env)
+ 	sas_etl_env_set_fill(SAS_ETL_ACS_AUTH, "etl_acs_auth",
+ 		'x', 16, save_env);
+ 
++	sas_etl_env_set_default(SAS_ETL_GUI_AUTH, "etl_gui_auth",
++		"", save_env);
++
+ 	sas_etl_env_set_hwcfg(save_env);
+ 	sas_etl_env_set_hwcfg2(save_env);
+ }
+@@ -529,6 +532,8 @@ void sas_etl_print(void)
+ 		sas_etl_get_string(SAS_ETL_SERIAL_EXTRA));
+ 	sas_etl_banner_print("ACS authentication",
+ 		sas_etl_get_string(SAS_ETL_ACS_AUTH));
++	sas_etl_banner_print("GUI authentication",
++		sas_etl_get_string(SAS_ETL_GUI_AUTH));
+ 	sas_etl_banner_print("Date of production",
+ 		sas_etl_get_string(SAS_ETL_PROD_DATE));
+ 	sas_etl_banner_print("MAC address",
+@@ -637,6 +642,7 @@ static const char sas_etl_id_strings[][16] = {
+ 	"data_part_loc",
+ 	"acs_auth",
+ 	"wlan_ssid_extra",
++	"gui_auth",
+ };
+ 
+ const char *sas_etl_id_str(enum sas_etl_id idx)

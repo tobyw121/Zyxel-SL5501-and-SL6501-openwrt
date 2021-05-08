@@ -1,0 +1,26 @@
+diff --git a/Makefile b/Makefile
+index 859ee8331edda02a320056b8f13ba8a5392dc48e..daf7f0a443d4f51da3a64e59e9c068c6048cb928 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.19
++EXTRAVERSION = -sphairon4.20
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/cpu/mips32/lantiq-common/cpu.c b/arch/mips/cpu/mips32/lantiq-common/cpu.c
+index f5ba6619c816745828678d3474061605e0777563..ce47fecdab0d80f63ddc3261a71a1db3de490cda 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/cpu.c
++++ b/arch/mips/cpu/mips32/lantiq-common/cpu.c
+@@ -56,5 +56,8 @@ int arch_cpu_init(void)
+ 
+ void _machine_restart(void)
+ {
++	ltq_reset_activate(LTQ_RESET_HARD);
++	mdelay(200);
++	ltq_reset_deactivate(LTQ_RESET_HARD);
+ 	ltq_reset_activate(LTQ_RESET_CORE);
+ }

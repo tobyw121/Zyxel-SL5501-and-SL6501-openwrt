@@ -1,0 +1,216 @@
+diff --git a/Makefile b/Makefile
+index f92fe749c6aef4e937c0bc1488a07c9fc1efd01b..921568f2187d0fc2eb1218a0c56609f70ce82a9e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.16
++EXTRAVERSION = -sphairon4.17
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/include/asm/lantiq/gpio.h b/arch/mips/include/asm/lantiq/gpio.h
+index 7ab4d9ff08a00dc095de2b880172b26d45b6b151..0d2e1db2c95fc0e67aec25a3a50983e1885fb24a 100644
+--- a/arch/mips/include/asm/lantiq/gpio.h
++++ b/arch/mips/include/asm/lantiq/gpio.h
+@@ -23,8 +23,16 @@ enum ltq_gpio_altsel {
+ 	GPIO_ALTSEL_SET
+ };
+ 
+-extern int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir);
+-extern int gpio_set_opendrain(unsigned gpio, int od);
++enum ltq_gpio_pull {
++	GPIO_PULL_DISABLE = 0,
++	GPIO_PULL_UP,
++	GPIO_PULL_DOWN
++};
++
++extern int gpio_set_altfunc(unsigned gpio, enum ltq_gpio_altsel altsel0,
++			enum ltq_gpio_altsel altsel1, enum ltq_gpio_dir dir);
++extern int gpio_set_opendrain(unsigned gpio, enum ltq_gpio_od od);
++extern int gpio_set_pull(unsigned gpio, enum ltq_gpio_pull pull);
+ 
+ static inline int gpio_to_port(unsigned gpio)
+ {
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+index e1ee8c2a8b0f3620c7bf8c06a8d49c5dab944474..73eb8a6c09695c6aa45fa3066e3e57bf0c1fcdd5 100644
+--- a/board/sphairon/sl550x/sl550x.c
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -41,7 +41,7 @@ static inline void gpio_init(void)
+ 	/* LED Power green */
+ 	gpio_direction_output(3, 1);
+ 	/* LED FXO green */
+-	gpio_direction_output(14, 1);
++	gpio_direction_output(14, 0);
+ 	/* LED Power red */
+ 	gpio_direction_output(19, 0);
+ 	/* LED Info green */
+@@ -94,6 +94,17 @@ static inline void gpio_init(void)
+ 	gpio_direction_output(15, 0);
+ 	/* Ralink iNIC WLAN power, disabled at startup */
+ 	gpio_direction_output(37, 0);
++
++	/* TDM/FSC as input, internal pull-up */
++	gpio_direction_input(0);
++	gpio_set_pull(0, GPIO_PULL_UP);
++	/* TDM/DCL as input, internal pull-up */
++	gpio_direction_input(40);
++	gpio_set_pull(40, GPIO_PULL_UP);
++	/* TDM/DI as input */
++	gpio_direction_input(26);
++	/* TDM/DO as input */
++	gpio_direction_input(25);
+ }
+ 
+ int board_early_init_f(void)
+diff --git a/drivers/gpio/lantiq_gpio.c b/drivers/gpio/lantiq_gpio.c
+index 822559e5fbe2ee2533fd81ac76587d53c7329403..b16cf9bca6d5b17b02a0a873918936995b585739 100644
+--- a/drivers/gpio/lantiq_gpio.c
++++ b/drivers/gpio/lantiq_gpio.c
+@@ -168,6 +168,7 @@ int gpio_direction_input(unsigned gpio)
+ 	const void *gpio_altsel0 = &ltq_gpio_regs->ports[port].altsel0;
+ 	const void *gpio_altsel1 = &ltq_gpio_regs->ports[port].altsel1;
+ 	const void *gpio_dir = &ltq_gpio_regs->ports[port].dir;
++	const void *gpio_puden = &ltq_gpio_regs->ports[port].puden;
+ 
+ 	if (is_gpio_ssio(gpio))
+ 		return 0;
+@@ -177,6 +178,7 @@ int gpio_direction_input(unsigned gpio)
+ 		gpio_altsel0 = &ltq_gpio3_regs->altsel0;
+ 		gpio_altsel1 = &ltq_gpio3_regs->altsel1;
+ 		gpio_dir = &ltq_gpio3_regs->dir;
++		gpio_puden = &ltq_gpio3_regs->puden;
+ 	}
+ 
+ 	/*
+@@ -184,6 +186,7 @@ int gpio_direction_input(unsigned gpio)
+ 	 * reset values or unwanted modifications by BootROM
+ 	 */
+ 	ltq_clrbits(gpio_od, gpio_to_bit(gpio));
++	ltq_clrbits(gpio_puden, gpio_to_bit(gpio));
+ 	ltq_clrbits(gpio_altsel0, gpio_to_bit(gpio));
+ 	ltq_clrbits(gpio_altsel1, gpio_to_bit(gpio));
+ 
+@@ -201,6 +204,7 @@ int gpio_direction_output(unsigned gpio, int value)
+ 	const void *gpio_altsel1 = &ltq_gpio_regs->ports[port].altsel1;
+ 	const void *gpio_dir = &ltq_gpio_regs->ports[port].dir;
+ 	const void *gpio_out = &ltq_gpio_regs->ports[port].out;
++	const void *gpio_puden = &ltq_gpio_regs->ports[port].puden;
+ 	u32 data = gpio_to_bit(gpio);
+ 
+ 	if (is_gpio_ssio(gpio)) {
+@@ -219,6 +223,7 @@ int gpio_direction_output(unsigned gpio, int value)
+ 		gpio_altsel1 = &ltq_gpio3_regs->altsel1;
+ 		gpio_dir = &ltq_gpio3_regs->dir;
+ 		gpio_out = &ltq_gpio3_regs->out;
++		gpio_puden = &ltq_gpio3_regs->puden;
+ 	}
+ 
+ 	/*
+@@ -226,6 +231,7 @@ int gpio_direction_output(unsigned gpio, int value)
+ 	 * reset values or unwanted modifications by BootROM
+ 	 */
+ 	ltq_setbits(gpio_od, data);
++	ltq_clrbits(gpio_puden, data);
+ 	ltq_clrbits(gpio_altsel0, data);
+ 	ltq_clrbits(gpio_altsel1, data);
+ 
+@@ -282,13 +288,15 @@ int gpio_set_value(unsigned gpio, int value)
+ 	return 0;
+ }
+ 
+-int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir)
++int gpio_set_altfunc(unsigned gpio, enum ltq_gpio_altsel altsel0,
++		enum ltq_gpio_altsel altsel1, enum ltq_gpio_dir dir)
+ {
+ 	unsigned port = gpio_to_port(gpio);
+ 	const void *gpio_od = &ltq_gpio_regs->ports[port].od;
+ 	const void *gpio_altsel0 = &ltq_gpio_regs->ports[port].altsel0;
+ 	const void *gpio_altsel1 = &ltq_gpio_regs->ports[port].altsel1;
+ 	const void *gpio_dir = &ltq_gpio_regs->ports[port].dir;
++	const void *gpio_puden = &ltq_gpio_regs->ports[port].puden;
+ 
+ 	if (is_gpio_ssio(gpio))
+ 		return 0;
+@@ -298,19 +306,22 @@ int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir)
+ 		gpio_altsel0 = &ltq_gpio3_regs->altsel0;
+ 		gpio_altsel1 = &ltq_gpio3_regs->altsel1;
+ 		gpio_dir = &ltq_gpio3_regs->dir;
++		gpio_puden = &ltq_gpio3_regs->puden;
+ 	}
+ 
+-	if (altsel0)
++	ltq_clrbits(gpio_puden, gpio_to_bit(gpio));
++
++	if (altsel0 == GPIO_ALTSEL_SET)
+ 		ltq_setbits(gpio_altsel0, gpio_to_bit(gpio));
+ 	else
+ 		ltq_clrbits(gpio_altsel0, gpio_to_bit(gpio));
+ 
+-	if (altsel1)
++	if (altsel1 == GPIO_ALTSEL_SET)
+ 		ltq_setbits(gpio_altsel1, gpio_to_bit(gpio));
+ 	else
+ 		ltq_clrbits(gpio_altsel1, gpio_to_bit(gpio));
+ 
+-	if (dir) {
++	if (dir == GPIO_DIR_OUT) {
+ 		ltq_setbits(gpio_od, gpio_to_bit(gpio));
+ 		ltq_setbits(gpio_dir, gpio_to_bit(gpio));
+ 	} else {
+@@ -321,7 +332,7 @@ int gpio_set_altfunc(unsigned gpio, int altsel0, int altsel1, int dir)
+ 	return 0;
+ }
+ 
+-int gpio_set_opendrain(unsigned gpio, int od)
++int gpio_set_opendrain(unsigned gpio, enum ltq_gpio_od od)
+ {
+ 	unsigned port = gpio_to_port(gpio);
+ 	const void *gpio_od = &ltq_gpio_regs->ports[port].od;
+@@ -332,10 +343,43 @@ int gpio_set_opendrain(unsigned gpio, int od)
+ 	if (is_gpio_bank3(port))
+ 		gpio_od = &ltq_gpio3_regs->od;
+ 
+-	if (od)
++	if (od == GPIO_OD_NORMAL)
+ 		ltq_setbits(gpio_od, gpio_to_bit(gpio));
+ 	else
+ 		ltq_clrbits(gpio_od, gpio_to_bit(gpio));
+ 
+ 	return 0;
+ }
++
++int gpio_set_pull(unsigned gpio, enum ltq_gpio_pull pull)
++{
++	unsigned port = gpio_to_port(gpio);
++	const void *gpio_pudsel = &ltq_gpio_regs->ports[port].pudsel;
++	const void *gpio_puden = &ltq_gpio_regs->ports[port].puden;
++
++	if (is_gpio_ssio(gpio))
++		return 0;
++
++	if (is_gpio_bank3(port)) {
++		gpio_pudsel = &ltq_gpio3_regs->pudsel;
++		gpio_puden = &ltq_gpio3_regs->puden;
++	}
++
++	switch (pull) {
++	case GPIO_PULL_DISABLE:
++		ltq_clrbits(gpio_puden, gpio_to_bit(gpio));
++		break;
++	case GPIO_PULL_UP:
++		ltq_setbits(gpio_pudsel, gpio_to_bit(gpio));
++		ltq_setbits(gpio_puden, gpio_to_bit(gpio));
++		break;
++	case GPIO_PULL_DOWN:
++		ltq_clrbits(gpio_pudsel, gpio_to_bit(gpio));
++		ltq_setbits(gpio_puden, gpio_to_bit(gpio));
++		break;
++	default:
++		break;
++	}
++
++	return 0;
++}

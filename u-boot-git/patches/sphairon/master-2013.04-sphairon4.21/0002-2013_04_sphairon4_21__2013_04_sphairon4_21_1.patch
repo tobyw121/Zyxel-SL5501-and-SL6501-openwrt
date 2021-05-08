@@ -1,0 +1,160 @@
+diff --git a/Makefile b/Makefile
+index e8cc8f461329a6b571a6196faf9851bcf247715c..cdacccf3aa357f9e35a4b81b6f403fdf79958aa7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.21
++EXTRAVERSION = -sphairon4.21.1
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/drivers/net/lantiq_vrx200_switch.c b/drivers/net/lantiq_vrx200_switch.c
+index 6ccd19b849adc9de4482d2435075edaed5e7edec..a95c7e4e5d968ce15031a0ac8e701e12f6460a54 100644
+--- a/drivers/net/lantiq_vrx200_switch.c
++++ b/drivers/net/lantiq_vrx200_switch.c
+@@ -12,6 +12,7 @@
+ #include <malloc.h>
+ #include <netdev.h>
+ #include <miiphy.h>
++#include <watchdog.h>
+ #include <linux/compiler.h>
+ #include <asm/gpio.h>
+ #include <asm/processor.h>
+@@ -27,6 +28,7 @@
+ #define LTQ_ETH_TX_BUFFER_CNT		8
+ #define LTQ_ETH_RX_DATA_SIZE		PKTSIZE_ALIGN
+ #define LTQ_ETH_IP_ALIGN		2
++#define LTQ_PHY_ANEG_TIMEOUT		3000
+ 
+ #define LTQ_MDIO_DRV_NAME		"ltq-mdio"
+ #define LTQ_ETH_DRV_NAME		"ltq-eth"
+@@ -248,20 +250,51 @@ static inline u8 *ltq_eth_rx_packet_align(int rx_num)
+ 	return packet + LTQ_ETH_IP_ALIGN;
+ }
+ 
++static int ltq_eth_phy_startup(struct ltq_eth_priv *priv)
++{
++	struct phy_device *phydev;
++	int i, j;
++
++	puts("Waiting for PHY link\n");
++
++	for (i = 0; i < LTQ_PHY_ANEG_TIMEOUT; i++) {
++		for (j = 0; j < LTQ_ETHSW_MAX_GMAC; j++) {
++			phydev = priv->phymap[j];
++			if (!phydev)
++				continue;
++
++			WATCHDOG_RESET();
++
++			phy_startup(phydev);
++
++			if (phydev->link) {
++				ltq_eth_gmac_update(phydev, j);
++				printf("Using PHY at addr %d, speed %d, duplex %d\n",
++					phydev->addr, phydev->speed,
++					phydev->duplex);
++				return 0;
++			}
++		}
++
++		if (ctrlc())
++			return -1;
++
++		udelay(1000);
++	}
++
++	return -1;
++}
++
+ static int ltq_eth_init(struct eth_device *dev, bd_t * bis)
+ {
+ 	struct ltq_eth_priv *priv = dev->priv;
+ 	struct ltq_dma_device *dma_dev = &priv->dma_dev;
+-	struct phy_device *phydev;
+-	int i;
++	int i, err;
+ 
+-	for (i = 0; i < LTQ_ETHSW_MAX_GMAC; i++) {
+-		phydev = priv->phymap[i];
+-		if (!phydev)
+-			continue;
+-
+-		phy_startup(phydev);
+-		ltq_eth_gmac_update(phydev, i);
++	err = ltq_eth_phy_startup(priv);
++	if (err) {
++		puts("No PHY link found\n");
++		return -1;
+ 	}
+ 
+ 	for (i = 0; i < LTQ_ETH_RX_BUFFER_CNT; i++)
+diff --git a/drivers/net/phy/lantiq.c b/drivers/net/phy/lantiq.c
+index f32b99e62aacb3caee1b8dbf40cf632ec34399e5..e8f9e1762f0ad5fc77b37e02fa993505f4c8ab19 100644
+--- a/drivers/net/phy/lantiq.c
++++ b/drivers/net/phy/lantiq.c
+@@ -5,8 +5,6 @@
+  * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+-#define DEBUG
+-
+ #include <common.h>
+ #include <miiphy.h>
+ 
+diff --git a/include/configs/sphairon_env.h b/include/configs/sphairon_env.h
+index 405d66a95a05ba0bdb761f34a1c72a1026858d10..d3f33593923f349cccee9dab84caba824846eb61 100644
+--- a/include/configs/sphairon_env.h
++++ b/include/configs/sphairon_env.h
+@@ -31,6 +31,9 @@
+ #define CONFIG_SPHAIRON_SCAN_STEP_SIZE		0x2000
+ #define CONFIG_BOOTDELAY			3
+ 
++#define CONFIG_TFTP_BLOCKSIZE			1400
++#define CONFIG_NET_RETRY_COUNT			2
++
+ /* Environment */
+ #define CONFIG_IPADDR				192.168.100.1
+ #define CONFIG_SERVERIP				192.168.100.100
+diff --git a/lib/sphairon/cmd_sas_controlfile.c b/lib/sphairon/cmd_sas_controlfile.c
+index 547246503cfa593866c1c69edac5b63998ed3d47..7a82fba28e6ce77ca0df3ad67559333603941837 100644
+--- a/lib/sphairon/cmd_sas_controlfile.c
++++ b/lib/sphairon/cmd_sas_controlfile.c
+@@ -21,6 +21,8 @@ static int do_sas_controlfile(cmd_tbl_t * cmdtp, int flag, int argc, char *const
+ 	int ret;
+ 	char *cmd;
+ 
++	setenv("tftptimeout", "2000");
++
+ 	loadaddr = getenv_ulong("loadaddr", 16, 0);
+ 	size = sas_run_tftpboot(loadaddr, SAS_CF_FILENAME);
+ 	if (!size) {
+diff --git a/lib/sphairon/controlfile.c b/lib/sphairon/controlfile.c
+index 7326320a204c8e2046878ef364a7eb7c1a621602..981b1cb6f2f6e5621efdddf6ee8708801faa4021 100644
+--- a/lib/sphairon/controlfile.c
++++ b/lib/sphairon/controlfile.c
+@@ -64,7 +64,7 @@ void sas_cf_run(void)
+ 		return;
+ 
+ 	setenv("bootcmd", "sas_controlfile");
+-	setenv("bootdelay", "2");
++	setenv("bootdelay", "1");
+ }
+ 
+ int sas_cf_is_active(void)
+diff --git a/lib/sphairon/flashlayout.c b/lib/sphairon/flashlayout.c
+index d9dc0899c44b49c4dc0cfbfe8b56d51e4c60e7c7..956d0610f1f3d2d15c0981689304e5f195676757 100644
+--- a/lib/sphairon/flashlayout.c
++++ b/lib/sphairon/flashlayout.c
+@@ -25,7 +25,7 @@
+ #define SYSCFG_MIN_SIZE			(512 * 1024)
+ 
+ struct sas_layout_map {
+-	const char name[4];
++	const char name[6];
+ 	const char desc[36];
+ };
+ 

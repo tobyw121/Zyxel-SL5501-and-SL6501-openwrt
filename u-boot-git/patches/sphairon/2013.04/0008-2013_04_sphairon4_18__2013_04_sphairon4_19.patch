@@ -1,0 +1,2712 @@
+diff --git a/Makefile b/Makefile
+index 058e1c2a8339bf1fc50d3b6690717d474675951b..859ee8331edda02a320056b8f13ba8a5392dc48e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.18
++EXTRAVERSION = -sphairon4.19
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/config.mk b/arch/mips/config.mk
+index 874b1bb825f8d241d6bfa14e493b029756c5fc92..2f5331f1f5319b9cd4731c49b7bffab036cef915 100644
+--- a/arch/mips/config.mk
++++ b/arch/mips/config.mk
+@@ -64,10 +64,11 @@ PLATFORM_CPPFLAGS += -DCONFIG_MIPS -D__MIPS__
+ PF_ABICALLS			?= -mabicalls
+ PF_PIC				?= -fpic
+ PF_PIE				?= -pie
++PF_OBJCOPY			?= -j .got -j .u_boot_list -j .rel.dyn
+ 
+ PLATFORM_CPPFLAGS		+= -G 0 $(PF_ABICALLS) $(PF_PIC) $(ENDIANNESS)
+ PLATFORM_CPPFLAGS		+= -msoft-float
+ PLATFORM_LDFLAGS		+= -G 0 -static -n -nostdlib $(ENDIANNESS)
+ PLATFORM_RELFLAGS		+= -ffunction-sections -fdata-sections
+ LDFLAGS_FINAL			+= --gc-sections $(PF_PIE)
+-OBJCFLAGS			+= --remove-section=.dynsym
++OBJCFLAGS			+= -j .text -j .rodata -j .data $(PF_OBJCOPY)
+diff --git a/arch/mips/cpu/mips32/lantiq-common/Makefile b/arch/mips/cpu/mips32/lantiq-common/Makefile
+index 7514a27ddff50fe05710f9f8263cd403c0969f0f..2e63a398c00052064cff14608d00cce2689a89b1 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/Makefile
++++ b/arch/mips/cpu/mips32/lantiq-common/Makefile
+@@ -11,7 +11,7 @@ include $(TOPDIR)/config.mk
+ LIB	= $(obj)liblantiq-common.o
+ 
+ START	= start.o
+-COBJS-y	= cpu.o pmu.o
++COBJS-y	= cpu.o pmu.o mem.o
+ COBJS-$(CONFIG_SPL_BUILD) += spl.o
+ SOBJS-y	= lowlevel_init.o
+ 
+diff --git a/arch/mips/cpu/mips32/lantiq-common/mem.c b/arch/mips/cpu/mips32/lantiq-common/mem.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..1832da765a7d6f03f9f0485dcd7f27f8765d1e55
+--- /dev/null
++++ b/arch/mips/cpu/mips32/lantiq-common/mem.c
+@@ -0,0 +1,325 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#include <common.h>
++#include <asm/lantiq/io.h>
++#include <asm/lantiq/mem.h>
++
++/**
++ * Test the data bus wiring by performing a walking 1's test at
++ * the given offset.
++ */
++int ltq_mem_test_data_bus(phys_addr_t offset)
++{
++	u16 data, pattern;
++	int ret = 0;
++
++	for (pattern = 1; pattern != 0; pattern <<= 1) {
++		sdram_uc_writew(offset, pattern);
++		cpu_sync();
++
++		data = sdram_uc_readw(offset);
++		if (data != pattern) {
++			debug("MEM: data bits error: %04x (pattern %04x)\n",
++				data, pattern);
++			ret = 1;
++		}
++	}
++
++	return ret;
++}
++
++/**
++ * Test the address bus wiring by performing a walking 1's test
++ * at each power-of-two address and checking for aliasing. This
++ * test will find single-bit address failures such as
++ * stuck-high, stuck-low and shorted pins.
++ */
++int ltq_mem_test_address_bus(phys_size_t dram_size)
++{
++	const phys_addr_t addr_mask = (dram_size - 1);
++	const u8 pattern1 = 0xaa;
++	const u8 pattern2 = 0x55;
++	phys_addr_t offset, offset_test;
++	u8 data;
++	int ret = 0;
++
++	/*
++	 * Write pattern to each power-of-two offset. Each offset must be
++	 * aligned to 32 bit.
++	 */
++	for (offset = 1; (offset & addr_mask) != 0; offset <<= 1)
++		sdram_uc_writeb(offset, pattern1);
++
++	/* Check for address bits stuck high */
++	sdram_uc_writeb(0, pattern2);
++	cpu_sync();
++
++	for (offset = 1; (offset & addr_mask) != 0; offset <<= 1) {
++		data = sdram_uc_readb(offset);
++		if (data != pattern1) {
++			debug("MEM: %08x: address bits stuck high\n",
++				offset);
++			ret = 1;
++		}
++	}
++
++	/* Check for address bits stuck low or shorted */
++	sdram_uc_writeb(0, pattern1);
++	cpu_sync();
++
++	for (offset_test = 1; (offset_test & addr_mask) != 0; offset_test <<= 1) {
++		sdram_uc_writeb(offset_test, pattern2);
++		cpu_sync();
++
++		data = sdram_uc_readb(0);
++		if (data != pattern1) {
++			debug("MEM: %08x: address bits stuck low or shorted\n",
++				offset_test);
++			ret = 1;
++		}
++
++		for (offset = 1; (offset & addr_mask) != 0; offset <<= 1) {
++			data = sdram_uc_readb(offset);
++			if (data != pattern1 && offset != offset_test) {
++				debug("MEM: %08x: address bits stuck low or shorted\n",
++					offset);
++				ret = 1;
++			}
++		}
++
++		sdram_uc_writeb(offset_test, pattern1);
++		cpu_sync();
++	}
++
++	return ret;
++}
++
++/**
++ * Test SDRAM device in the given region.
++ */
++int ltq_mem_test_device(phys_addr_t addr, phys_size_t size)
++{
++	phys_addr_t offset;
++	u32 data, pattern;
++	int ret = 0;
++
++	/* Write default pattern */
++	for (pattern = 1, offset = 0; offset < size; pattern++, offset += 4)
++		sdram_uc_writel(offset, pattern);
++
++	cpu_sync();
++
++	/* Check each pattern in first pass */
++	for (pattern = 1, offset = 0; offset < size; pattern++, offset += 4) {
++		data = sdram_uc_readl(offset);
++		if (data != pattern) {
++			debug("MEM: %08x: data %08x != pattern %08x\n",
++				offset, data, pattern);
++			ret = 1;
++		}
++
++		sdram_uc_writel(offset, ~pattern);
++	}
++
++	cpu_sync();
++
++	/* Check each inverted pattern in second pass */
++	for (pattern = 1, offset = 0; offset < size; pattern++, offset += 4) {
++		data = sdram_uc_readl(offset);
++		if (data != ~pattern) {
++			debug("MEM: %08x: data %08x != pattern %08x\n",
++				offset, data, ~pattern);
++			ret = 1;
++		}
++	}
++
++	return ret;
++}
++
++static const u8 test_pattern_b[] = {
++	0x55, 0x00, 0xfe, 0x01,
++};
++
++static const u16 test_pattern_w[] = {
++	0x5555, 0xffff, 0x8000, 0x7fff,
++};
++
++static const u32 test_pattern_l[] = {
++	0x5555aaaa, 0xFFFF0000, 0x80000001, 0x7ffffffe,
++	0x12345678, 0x9ABCDEF0, 0xc3c3c3c3, 0xffffffff,
++};
++
++int ltq_mem_test_tune(phys_size_t sdram_size, unsigned int slice,
++				int quick)
++{
++	unsigned int j, k, l;
++	phys_addr_t offset;
++	u8 data_b, pattern_b;
++	u16 mask_w, data_w, pattern_w;
++	u32 mask_l, data_l, pattern_l;
++
++	if (slice) {
++		mask_w = 0xff00;
++		mask_l = 0xff00ff00;
++	} else {
++		mask_w = 0x00ff;
++		mask_l = 0x00ff00ff;
++	}
++
++	for (j = 0; j < 8; j++) {
++		for (k = 0; k < 0x20; k += 4) {
++			offset = (j << 16) + k;
++			pattern_l = test_pattern_l[j];
++			sdram_uc_writel(offset, pattern_l);
++
++			offset = (j << 16) + k + (sdram_size >> 1);
++			pattern_l = ~test_pattern_l[j];
++			sdram_uc_writel(offset, pattern_l);
++		}
++	}
++
++	cpu_sync();
++
++	for (j = 0; j < 8; j++) {
++		for (k = 0; k < 0x20; k += 4) {
++			offset = (j << 16) + k;
++			pattern_l = test_pattern_l[j];
++			data_l = sdram_uc_readl(offset);
++			if ((data_l & mask_l) != (pattern_l & mask_l)) {
++				debug("MEM: %08x: data %08x != pattern %08x, mask %08x\n",
++					offset, data_l, pattern_l, mask_l);
++				return 1;
++			}
++
++			offset = (j << 16) + k + (sdram_size >> 1);
++			pattern_l = ~test_pattern_l[j];
++			data_l = sdram_uc_readl(offset);
++			if ((data_l & mask_l) != (pattern_l & mask_l)) {
++				debug("MEM: %08x: data %08x != pattern %08x, mask %08x\n",
++					offset, data_l, pattern_l, mask_l);
++				return 1;
++			}
++		}
++	}
++
++	if (quick)
++		return 0;
++
++	for (j = 0; j < 4; j++) {
++		for (k = 0; k < 0x40; k += 2) {
++			offset = (j << 16) + k;
++			pattern_w = test_pattern_w[j];
++			sdram_uc_writew(offset, pattern_w);
++
++			offset = (j << 16) + k + (sdram_size >> 1);
++			pattern_w = ~test_pattern_w[j] & 0xffff;
++			sdram_uc_writew(offset, pattern_w);
++		}
++	}
++
++	cpu_sync();
++
++	for (j = 0; j < 4; j++) {
++		for (k = 0; k < 0x40; k += 2) {
++			offset = (j << 16) + k;
++			pattern_w = test_pattern_w[j];
++			data_w = sdram_uc_readw(offset);
++			if ((data_w & mask_w) != (pattern_w & mask_w)) {
++				debug("MEM: %08x: data %04x != pattern %04x, mask %04x\n",
++					offset, data_w, pattern_w, mask_w);
++				return 1;
++			}
++
++			offset = (j << 16) + k + (sdram_size >> 1);
++			pattern_w = ~test_pattern_w[j] & 0xffff;
++			data_w = sdram_uc_readw(offset);
++			if ((data_w & mask_w) != (pattern_w & mask_w)) {
++				debug("MEM: %08x: data %04x != pattern %04x, mask %04x\n",
++					offset, data_w, pattern_w, mask_w);
++				return 1;
++			}
++		}
++	}
++
++	for (j = 0; j < 4; j++) {
++		for (k = 0; k < 0x80; k += 1) {
++			offset = (j << 16) + k + slice;
++			pattern_b = test_pattern_b[j];
++			sdram_uc_writeb(offset, pattern_b);
++
++			offset = (j << 16) + k + (sdram_size >> 1) + slice;
++			pattern_b = ~test_pattern_b[j] & 0xff;
++			sdram_uc_writeb(offset, pattern_b);
++		}
++	}
++
++	cpu_sync();
++
++	for (j = 0; j < 4; j++) {
++		for (k = 0; k < 0x80; k += 1) {
++			offset = (j << 16) + k + slice;
++			pattern_b = test_pattern_b[j];
++			data_b = sdram_uc_readb(offset);
++			if (data_b != pattern_b) {
++				debug("MEM: %08x: data %02x != pattern %02x\n",
++					offset, data_b, pattern_b);
++				return 1;
++			}
++
++			offset = (j << 16) + k + (sdram_size >> 1) + slice;
++			pattern_b = ~test_pattern_b[j] & 0xff;
++			data_b = sdram_uc_readb(offset);
++			if (data_b != pattern_b) {
++				debug("MEM: %08x: data %02x != pattern %02x\n",
++					offset, data_b, pattern_b);
++				return 1;
++			}
++		}
++	}
++
++	for (j = 0; j < 8; j++) {
++		for (k = 0; k < 0x400; k += 4) {
++			l = (j + (k >> 2) + 2) % 8;
++			offset = (j << 16) + k;
++			pattern_l = test_pattern_l[l];
++			sdram_writel(offset, pattern_l);
++
++			offset = (j << 16) + k + (sdram_size >> 1);
++			pattern_l = ~test_pattern_l[l];
++			sdram_writel(offset, pattern_l);
++
++			if ((k % CONFIG_SYS_CACHELINE_SIZE) == 0)
++				sdram_flush_dcache_line(j << 16);
++		}
++	}
++
++	for (j = 0; j < 8; j++) {
++		for (k = 0; k < 0x400; k += 4) {
++			l = (j + (k >> 2) + 2) % 8;
++			offset = (j << 16) + k;
++			pattern_l = test_pattern_l[l];
++			data_l = sdram_readl(offset);
++			if ((data_l & mask_l) != (pattern_l & mask_l)) {
++				debug("MEM: %08x (cached): data %08x != pattern %08x, mask %08x\n",
++					offset, data_l, pattern_l, mask_l);
++				return 1;
++			}
++
++			offset = (j << 16) + k + (sdram_size >> 1);
++			pattern_l = ~test_pattern_l[l];
++			data_l = sdram_readl(offset);
++			if ((data_l & mask_l) != (pattern_l & mask_l)) {
++				debug("MEM: %08x (cached): data %08x != pattern %08x, mask %08x\n",
++					offset, data_l, pattern_l, mask_l);
++				return 1;
++			}
++		}
++	}
++
++	return 0;
++}
+diff --git a/arch/mips/cpu/mips32/lantiq-common/spl.c b/arch/mips/cpu/mips32/lantiq-common/spl.c
+index 05f66a9343d0fb7748e9ca0333ce9466e1569c98..6315ae901108d94e4613f92a17054acdd12212dc 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/spl.c
++++ b/arch/mips/cpu/mips32/lantiq-common/spl.c
+@@ -2,7 +2,7 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+@@ -13,58 +13,8 @@
+ #include <lzma/LzmaDec.h>
+ #include <linux/lzo.h>
+ #include <asm/mipsregs.h>
+-
+-#if defined(CONFIG_LTQ_SPL_CONSOLE)
+-#define spl_has_console		1
+-
+-#if defined(CONFIG_LTQ_SPL_DEBUG)
+-#define spl_has_debug		1
+-#else
+-#define spl_has_debug		0
+-#endif
+-
+-#else
+-#define spl_has_console		0
+-#define spl_has_debug		0
+-#endif
+-
+-#define spl_debug(fmt, args...)			\
+-	do {					\
+-		if (spl_has_debug)		\
+-			printf(fmt, ##args);	\
+-	} while (0)
+-
+-#define spl_puts(msg)				\
+-	do {					\
+-		if (spl_has_console)		\
+-			puts(msg);		\
+-	} while (0)
+-
+-#if defined(CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH) && defined(CONFIG_SYS_BOOT_SFSPL)
+-#define spl_boot_spi_flash	1
+-#else
+-#define spl_boot_spi_flash	0
+-#ifndef CONFIG_SPL_SPI_BUS
+-#define CONFIG_SPL_SPI_BUS	0
+-#endif
+-#ifndef CONFIG_SPL_SPI_CS
+-#define CONFIG_SPL_SPI_CS	0
+-#endif
+-#ifndef CONFIG_SPL_SPI_MAX_HZ
+-#define CONFIG_SPL_SPI_MAX_HZ	0
+-#endif
+-#ifndef CONFIG_SPL_SPI_MODE
+-#define CONFIG_SPL_SPI_MODE	0
+-#endif
+-#endif
+-
+-#if defined(CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH) && defined(CONFIG_SYS_BOOT_NORSPL)
+-#define spl_boot_nor_flash	1
+-#else
+-#define spl_boot_nor_flash	0
+-#endif
+-
+-#define spl_sync()	__asm__ __volatile__("sync");
++#include <asm/lantiq/spl.h>
++#include <asm/lantiq/cpu.h>
+ 
+ struct spl_image {
+ 	ulong data_addr;
+@@ -80,6 +30,7 @@ DECLARE_GLOBAL_DATA_PTR;
+ /* Emulated malloc area needed for LZMA allocator in BSS */
+ static u8 *spl_mem_ptr __maybe_unused;
+ static size_t spl_mem_size __maybe_unused;
++static struct spi_flash spl_spi_flash;
+ 
+ static int spl_is_comp_lzma(const struct spl_image *spl)
+ {
+@@ -253,9 +204,29 @@ static int spl_uncompress(struct spl_image *spl, unsigned long loadaddr)
+ 	return ret;
+ }
+ 
++static int spl_init_spi_flash(void)
++{
++	spl_puts("SPL: probing SPI flash\n");
++
++	spi_init();
++	return spi_flash_probe_spl(&spl_spi_flash, CONFIG_SPL_SPI_BUS,
++		CONFIG_SPL_SPI_CS, CONFIG_SPL_SPI_MAX_HZ, CONFIG_SPL_SPI_MODE);
++}
++
++static int spl_flash_init(void)
++{
++	int ret;
++
++	if (spl_boot_spi_flash)
++		ret = spl_init_spi_flash();
++	else
++		ret = 0;
++
++	return ret;
++}
++
+ static int spl_load_spi_flash(struct spl_image *spl)
+ {
+-	struct spi_flash sf = { 0 };
+ 	image_header_t hdr;
+ 	int ret;
+ 	unsigned long loadaddr;
+@@ -271,17 +242,9 @@ static int spl_load_spi_flash(struct spl_image *spl)
+ 	 */
+ 	spl->data_addr = image_copy_end() - CONFIG_SPL_TEXT_BASE + 24;
+ 
+-	spl_puts("SPL: probing SPI flash\n");
+-
+-	spi_init();
+-	ret = spi_flash_probe_spl(&sf, CONFIG_SPL_SPI_BUS, CONFIG_SPL_SPI_CS,
+-				CONFIG_SPL_SPI_MAX_HZ, CONFIG_SPL_SPI_MODE);
+-	if (ret)
+-		return ret;
+-
+ 	spl_debug("SPL: reading image header at offset %lx\n", spl->data_addr);
+ 
+-	ret = spi_flash_read(&sf, spl->data_addr, sizeof(hdr), &hdr);
++	ret = spi_flash_read(&spl_spi_flash, spl->data_addr, sizeof(hdr), &hdr);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -298,7 +261,7 @@ static int spl_load_spi_flash(struct spl_image *spl)
+ 
+ 	spl_puts("SPL: loading U-Boot to RAM\n");
+ 
+-	ret = spi_flash_read(&sf, spl->data_addr, spl->data_size,
++	ret = spi_flash_read(&spl_spi_flash, spl->data_addr, spl->data_size,
+ 				(void *) loadaddr);
+ 
+ 	if (!spl_check_data(spl, loadaddr))
+@@ -353,10 +316,104 @@ static int spl_load(struct spl_image *spl)
+ 	return ret;
+ }
+ 
++static void spl_dump_mem_ctrl_cfg(const struct ltq_mem_ctrl_cfg *cfg)
++{
++	if (spl_has_console) {
++		printf("SPL: DDR Echo DLL delay:  %02x/%02x\n",
++			cfg->gate_echo_dll_l, cfg->gate_echo_dll_u);
++		printf("SPL: DDR Write DQS delay: %02x/%02x\n",
++			cfg->write_dqs_delay_l, cfg->write_dqs_delay_u);
++		printf("SPL: DDR Read DQS delay:  %02x/%02x\n",
++			cfg->read_dqs_delay_l, cfg->read_dqs_delay_u);
++	}
++}
++
++static int spl_load_mem_ctrl_cfg_spi_flash(struct ltq_mem_ctrl_cfg *cfg)
++{
++	u32 addr = mem_ctrl_cfg_start() - CONFIG_SPL_TEXT_BASE + 12;
++
++	return spi_flash_read(&spl_spi_flash, addr, sizeof(*cfg), cfg);
++}
++
++static int spl_load_mem_ctrl_cfg_nor_flash(struct ltq_mem_ctrl_cfg *cfg)
++{
++	const void *addr = (const void *) mem_ctrl_cfg_start();
++
++	memcpy(cfg, addr, sizeof(*cfg));
++
++	return 0;
++}
++
++static int spl_load_mem_ctrl_cfg(struct ltq_mem_ctrl_cfg *cfg)
++{
++	int ret;
++	u32 crc;
++
++	spl_puts("SPL: reading memory controller config\n");
++
++	if (spl_boot_spi_flash)
++		ret = spl_load_mem_ctrl_cfg_spi_flash(cfg);
++	else if (spl_boot_nor_flash)
++		ret = spl_load_mem_ctrl_cfg_nor_flash(cfg);
++	else
++		ret = 1;
++
++	if (ret)
++		return ret;
++
++	crc = crc32(0, &cfg->state, sizeof(*cfg) - 4);
++	if (crc != cfg->crc) {
++		spl_debug("SPL: invalid CRC of memory controller config\n");
++		memset(cfg, 0xff, sizeof(*cfg));
++		return 1;
++	}
++
++	spl_dump_mem_ctrl_cfg(cfg);
++
++	return 0;
++}
++
++static int spl_save_mem_ctrl_cfg_spi_flash(const struct ltq_mem_ctrl_cfg *cfg)
++{
++	u32 addr = mem_ctrl_cfg_start() - CONFIG_SPL_TEXT_BASE + 12;
++
++	return spi_flash_write(&spl_spi_flash, addr, sizeof(*cfg), cfg);
++}
++
++static int spl_save_mem_ctrl_cfg_nor_flash(const struct ltq_mem_ctrl_cfg *cfg)
++{
++#if 0
++	void *addr = (void *) mem_ctrl_cfg_start();
++
++	memcpy(addr, cfg, sizeof(*cfg));
++#endif
++	return 0;
++}
++
++static int spl_save_mem_ctrl_cfg(struct ltq_mem_ctrl_cfg *cfg)
++{
++	int ret;
++
++	spl_puts("SPL: writing memory controller config\n");
++
++	spl_dump_mem_ctrl_cfg(cfg);
++	cfg->crc = crc32(0, &cfg->state, sizeof(*cfg) - 4);
++
++	if (spl_boot_spi_flash)
++		ret = spl_save_mem_ctrl_cfg_spi_flash(cfg);
++	else if (spl_boot_nor_flash)
++		ret = spl_save_mem_ctrl_cfg_nor_flash(cfg);
++	else
++		ret = 1;
++
++	return ret;
++}
++
+ void __noreturn spl_lantiq_init(void)
+ {
+ 	void (*uboot)(void) __noreturn;
+ 	struct spl_image spl;
++	struct ltq_mem_ctrl_cfg mem_ctrl_cfg;
+ 	gd_t gd_data;
+ 	int ret;
+ 
+@@ -364,6 +421,10 @@ void __noreturn spl_lantiq_init(void)
+ 	barrier();
+ 	memset((void *)gd, 0, sizeof(gd_t));
+ 
++	ltq_cgu_init();
++	ltq_mem_init();
++	mips_cache_reset();
++
+ 	spl_console_init();
+ 
+ 	spl_debug("SPL: initializing\n");
+@@ -382,6 +443,23 @@ void __noreturn spl_lantiq_init(void)
+ 	board_early_init_f();
+ 	timer_init();
+ 
++	ret = spl_flash_init();
++	if (ret)
++		goto hang;
++
++	if (spl_mc_tune) {
++		spl_load_mem_ctrl_cfg(&mem_ctrl_cfg);
++		if (mem_ctrl_cfg.state == 0) {
++			spl_puts("SPL: applying tuned DDR SDRAM settings\n");
++			ltq_mem_apply(&mem_ctrl_cfg);
++		} else {
++			spl_puts("SPL: tuning DDR SDRAM\n");
++			ret = ltq_mem_tune(&mem_ctrl_cfg);
++			if (!ret)
++				spl_save_mem_ctrl_cfg(&mem_ctrl_cfg);
++		}
++	}
++
+ 	memset(&spl, 0, sizeof(spl));
+ 
+ 	ret = spl_load(&spl);
+@@ -392,7 +470,6 @@ void __noreturn spl_lantiq_init(void)
+ 	spl_puts("SPL: jumping to U-Boot\n");
+ 
+ 	flush_cache(spl.entry_addr, spl.entry_size);
+-	spl_sync();
+ 
+ 	uboot = (void *) spl.entry_addr;
+ 	uboot();
+diff --git a/arch/mips/cpu/mips32/lantiq-common/start.S b/arch/mips/cpu/mips32/lantiq-common/start.S
+index 33692ed77db8df57287dafb43aa0293c125068ac..64f4c52d26637651e50ca0282045c9f5b2f84016 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/start.S
++++ b/arch/mips/cpu/mips32/lantiq-common/start.S
+@@ -111,21 +111,6 @@ main:
+ 	or	t0, t1
+ 	mtc0	t0, CP0_STATUS
+ 
+-	/* Initialize CGU */
+-	la	t9, ltq_cgu_init
+-	jalr	t9
+-	 nop
+-
+-	/* Initialize memory controller */
+-	la	t9, ltq_mem_init
+-	jalr	t9
+-	 nop
+-
+-	/* Initialize caches... */
+-	la	t9, mips_cache_reset
+-	jalr	t9
+-	 nop
+-
+ 	/* Clear BSS */
+ 	la	t1, __bss_start
+ 	la	t2, __bss_end
+diff --git a/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds b/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
+index 3b715eb1215b603cf804010a3e33d596f7e601ff..2bf023889e26a2403ae9416e89ca952f51667cc0 100644
+--- a/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
++++ b/arch/mips/cpu/mips32/lantiq-common/u-boot-spl.lds
+@@ -32,18 +32,67 @@ SECTIONS
+ 	} > .spl_mem
+ 
+ 	. = ALIGN(4);
++	.mem_ctrl_cfg : {
++		__mem_ctrl_cfg_start = .;
++		LONG(0xFFFFFFFF);
++		LONG(0xFFFFFFFF);
++		LONG(0xFFFFFFFF);
++		__mem_ctrl_cfg_end = .;
++	} > .spl_mem
++
++	. = ALIGN(4);
+ 	__image_copy_end = .;
+-	uboot_end_data = .;
+ 
+-	.bss : {
++	.rel.dyn : {
++		__rel_dyn_start = .;
++		*(.rel.dyn)
++		__rel_dyn_end = .;
++	} > .bss_mem
++
++	_end = .;
++
++	.bss __rel_dyn_start (OVERLAY) : {
+ 		__bss_start = .;
+ 		*(.bss*)
+ 		*(.sbss*)
++		*(COMMON)
+ 		. = ALIGN(4);
+ 		__bss_end = .;
+ 	} > .bss_mem
+ 
+-	. = ALIGN(4);
+-	__end = .;
+-	uboot_end = .;
++	.dynsym : {
++		*(.dynsym)
++	}
++
++	.dynbss : {
++		*(.dynbss)
++	}
++
++	.dynstr : {
++		*(.dynstr)
++	}
++
++	.dynamic : {
++		*(.dynamic)
++	}
++
++	.plt : {
++		*(.plt)
++	}
++
++	.interp : {
++		*(.interp)
++	}
++
++	.gnu : {
++		*(.gnu*)
++	}
++
++	.MIPS.stubs : {
++		*(.MIPS.stubs)
++	}
++
++	.hash : {
++		*(.hash)
++	}
+ }
+diff --git a/arch/mips/cpu/mips32/vrx200/Makefile b/arch/mips/cpu/mips32/vrx200/Makefile
+index a0e20b95b0517f3be74ab9cfe472dfae24967e37..c71b3a8b7af057f16cd2bce0d1b6dc60b42588b0 100644
+--- a/arch/mips/cpu/mips32/vrx200/Makefile
++++ b/arch/mips/cpu/mips32/vrx200/Makefile
+@@ -11,7 +11,7 @@ include $(TOPDIR)/config.mk
+ LIB	= $(obj)lib$(SOC).o
+ 
+ COBJS-y	+= cgu.o chipid.o dcdc.o ebu.o gphy.o mem.o pmu.o rcu.o
+-SOBJS-y	+= cgu_init.o mem_init.o
++SOBJS-y	+= cgu_init.o
+ SOBJS-y	+= gphy_fw.o
+ 
+ COBJS	:= $(COBJS-y)
+diff --git a/arch/mips/cpu/mips32/vrx200/config.mk b/arch/mips/cpu/mips32/vrx200/config.mk
+index 6cae370809059de753d047fc6696f7a49ec65029..7c8d9e503c15dcadb1da004c1b27e895b1b03584 100644
+--- a/arch/mips/cpu/mips32/vrx200/config.mk
++++ b/arch/mips/cpu/mips32/vrx200/config.mk
+@@ -12,6 +12,7 @@ ifdef CONFIG_SPL_BUILD
+ PF_ABICALLS		:= -mno-abicalls
+ PF_PIC			:= -fno-pic
+ PF_PIE			:=
++PF_OBJCOPY		:= -j .mem_ctrl_cfg
+ USE_PRIVATE_LIBGCC	:= yes
+ endif
+ 
+diff --git a/arch/mips/cpu/mips32/vrx200/mem.c b/arch/mips/cpu/mips32/vrx200/mem.c
+index 6f46a3dde2651e90e966f9abfae05f344ec37dd9..fe1e801a02842852a5e1345ded5f478644e27c66 100644
+--- a/arch/mips/cpu/mips32/vrx200/mem.c
++++ b/arch/mips/cpu/mips32/vrx200/mem.c
+@@ -2,50 +2,312 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #include <common.h>
+ #include <asm/arch/soc.h>
+ #include <asm/lantiq/io.h>
++#include <asm/lantiq/spl.h>
++#include <asm/lantiq/cpu.h>
++#include <asm/lantiq/mem.h>
+ 
+-#define LTQ_CCR03_EIGHT_BANK_MODE	(1 << 0)
+-#define LTQ_CCR08_CS_MAP_SHIFT		24
+-#define LTQ_CCR08_CS_MAP_MASK		(0x3 << LTQ_CCR08_CS_MAP_SHIFT)
+-#define LTQ_CCR11_COLUMN_SIZE_SHIFT	24
+-#define LTQ_CCR11_COLUMN_SIZE_MASK	(0x7 << LTQ_CCR11_COLUMN_SIZE_SHIFT)
+-#define LTQ_CCR11_ADDR_PINS_MASK	0x7
+-#define LTQ_CCR15_MAX_COL_REG_SHIFT	24
+-#define LTQ_CCR15_MAX_COL_REG_MASK	(0xF << LTQ_CCR15_MAX_COL_REG_SHIFT)
+-#define LTQ_CCR16_MAX_ROW_REG_MASK	0xF
++/* Must be configured in BOARDDIR */
++#include <ddr_settings.h>
+ 
+-static void *ltq_mc_ddr_base = (void *) CKSEG1ADDR(LTQ_MC_DDR_BASE);
++#if defined(CONFIG_SYS_DRAM_PROBE)
++#define mc_sdram_probe_enable		1
++#else
++#define mc_sdram_probe_enable		0
++#endif
+ 
+-static inline u32 ltq_mc_ccr_read(u32 index)
++#define CCS_AHBM_CR_BURST_EN		(1 << 2)
++#define CCS_FPIM_CR_BURST_EN		(1 << 1)
++
++#define CCR03_EIGHT_BANK_MODE		(1 << 0)
++#define CCR07_START			(1 << 8)
++#define CCR08_CS_MAP_SHIFT		24
++#define CCR08_CS_MAP_MASK		(0x3 << CCR08_CS_MAP_SHIFT)
++#define CCR11_COLUMN_SIZE_SHIFT		24
++#define CCR11_COLUMN_SIZE_MASK		(0x7 << CCR11_COLUMN_SIZE_SHIFT)
++#define CCR11_COLUMN_SIZE_10		(2 << CCR11_COLUMN_SIZE_SHIFT)
++#define CCR11_ADDR_PINS_MASK		0x7
++#define CCR15_MAX_COL_REG_SHIFT		24
++#define CCR15_MAX_COL_REG_MASK		(0xF << CCR15_MAX_COL_REG_SHIFT)
++#define CCR16_MAX_ROW_REG_MASK		0xF
++#define CCR39_DLL_RD_DQ_DEL_NM_SHIFT	8
++#define CCR39_DLL_RD_DQ_DEL_NM_MASK	(0xFF << CCR43_DLL_WR_DQ_DEL_NM_SHIFT)
++#define CCR43_DLL_WR_DQ_DEL_NM_SHIFT	8
++#define CCR43_DLL_WR_DQ_DEL_NM_MASK	(0xFF << CCR43_DLL_WR_DQ_DEL_NM_SHIFT)
++#define CCR47_DLL_LOCK_IND		1
++
++#define DEFAULT_GATE_ECHO_DLL		0x24
++
++struct mc_global_regs {
++	u32 rsvd0[0x100];
++	u32 ddr_gsr0;		/* DDR SDRAM controller global status 0 */
++	u32 rsvd1;
++	u32 ddr_gcr0;		/* DDR SDRAM controller global control 0 */
++	u32 rsvd2;
++	u32 ddr_gcr1;		/* DDR SDRAM controller global control 1 */
++	u32 rsvd3;
++	u32 ddr_prio_ti;	/* DDR SDRAM controller priority of transaction initiator */
++	u32 rsvd4;
++	u32 ddr_echo_dll0;	/* DDR SDRAM controller echo gate DLL0 control */
++	u32 rsvd5;
++	u32 ddr_echo_dll1;	/* DDR SDRAM controller echo gate DLL1 control */
++	u32 rsvd6;
++	u32 ccs;		/* undocumented */
++};
++
++static struct mc_global_regs *mc_global_regs =
++	(void *) CKSEG1ADDR(LTQ_MC_GLOBAL_BASE);
++static void *mc_ddr_base = (void *) CKSEG1ADDR(LTQ_MC_DDR_BASE);
++static void *bootrom_base = (void *) CKSEG1ADDR(LTQ_BOOTROM_BASE);
++
++static __always_inline
++u32 mc_ccr_read(u32 index)
+ {
+-	return ltq_readl(ltq_mc_ddr_base + LTQ_MC_DDR_CCR_OFFSET(index));
++	return ltq_readl(mc_ddr_base + LTQ_MC_DDR_CCR_OFFSET(index));
+ }
+ 
+-phys_size_t initdram(int board_type)
++static __always_inline
++void mc_ccr_write(u32 index, u32 val)
++{
++	ltq_writel(mc_ddr_base + LTQ_MC_DDR_CCR_OFFSET(index), val);
++}
++
++static __always_inline
++void mc_ccr_dump(u32 index)
++{
++	const void *addr = (void *)(mc_ddr_base +
++		LTQ_MC_DDR_CCR_OFFSET(index));
++	debug("CCR%02u: 0x%p = 0x%08x\n", index, addr, ltq_readl(addr));
++}
++
++static __always_inline
++u32 bootrom_readl(u32 offset)
++{
++	return ltq_readl(bootrom_base + offset);
++}
++
++static __always_inline
++void bootrom_writel(u32 offset, u32 val)
++{
++	ltq_writel(bootrom_base + offset, val);
++}
++
++static __always_inline
++void mc_ddr_echo_dll_writel(unsigned int slice, unsigned int delay)
++{
++	if (slice)
++		ltq_writel(&mc_global_regs->ddr_echo_dll1, delay);
++	else
++		ltq_writel(&mc_global_regs->ddr_echo_dll0, delay);
++}
++
++static __always_inline
++void mc_halt(void)
++{
++	/*
++	 * Create multiple dummy accesses to ROM space to ensure the MIPS to
++	 * Xbar path is cleared of pending DDR SDRAM transactions.
++	 */
++	bootrom_writel(0, bootrom_readl(4));
++	bootrom_writel(4, bootrom_readl(8));
++	bootrom_writel(8, bootrom_readl(0));
++
++	/* Stop memory controller */
++	mc_ccr_write(7, MC_CCR07_VALUE & ~CCR07_START);
++}
++
++static __always_inline
++void mc_start(void)
++{
++	/* Start initialization sequence */
++	mc_ccr_write(7, MC_CCR07_VALUE | CCR07_START);
++
++	/* Wait until DLL0 has locked */
++	while (!(mc_ccr_read(47) & CCR47_DLL_LOCK_IND))
++		;
++
++	/* Wait until DLL1 has locked */
++	while (!(mc_ccr_read(48) & CCR47_DLL_LOCK_IND))
++		;
++}
++
++static __always_inline
++void mc_init(void)
++{
++	u32 ccr03 = MC_CCR03_VALUE;
++	u32 ccr11 = MC_CCR11_VALUE;
++
++	/*
++	 * Initial probe settings are 8-bank mode enabled, 14 use address
++	 * row bits, 10 used column address bits.
++	 */
++	if (mc_sdram_probe_enable) {
++		ccr03 |= CCR03_EIGHT_BANK_MODE;
++		ccr11 &= ~(CCR11_COLUMN_SIZE_MASK | CCR11_ADDR_PINS_MASK);
++		ccr11 |= CCR11_COLUMN_SIZE_10;
++	}
++
++	/* Init MC DDR CCR registers with values from ddr_settings.h */
++	mc_ccr_write(0, MC_CCR00_VALUE);
++	mc_ccr_write(1, MC_CCR01_VALUE);
++	mc_ccr_write(2, MC_CCR02_VALUE);
++	mc_ccr_write(3, ccr03);
++	mc_ccr_write(4, MC_CCR04_VALUE);
++	mc_ccr_write(5, MC_CCR05_VALUE);
++	mc_ccr_write(6, MC_CCR06_VALUE);
++	mc_ccr_write(8, MC_CCR08_VALUE);
++	mc_ccr_write(9, MC_CCR09_VALUE);
++
++	mc_ccr_write(10, MC_CCR10_VALUE);
++	mc_ccr_write(11, ccr11);
++	mc_ccr_write(12, MC_CCR12_VALUE);
++	mc_ccr_write(13, MC_CCR13_VALUE);
++	mc_ccr_write(14, MC_CCR14_VALUE);
++	mc_ccr_write(15, MC_CCR15_VALUE);
++	mc_ccr_write(16, MC_CCR16_VALUE);
++	mc_ccr_write(17, MC_CCR17_VALUE);
++	mc_ccr_write(18, MC_CCR18_VALUE);
++	mc_ccr_write(19, MC_CCR19_VALUE);
++
++	mc_ccr_write(20, MC_CCR20_VALUE);
++	mc_ccr_write(21, MC_CCR21_VALUE);
++	mc_ccr_write(22, MC_CCR22_VALUE);
++	mc_ccr_write(23, MC_CCR23_VALUE);
++	mc_ccr_write(24, MC_CCR24_VALUE);
++	mc_ccr_write(25, MC_CCR25_VALUE);
++	mc_ccr_write(26, MC_CCR26_VALUE);
++	mc_ccr_write(27, MC_CCR27_VALUE);
++	mc_ccr_write(28, MC_CCR28_VALUE);
++	mc_ccr_write(29, MC_CCR29_VALUE);
++
++	mc_ccr_write(30, MC_CCR30_VALUE);
++	mc_ccr_write(31, MC_CCR31_VALUE);
++	mc_ccr_write(32, MC_CCR32_VALUE);
++	mc_ccr_write(33, MC_CCR33_VALUE);
++	mc_ccr_write(34, MC_CCR34_VALUE);
++	mc_ccr_write(35, MC_CCR35_VALUE);
++	mc_ccr_write(36, MC_CCR36_VALUE);
++	mc_ccr_write(37, MC_CCR37_VALUE);
++	mc_ccr_write(38, MC_CCR38_VALUE);
++	mc_ccr_write(39, MC_CCR39_VALUE);
++
++	mc_ccr_write(40, MC_CCR40_VALUE);
++	mc_ccr_write(41, MC_CCR41_VALUE);
++	mc_ccr_write(42, MC_CCR42_VALUE);
++	mc_ccr_write(43, MC_CCR43_VALUE);
++	mc_ccr_write(44, MC_CCR44_VALUE);
++	mc_ccr_write(45, MC_CCR45_VALUE);
++	mc_ccr_write(46, MC_CCR46_VALUE);
++
++	mc_ccr_write(52, MC_CCR52_VALUE);
++	mc_ccr_write(53, MC_CCR53_VALUE);
++	mc_ccr_write(54, MC_CCR54_VALUE);
++	mc_ccr_write(55, MC_CCR55_VALUE);
++	mc_ccr_write(56, MC_CCR56_VALUE);
++	mc_ccr_write(57, MC_CCR57_VALUE);
++	mc_ccr_write(58, MC_CCR58_VALUE);
++	mc_ccr_write(59, MC_CCR59_VALUE);
++
++	mc_ccr_write(60, MC_CCR60_VALUE);
++	mc_ccr_write(61, MC_CCR61_VALUE);
++
++	/* Set initial values for gate echo DLL */
++	mc_ddr_echo_dll_writel(0, DEFAULT_GATE_ECHO_DLL);
++	mc_ddr_echo_dll_writel(1, DEFAULT_GATE_ECHO_DLL);
++
++	/* Disable bursts between FPI Master bus and XBAR bus */
++	ltq_writel(&mc_global_regs->ccs, CCS_AHBM_CR_BURST_EN);
++}
++
++static __always_inline
++void mc_sdram_probe(void)
++{
++	u32 ccr03 = MC_CCR03_VALUE;
++	u32 ccr11 = MC_CCR11_VALUE;
++	u32 val;
++
++	/*
++	 * Eight bank mode test:
++	 * - store a 1 at offset 0
++	 * - store a 0 at offset 2^13 (bit 2 in bank select address BA[3])
++	 * - load value at offset 0
++	 * - if that value is 0, the eight bank mode must be disabled
++	 */
++	sdram_uc_writel(0, 1);
++	sdram_uc_writel(1 << 13, 0);
++	val = sdram_uc_readl(0);
++	if (!val)
++		ccr03 &= ~CCR03_EIGHT_BANK_MODE;
++
++	/*
++	 * Row address test:
++	 * - store a 0 at offset 0
++	 * - store a 1 at offset 2^27 (bit 13 of row address RA[14])
++	 * - store a 2 at offset 2^26 (bit 12 of row address RA[14])
++	 * - load value at offset 0
++	 * - value indicates the useable row address bits
++	 */
++	sdram_uc_writel(0, 0);
++	sdram_uc_writel(1 << 27, 1);
++	sdram_uc_writel(1 << 26, 2);
++	val = sdram_uc_readl(0);
++	ccr11 += val;
++
++	/*
++	 * Column address test:
++	 * - store a 0 at offset 0
++	 * - store a 1 at offset 2^10 (bit 9 of column address CA[10])
++	 * - store a 2 at offset 2^9 (bit 8 of column address CA[10])
++	 * - load value at offset 0
++	 * - value indicates the useable column address bits
++	 */
++	sdram_uc_writel(0, 0);
++	sdram_uc_writel(1 << 10, 1);
++	sdram_uc_writel(1 << 9, 2);
++	val = sdram_uc_readl(0);
++	ccr11 += val << CCR11_COLUMN_SIZE_SHIFT;
++
++	mc_halt();
++	mc_ccr_write(3, ccr03);
++	mc_ccr_write(11, ccr11);
++	mc_start();
++}
++
++void ltq_mem_init(void)
++{
++	mc_halt();
++	mc_init();
++	mc_start();
++
++	if (mc_sdram_probe_enable)
++		mc_sdram_probe();
++}
++
++static phys_size_t mc_sdram_size(void)
+ {
+-	u32 max_col_reg, max_row_reg, column_size, addr_pins;
+-	u32 banks, cs_map;
++	unsigned int max_col_reg, max_row_reg, column_size, addr_pins;
++	unsigned int banks, cs_map;
+ 	phys_size_t size;
+ 
+-	banks = (ltq_mc_ccr_read(3) & LTQ_CCR03_EIGHT_BANK_MODE) ? 8 : 4;
++	banks = (mc_ccr_read(3) & CCR03_EIGHT_BANK_MODE) ? 8 : 4;
+ 
+-	cs_map = (ltq_mc_ccr_read(8) & LTQ_CCR08_CS_MAP_MASK) >>
+-		LTQ_CCR08_CS_MAP_SHIFT;
++	cs_map = (mc_ccr_read(8) & CCR08_CS_MAP_MASK) >>
++		CCR08_CS_MAP_SHIFT;
+ 
+-	column_size = (ltq_mc_ccr_read(11) & LTQ_CCR11_COLUMN_SIZE_MASK) >>
+-		LTQ_CCR11_COLUMN_SIZE_SHIFT;
++	column_size = (mc_ccr_read(11) & CCR11_COLUMN_SIZE_MASK) >>
++		CCR11_COLUMN_SIZE_SHIFT;
+ 
+-	addr_pins = ltq_mc_ccr_read(11) & LTQ_CCR11_ADDR_PINS_MASK;
++	addr_pins = mc_ccr_read(11) & CCR11_ADDR_PINS_MASK;
+ 
+-	max_col_reg = (ltq_mc_ccr_read(15) & LTQ_CCR15_MAX_COL_REG_MASK) >>
+-		LTQ_CCR15_MAX_COL_REG_SHIFT;
++	max_col_reg = (mc_ccr_read(15) & CCR15_MAX_COL_REG_MASK) >>
++		CCR15_MAX_COL_REG_SHIFT;
+ 
+-	max_row_reg = ltq_mc_ccr_read(16) & LTQ_CCR16_MAX_ROW_REG_MASK;
++	max_row_reg = mc_ccr_read(16) & CCR16_MAX_ROW_REG_MASK;
+ 
+ 	/*
+ 	 * size (bytes) = 2 ^ rowsize * 2 ^ colsize * banks * chipselects
+@@ -56,3 +318,379 @@ phys_size_t initdram(int board_type)
+ 
+ 	return size;
+ }
++
++static void test_dump(const u8 *buf, unsigned int start, unsigned int stop)
++{
++	unsigned int i;
++
++	for (i = start; i < stop; i++) {
++		if (buf[i])
++			putc('1');
++		else
++			putc('0');
++
++		if (i % 16 == 15)
++			putc('\n');
++		else
++			putc(' ');
++	}
++}
++
++static __always_inline void mc_rd_dq_writel(unsigned int slice,
++						unsigned int delay)
++{
++	unsigned int offset = 39 + slice;
++	u32 val;
++
++	val = mc_ccr_read(offset);
++	val &= ~CCR39_DLL_RD_DQ_DEL_NM_MASK;
++	val |= delay << CCR39_DLL_RD_DQ_DEL_NM_SHIFT;
++	mc_ccr_write(offset, val);
++}
++
++static __always_inline void mc_wr_dq_writel(unsigned int slice,
++						unsigned int delay)
++{
++	unsigned int offset = 43 + slice;
++	u32 val;
++
++	val = mc_ccr_read(offset);
++	val &= ~CCR43_DLL_WR_DQ_DEL_NM_MASK;
++	val |= delay << CCR43_DLL_WR_DQ_DEL_NM_SHIFT;
++	mc_ccr_write(offset, val);
++}
++
++int ltq_mem_tune(struct ltq_mem_ctrl_cfg *cfg)
++{
++	const phys_size_t sdram_size = mc_sdram_size();
++	const unsigned int read_max_q = 0x2b;
++	const unsigned int read_min_q = 0x15;
++	const unsigned int read_max = 0x3f;
++	const unsigned int read_min = 0x00;
++	const unsigned int write_q = 0x55;
++	const unsigned int write_max = 0x7f;
++	const unsigned int write_min = 0x40;
++	const unsigned int echo_dll_size = 0x80;
++	const unsigned int echo_dll_init = 0x20;
++	unsigned int i, dq;
++	unsigned int read_dq_l, read_dq_u, write_dq_l, write_dq_u;
++	unsigned int echo_dll_l, echo_dll_u;
++	unsigned int min_l, max_l, min_u, max_u;
++	u8 test_u[128], test_l[128];
++	int ret;
++
++#if 0
++	ltq_mc_ccr_dump(3);
++	ltq_mc_ccr_dump(11);
++	ltq_mc_ccr_dump(39);
++	ltq_mc_ccr_dump(40);
++	ltq_mc_ccr_dump(43);
++	ltq_mc_ccr_dump(44);
++	ltq_mc_ccr_dump(53);
++	ltq_mc_ccr_dump(54);
++#endif
++
++	ltq_writel(&mc_global_regs->ddr_echo_dll0, echo_dll_init);
++	ltq_writel(&mc_global_regs->ddr_echo_dll1, echo_dll_init);
++
++	/* initial read DQ delay tuning */
++	min_l = read_max_q;
++	max_l = read_min_q;
++	min_u = read_max_q;
++	max_u = read_min_q;
++
++	for (i = 0; i < 15; i++) {
++		mc_halt();
++		mc_wr_dq_writel(0, write_q + i);
++		mc_wr_dq_writel(1, write_q + i);
++
++		for (dq = read_min_q; dq < read_max_q; dq++) {
++			mc_halt();
++			mc_rd_dq_writel(0, dq);
++			mc_rd_dq_writel(1, dq);
++			mc_start();
++			__udelay(100);
++
++			ret = ltq_mem_test_tune(sdram_size, 0, 1);
++			if (ret == 0) {
++				if (min_l > dq)
++					min_l = dq;
++
++				if (max_l < dq)
++					max_l = dq;
++			}
++
++			ret = ltq_mem_test_tune(sdram_size, 1, 1);
++			if (ret == 0) {
++				if (min_u > dq)
++					min_u = dq;
++
++				if (max_u < dq)
++					max_u = dq;
++			}
++		}
++	}
++
++	if (max_l > min_l) {
++		read_dq_l = (min_l + max_l) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable initial read DQS delay for slice #0\n");
++		goto err;
++	}
++
++	if (max_u > min_u) {
++		read_dq_u = (min_u + max_u) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable initial read DQS delay for slice #1\n");
++		goto err;
++	}
++
++	/* gate echo DLL tuning */
++	min_l = echo_dll_size;
++	max_l = 0;
++	min_u = echo_dll_size;
++	max_u = 0;
++
++	if (spl_mc_tune_debug) {
++		memset(test_l, 0, sizeof(test_l));
++		memset(test_u, 0, sizeof(test_u));
++	}
++
++	for (i = 0; i < echo_dll_size; i++) {
++		ltq_writel(&mc_global_regs->ddr_echo_dll0, i);
++		ltq_writel(&mc_global_regs->ddr_echo_dll1, i);
++		cpu_sync();
++
++		ret = ltq_mem_test_tune(sdram_size, 0, 0);
++		if (ret == 0) {
++			if (min_l > i)
++				min_l = i;
++
++			if (max_l < i)
++				max_l = i;
++
++			if (spl_mc_tune_debug)
++				test_l[i] = 1;
++		}
++
++		ret = ltq_mem_test_tune(sdram_size, 1, 0);
++		if (ret == 0) {
++			if (min_u > i)
++				min_u = i;
++
++			if (max_u < i)
++				max_u = i;
++
++			if (spl_mc_tune_debug)
++				test_u[i] = 1;
++		}
++	}
++
++	if (max_l > min_l) {
++		echo_dll_l = (min_l + max_l) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable echo DLL delay for slice #0\n");
++		goto err;
++	}
++
++	if (max_u > min_u) {
++		echo_dll_u = (min_u + max_u) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable echo DLL delay for slice #1\n");
++		goto err;
++	}
++
++	if (spl_mc_tune_debug) {
++		printf("\nEcho DLL delay slice 0: %02x\n", echo_dll_l);
++		test_dump(test_l, 0, echo_dll_size);
++		printf("\nEcho DLL delay slice 1: %02x\n", echo_dll_u);
++		test_dump(test_u, 0, echo_dll_size);
++	}
++
++	ltq_writel(&mc_global_regs->ddr_echo_dll0, echo_dll_l);
++	ltq_writel(&mc_global_regs->ddr_echo_dll1, echo_dll_u);
++	cpu_sync();
++
++	/* write data eye tuning */
++	min_l = write_max;
++	max_l = write_min;
++	min_u = write_max;
++	max_u = write_min;
++
++	if (spl_mc_tune_debug) {
++		memset(test_l, 0, sizeof(test_l));
++		memset(test_u, 0, sizeof(test_u));
++	}
++
++	mc_halt();
++	mc_rd_dq_writel(0, read_dq_l);
++	mc_rd_dq_writel(1, read_dq_u);
++
++	for (dq = write_min; dq < write_max; dq++) {
++		mc_halt();
++		mc_wr_dq_writel(0, dq);
++		mc_wr_dq_writel(1, dq);
++		mc_start();
++		__udelay(100);
++
++		ret = ltq_mem_test_tune(sdram_size, 0, 0);
++		if (ret == 0) {
++			if (min_l > dq)
++				min_l = dq;
++
++			if (max_l < dq)
++				max_l = dq;
++
++			if (spl_mc_tune_debug)
++				test_l[dq] = 1;
++		}
++
++		ret = ltq_mem_test_tune(sdram_size, 1, 0);
++		if (ret == 0) {
++			if (min_u > dq)
++				min_u = dq;
++
++			if (max_u < dq)
++				max_u = dq;
++
++			if (spl_mc_tune_debug)
++				test_u[dq] = 1;
++		}
++	}
++
++	if (max_l > min_l) {
++		write_dq_l = (min_l + max_l) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable write DQS delay for slice #0\n");
++		goto err;
++	}
++
++	if (max_u > min_u) {
++		write_dq_u = (min_u + max_u) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable write DQS delay for slice #1\n");
++		goto err;
++	}
++
++	if (spl_mc_tune_debug) {
++		printf("\nWrite DQ delay slice 0: %02x\n", write_dq_l);
++		test_dump(test_l, write_min, write_max + 1);
++		printf("\nWrite DQ delay slice 1: %02x\n", write_dq_u);
++		test_dump(test_u, write_min, write_max + 1);
++	}
++
++	/* read data eye tuning */
++	min_l = read_max;
++	max_l = read_min;
++	min_u = read_max;
++	max_u = read_min;
++
++	if (spl_mc_tune_debug) {
++		memset(test_l, 0, sizeof(test_l));
++		memset(test_u, 0, sizeof(test_u));
++	}
++
++	mc_halt();
++	mc_wr_dq_writel(0, write_dq_l);
++	mc_wr_dq_writel(1, write_dq_u);
++
++	for (dq = read_min_q; dq < read_max_q; dq++) {
++		mc_halt();
++		mc_rd_dq_writel(0, dq);
++		mc_rd_dq_writel(1, dq);
++		mc_start();
++		__udelay(100);
++
++		ret = ltq_mem_test_tune(sdram_size, 0, 0);
++		if (ret == 0) {
++			if (min_l > dq)
++				min_l = dq;
++
++			if (max_l < dq)
++				max_l = dq;
++
++			if (spl_mc_tune_debug)
++				test_l[dq] = 1;
++		}
++
++		ret = ltq_mem_test_tune(sdram_size, 1, 0);
++		if (ret == 0) {
++			if (min_u > dq)
++				min_u = dq;
++
++			if (max_u < dq)
++				max_u = dq;
++
++			if (spl_mc_tune_debug)
++				test_u[dq] = 1;
++		}
++	}
++
++	if (max_l > min_l) {
++		read_dq_l = (min_l + max_l) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable read DQS delay for slice #0\n");
++		goto err;
++	}
++
++	if (max_u > min_u) {
++		read_dq_u = (min_u + max_u) >> 1;
++	} else {
++		spl_puts("MEM: failed to determine a suitable read DQS delay for slice #1\n");
++		goto err;
++	}
++
++	if (spl_mc_tune_debug) {
++		printf("\nRead DQ delay slice 0: %02x\n", read_dq_l);
++		test_dump(test_l, read_min, read_max + 1);
++		printf("\nRead DQ delay slice 1: %02x\n", read_dq_u);
++		test_dump(test_u, read_min, read_max + 1);
++	}
++
++	mc_halt();
++	mc_rd_dq_writel(0, read_dq_l);
++	mc_rd_dq_writel(1, read_dq_u);
++	mc_start();
++
++	cfg->gate_echo_dll_l = echo_dll_l;
++	cfg->gate_echo_dll_u = echo_dll_u;
++	cfg->write_dqs_delay_l = write_dq_l;
++	cfg->write_dqs_delay_u = write_dq_u;
++	cfg->read_dqs_delay_l = read_dq_l;
++	cfg->read_dqs_delay_u = read_dq_u;
++	cfg->state = 0;
++
++	return 0;
++
++err:
++	/* restore original values */
++	mc_halt();
++	mc_ccr_write(39, MC_CCR39_VALUE);
++	mc_ccr_write(40, MC_CCR40_VALUE);
++	mc_ccr_write(43, MC_CCR43_VALUE);
++	mc_ccr_write(44, MC_CCR44_VALUE);
++	ltq_writel(&mc_global_regs->ddr_echo_dll0, DEFAULT_GATE_ECHO_DLL);
++	ltq_writel(&mc_global_regs->ddr_echo_dll1, DEFAULT_GATE_ECHO_DLL);
++	mc_start();
++
++	return 1;
++}
++
++int ltq_mem_apply(const struct ltq_mem_ctrl_cfg *cfg)
++{
++	mc_halt();
++	ltq_writel(&mc_global_regs->ddr_echo_dll0, cfg->gate_echo_dll_l);
++	ltq_writel(&mc_global_regs->ddr_echo_dll1, cfg->gate_echo_dll_u);
++	mc_wr_dq_writel(0, cfg->write_dqs_delay_l);
++	mc_wr_dq_writel(1, cfg->write_dqs_delay_u);
++	mc_rd_dq_writel(0, cfg->read_dqs_delay_l);
++	mc_rd_dq_writel(1, cfg->read_dqs_delay_l);
++	mc_start();
++
++	return 0;
++}
++
++phys_size_t initdram(int board_type)
++{
++	return mc_sdram_size();
++}
+diff --git a/arch/mips/cpu/mips32/vrx200/mem_init.S b/arch/mips/cpu/mips32/vrx200/mem_init.S
+deleted file mode 100644
+index 29ffdcfa6174bb7994a57fdd5c503b0935e93288..0000000000000000000000000000000000000000
+--- a/arch/mips/cpu/mips32/vrx200/mem_init.S
++++ /dev/null
+@@ -1,234 +0,0 @@
+-/*
+- * This file is released under the terms of GPL v2 and any later version.
+- * See the file COPYING in the root directory of the source tree for details.
+- *
+- * Copyright (C) 2010 Lantiq Deutschland GmbH
+- * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+- */
+-
+-#include <config.h>
+-#include <asm/asm.h>
+-#include <asm/regdef.h>
+-#include <asm/addrspace.h>
+-#include <asm/arch/soc.h>
+-
+-/* Must be configured in BOARDDIR */
+-#include <ddr_settings.h>
+-
+-#define LTQ_MC_DDR_START		(1 << 8)
+-#define LTQ_MC_DDR_DLL_LOCK_IND	1
+-
+-#define CCS_ALWAYS_LAST			0x0430
+-#define CCS_AHBM_CR_BURST_EN		(1 << 2)
+-#define CCS_FPIM_CR_BURST_EN		(1 << 1)
+-
+-#define CCR03_EIGHT_BANK_MODE		(1 << 0)
+-
+-	/* Store given value in MC DDR CCRx register */
+-	.macro ccr_sw num, val
+-	li	t1, \val
+-	sw	t1, LTQ_MC_DDR_CCR_OFFSET(\num)(t0)
+-	.endm
+-
+-LEAF(ltq_mem_init)
+-	/* Load MC DDR module base */
+-	li	t0, (LTQ_MC_DDR_BASE | KSEG1)
+-
+-	/* Put memory controller in inactive mode */
+-	sw	zero, LTQ_MC_DDR_CCR_OFFSET(7)(t0)
+-
+-	/* Init MC DDR CCR registers with values from ddr_settings.h */
+-	ccr_sw	0, MC_CCR00_VALUE
+-	ccr_sw	1, MC_CCR01_VALUE
+-	ccr_sw	2, MC_CCR02_VALUE
+-	ccr_sw	3, MC_CCR03_VALUE
+-	ccr_sw	4, MC_CCR04_VALUE
+-	ccr_sw	5, MC_CCR05_VALUE
+-	ccr_sw	6, MC_CCR06_VALUE
+-	ccr_sw	7, MC_CCR07_VALUE
+-	ccr_sw	8, MC_CCR08_VALUE
+-	ccr_sw	9, MC_CCR09_VALUE
+-
+-	ccr_sw	10, MC_CCR10_VALUE
+-	ccr_sw	11, MC_CCR11_VALUE
+-	ccr_sw	12, MC_CCR12_VALUE
+-	ccr_sw	13, MC_CCR13_VALUE
+-	ccr_sw	14, MC_CCR14_VALUE
+-	ccr_sw	15, MC_CCR15_VALUE
+-	ccr_sw	16, MC_CCR16_VALUE
+-	ccr_sw	17, MC_CCR17_VALUE
+-	ccr_sw	18, MC_CCR18_VALUE
+-	ccr_sw	19, MC_CCR19_VALUE
+-
+-	ccr_sw	20, MC_CCR20_VALUE
+-	ccr_sw	21, MC_CCR21_VALUE
+-	ccr_sw	22, MC_CCR22_VALUE
+-	ccr_sw	23, MC_CCR23_VALUE
+-	ccr_sw	24, MC_CCR24_VALUE
+-	ccr_sw	25, MC_CCR25_VALUE
+-	ccr_sw	26, MC_CCR26_VALUE
+-	ccr_sw	27, MC_CCR27_VALUE
+-	ccr_sw	28, MC_CCR28_VALUE
+-	ccr_sw	29, MC_CCR29_VALUE
+-
+-	ccr_sw	30, MC_CCR30_VALUE
+-	ccr_sw	31, MC_CCR31_VALUE
+-	ccr_sw	32, MC_CCR32_VALUE
+-	ccr_sw	33, MC_CCR33_VALUE
+-	ccr_sw	34, MC_CCR34_VALUE
+-	ccr_sw	35, MC_CCR35_VALUE
+-	ccr_sw	36, MC_CCR36_VALUE
+-	ccr_sw	37, MC_CCR37_VALUE
+-	ccr_sw	38, MC_CCR38_VALUE
+-	ccr_sw	39, MC_CCR39_VALUE
+-
+-	ccr_sw	40, MC_CCR40_VALUE
+-	ccr_sw	41, MC_CCR41_VALUE
+-	ccr_sw	42, MC_CCR42_VALUE
+-	ccr_sw	43, MC_CCR43_VALUE
+-	ccr_sw	44, MC_CCR44_VALUE
+-	ccr_sw	45, MC_CCR45_VALUE
+-	ccr_sw	46, MC_CCR46_VALUE
+-
+-	ccr_sw	52, MC_CCR52_VALUE
+-	ccr_sw	53, MC_CCR53_VALUE
+-	ccr_sw	54, MC_CCR54_VALUE
+-	ccr_sw	55, MC_CCR55_VALUE
+-	ccr_sw	56, MC_CCR56_VALUE
+-	ccr_sw	57, MC_CCR57_VALUE
+-	ccr_sw	58, MC_CCR58_VALUE
+-	ccr_sw	59, MC_CCR59_VALUE
+-
+-	ccr_sw	60, MC_CCR60_VALUE
+-	ccr_sw	61, MC_CCR61_VALUE
+-
+-	/* Disable bursts between FPI Master bus and XBAR bus */
+-	li	t4, (LTQ_MC_GLOBAL_BASE | KSEG1)
+-	li	t5, CCS_AHBM_CR_BURST_EN
+-	sw	t5, CCS_ALWAYS_LAST(t4)
+-
+-	/* Init abort condition for DRAM probe */
+-	move	t4, zero
+-
+-	/*
+-	 * Put memory controller in active mode and start initialitation
+-	 * sequence for connected DDR-SDRAM device
+-	 */
+-mc_start:
+-	lw	t1, LTQ_MC_DDR_CCR_OFFSET(7)(t0)
+-	li	t2, LTQ_MC_DDR_START
+-	or	t1, t1, t2
+-	sw	t1, LTQ_MC_DDR_CCR_OFFSET(7)(t0)
+-
+-	/*
+-	 * Wait until DLL has locked and core is ready for data transfers.
+-	 * DLL lock indication is in register CCR47 and CCR48
+-	 */
+-wait_ready:
+-	li	t1, LTQ_MC_DDR_DLL_LOCK_IND
+-	lw	t2, LTQ_MC_DDR_CCR_OFFSET(47)(t0)
+-	and	t2, t2, t1
+-	bne	t1, t2, wait_ready
+-
+-	lw	t2, LTQ_MC_DDR_CCR_OFFSET(48)(t0)
+-	and	t2, t2, t1
+-	bne	t1, t2, wait_ready
+-
+-#ifdef CONFIG_SYS_DRAM_PROBE
+-dram_probe:
+-	/* Initialization is finished after the second MC start */
+-	bnez	t4, mc_finished
+-
+-	/*
+-	 * Preload register values for CCR03 and CCR11. Initial settings
+-	 * are 8-bank mode enabled, 14 use address row bits, 10 used
+-	 * column address bits.
+-	 */
+-	li	t1, CONFIG_SYS_SDRAM_BASE_UC
+-	li	t5, MC_CCR03_VALUE
+-	li	t6, MC_CCR11_VALUE
+-	addi	t4, t4, 1
+-
+-	/*
+-	 * Store test values to DRAM at offsets 0 and 2^13 (bit 2 in bank select
+-	 * address BA[3]) and read back the value at offset 0. If the resulting
+-	 * value is equal to 1 we can skip to the next test. Otherwise
+-	 * the 8-bank mode does not work with the current DRAM device,
+-	 * thus we need to clear the according bit in register CCR03.
+-	 */
+-	li	t2, 1
+-	sw	t2, 0x0(t1)
+-	li	t3, (1 << 13)
+-	add	t3, t3, t1
+-	sw	zero, 0(t3)
+-	lw	t3, 0(t1)
+-	bnez	t3, row_col_test
+-
+-	/* Clear CCR03.EIGHT_BANK_MODE */
+-	li	t3, ~CCR03_EIGHT_BANK_MODE
+-	and	t5, t5, t3
+-
+-row_col_test:
+-	/*
+-	 * Store test values to DRAM at offsets 0, 2^27 (bit 13 of row address
+-	 * RA[14]) and 2^26 (bit 12 of RA[14]). The chosen test values
+-	 * represent the difference between max. row address bits (14) and used
+-	 * row address bits. Then the read back value at offset 0 indicates
+-	 * the useable row address bits with the current DRAM device. This
+-	 * value must be set in the CCR11 register.
+-	 */
+-	sw	zero, 0(t1)
+-
+-	li	t2, 1
+-	li	t3, (1 << 27)
+-	add	t3, t3, t1
+-	sw	t2, 0(t3)
+-
+-	li	t2, 2
+-	li	t3, (1 << 26)
+-	add	t3, t3, t1
+-	sw	t2, 0(t3)
+-
+-	/* Update CCR11.ADDR_PINS */
+-	lw	t3, 0(t1)
+-	add	t6, t6, t3
+-
+-	/*
+-	 * Store test values to DRAM at offsets 0, 2^10 (bit 9 of column address
+-	 * CA[10]) and 2^9 (bit 8 of CA[10]). The chosen test values represent
+-	 * the difference between max. column address bits (12) and used
+-	 * column address bits. Then the read back value at offset 0 indicates
+-	 * the useable column address bits with the current DRAM device. This
+-	 * value must be set in the CCR11 register.
+-	 */
+-	sw	zero, 0(t1)
+-
+-	li	t2, 1
+-	li	t3, (1 << 10)
+-	add	t3, t3, t1
+-	sw	t2, 0(t3)
+-
+-	li	t2, 2
+-	li	t3, (1 << 9)
+-	add	t3, t3, t1
+-	sw	t2, 0(t3)
+-
+-	/* Update CCR11.COLUMN_SIZE */
+-	lw	t3, 0(t1)
+-	sll	t3, t3, 24
+-	add	t6, t6, t3
+-
+-	/* Put memory controller in inactive mode */
+-	sw	zero, LTQ_MC_DDR_CCR_OFFSET(7)(t0)
+-
+-	/* Update CCR03 and CCR11 and restart memory controller initialiation */
+-	sw	t5, LTQ_MC_DDR_CCR_OFFSET(3)(t0)
+-	sw	t6, LTQ_MC_DDR_CCR_OFFSET(11)(t0)
+-	b	mc_start
+-
+-mc_finished:
+-#endif /* CONFIG_SYS_DRAM_PROBE */
+-
+-	jr	ra
+-
+-	END(ltq_mem_init)
+diff --git a/arch/mips/cpu/u-boot.lds b/arch/mips/cpu/u-boot.lds
+index ca18d463e9b2b754f57d719f13623a3c618f9307..41f0a675c8fe3a820ca14f5909297b1c631e6bbe 100644
+--- a/arch/mips/cpu/u-boot.lds
++++ b/arch/mips/cpu/u-boot.lds
+@@ -76,27 +76,7 @@ SECTIONS
+ 		__rel_dyn_end = .;
+ 	}
+ 
+-	.deadcode : {
+-		/*
+-		 * Workaround for a binutils feature (or bug?).
+-		 *
+-		 * The GNU ld from binutils puts the dynamic relocation
+-		 * entries into the .rel.dyn section. Sometimes it
+-		 * allocates more dynamic relocation entries than it needs
+-		 * and the unused slots are set to R_MIPS_NONE entries.
+-		 *
+-		 * However the size of the .rel.dyn section in the ELF
+-		 * section header does not cover the unused entries, so
+-		 * objcopy removes those during stripping.
+-		 *
+-		 * Create a small section here to avoid that.
+-		 */
+-		LONG(0xffffffff);
+-	}
+-
+-	.dynsym : {
+-		*(.dynsym)
+-	}
++	_end = .;
+ 
+ 	.bss __rel_dyn_start (OVERLAY) : {
+ 		__bss_start = .;
+@@ -107,15 +87,39 @@ SECTIONS
+ 		__bss_end = .;
+ 	}
+ 
+-	/DISCARD/ : {
++	.dynsym _end : {
++		*(.dynsym)
++	}
++
++	.dynbss : {
+ 		*(.dynbss)
++	}
++
++	.dynstr : {
+ 		*(.dynstr)
++	}
++
++	.dynamic : {
+ 		*(.dynamic)
++	}
++
++	.plt : {
++		*(.plt)
++	}
++
++	.interp : {
+ 		*(.interp)
++	}
++
++	.gnu : {
++		*(.gnu*)
++	}
++
++	.MIPS.stubs : {
++		*(.MIPS.stubs)
++	}
++
++	.hash : {
+ 		*(.hash)
+-		*(.gnu.*)
+-		*(.plt)
+-		*(.got.plt)
+-		*(.rel.plt)
+ 	}
+ }
+diff --git a/arch/mips/include/asm/arch-danube/config.h b/arch/mips/include/asm/arch-danube/config.h
+index fb380ced90041a8e33e828bd88bc913b600eaabd..256f4984f0abe61428df04e40858131799f15017 100644
+--- a/arch/mips/include/asm/arch-danube/config.h
++++ b/arch/mips/include/asm/arch-danube/config.h
+@@ -54,6 +54,7 @@
+ /* RAM */
+ #define CONFIG_NR_DRAM_BANKS		1
+ #define CONFIG_SYS_SDRAM_BASE		0x80000000
++#define CONFIG_SYS_SDRAM_BASE_UC	0xa0000000
+ #define CONFIG_SYS_MEMTEST_START	0x81000000
+ #define CONFIG_SYS_MEMTEST_END		0x82000000
+ #define CONFIG_SYS_LOAD_ADDR		0x81000000
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index a6264a82bd213b39b00c68dc92ed8280071fbc12..e2032bfa7c1b11803f20c259133575493236cb73 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -139,6 +139,10 @@
+ #define CONFIG_SPL_MALLOC_MAX_SIZE	(32 * 1024)
+ #define CONFIG_SPL_STACK_BSS_IN_SRAM
+ 
++#if defined(CONFIG_SYS_BOOT_SFSPL)
++#define CONFIG_LTQ_SPL_MC_TUNE
++#endif
++
+ #if defined(CONFIG_SPL_STACK_BSS_IN_SRAM)
+ #define CONFIG_SPL_STACK_BASE		(CONFIG_SYS_SRAM_BASE + \
+ 					CONFIG_SPL_MAX_SIZE + \
+diff --git a/arch/mips/include/asm/arch-vrx200/soc.h b/arch/mips/include/asm/arch-vrx200/soc.h
+index 73a92a15fc71412b3610c35bb5cd7ddbdf55c018..59b284a541daf6b81ca50eade77b42fc9cc0a497 100644
+--- a/arch/mips/include/asm/arch-vrx200/soc.h
++++ b/arch/mips/include/asm/arch-vrx200/soc.h
+@@ -32,6 +32,7 @@
+ #define LTQ_SWITCH_MII_PDI_BASE		(LTQ_SWITCH_TOPLEVEL_BASE + 4 * 0x36)
+ #define LTQ_SWITCH_PMAC_PDI_BASE	(LTQ_SWITCH_TOPLEVEL_BASE + 4 * 0x82)
+ 
++#define LTQ_BOOTROM_BASE		0x1F000000
+ #define LTQ_PMU_BASE			0x1F102000
+ #define LTQ_CGU_BASE			0x1F103000
+ #define LTQ_DCDC_BASE			0x1F106A00
+diff --git a/arch/mips/include/asm/lantiq/cpu.h b/arch/mips/include/asm/lantiq/cpu.h
+index d52a82489f8c36ec8fe39f4e411ee328b42805e2..ab53a0ae7850deaed93396c1292c9804baac9c14 100644
+--- a/arch/mips/include/asm/lantiq/cpu.h
++++ b/arch/mips/include/asm/lantiq/cpu.h
+@@ -25,6 +25,8 @@ enum ltq_boot_select {
+ enum ltq_boot_select ltq_boot_select(void);
+ const char *ltq_boot_select_str(void);
+ 
++void ltq_cgu_init(void);
++void ltq_mem_init(void);
+ void ltq_pmu_init(void);
+ void ltq_ebu_init(void);
+ void ltq_gpio_init(void);
+diff --git a/arch/mips/include/asm/lantiq/mem.h b/arch/mips/include/asm/lantiq/mem.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..340f5b7ffe7b199f598debc957279d9ef57573ac
+--- /dev/null
++++ b/arch/mips/include/asm/lantiq/mem.h
+@@ -0,0 +1,95 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#ifndef __LANTIQ_MEM_H__
++#define __LANTIQ_MEM_H__
++
++int ltq_mem_test_data_bus(phys_size_t dram_size);
++int ltq_mem_test_address_bus(phys_size_t dram_size);
++int ltq_mem_test_device(phys_addr_t addr, phys_size_t size);
++int ltq_mem_test_tune(phys_size_t dram_size, unsigned int slice, int quick);
++
++static inline void sdram_uc_writeb(u32 offset, u8 val)
++{
++	__raw_writeb(val, (void *)(CONFIG_SYS_SDRAM_BASE_UC + offset));
++}
++
++static inline void sdram_uc_writew(u32 offset, u16 val)
++{
++	__raw_writew(val, (void *)(CONFIG_SYS_SDRAM_BASE_UC + offset));
++}
++
++static inline void sdram_uc_writel(phys_addr_t offset, u32 val)
++{
++	__raw_writel(val, (void *)(CONFIG_SYS_SDRAM_BASE_UC + offset));
++}
++
++static inline void sdram_writeb(u32 offset, u8 val)
++{
++	__raw_writeb(val, (void *)(CONFIG_SYS_SDRAM_BASE + offset));
++}
++
++static inline void sdram_writew(u32 offset, u16 val)
++{
++	__raw_writew(val, (void *)(CONFIG_SYS_SDRAM_BASE + offset));
++}
++
++static inline void sdram_writel(phys_addr_t offset, u32 val)
++{
++	__raw_writel(val, (void *)(CONFIG_SYS_SDRAM_BASE + offset));
++}
++
++static inline u8 sdram_uc_readb(u32 offset)
++{
++	return __raw_readb((void *)(CONFIG_SYS_SDRAM_BASE_UC + offset));
++}
++
++static inline u16 sdram_uc_readw(u32 offset)
++{
++	return __raw_readw((void *)(CONFIG_SYS_SDRAM_BASE_UC + offset));
++}
++
++static inline u32 sdram_uc_readl(phys_addr_t offset)
++{
++	return __raw_readl((void *)(CONFIG_SYS_SDRAM_BASE_UC + offset));
++}
++
++static inline u8 sdram_readb(u32 offset)
++{
++	return __raw_readb((void *)(CONFIG_SYS_SDRAM_BASE + offset));
++}
++
++static inline u16 sdram_readw(u32 offset)
++{
++	return __raw_readw((void *)(CONFIG_SYS_SDRAM_BASE + offset));
++}
++
++static inline u32 sdram_readl(phys_addr_t offset)
++{
++	return __raw_readl((void *)(CONFIG_SYS_SDRAM_BASE + offset));
++}
++
++static inline void sdram_flush_dcache_line(phys_addr_t offset)
++{
++	phys_addr_t addr = CONFIG_SYS_SDRAM_BASE + offset;
++	flush_dcache_range(addr, addr + CONFIG_SYS_CACHELINE_SIZE - 1);
++}
++
++static inline void cpu_sync(void)
++{
++	__asm__ __volatile__(			\
++		".set	push\n\t"		\
++		".set	noreorder\n\t"		\
++		".set	mips2\n\t"		\
++		"sync\n\t"			\
++		".set	pop"			\
++		: /* no output */		\
++		: /* no input */		\
++		: "memory");
++}
++
++#endif /* __LANTIQ_MEM_H__ */
+diff --git a/arch/mips/include/asm/lantiq/spl.h b/arch/mips/include/asm/lantiq/spl.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..68bb3cbdb6790b4fdee3a8d8699059ba0a50646b
+--- /dev/null
++++ b/arch/mips/include/asm/lantiq/spl.h
+@@ -0,0 +1,102 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011-2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#ifndef __LANTIQ_SPL_H__
++#define __LANTIQ_SPL_H__
++
++#if defined(CONFIG_LTQ_SPL_CONSOLE)
++#define spl_has_console		1
++
++#if defined(CONFIG_LTQ_SPL_DEBUG)
++#define spl_has_debug		1
++#else
++#define spl_has_debug		0
++#endif
++
++#if defined(CONFIG_LTQ_SPL_MC_TUNE_DEBUG)
++#define spl_mc_tune_debug	1
++#else
++#define spl_mc_tune_debug	0
++#endif
++
++#else
++#define spl_has_console		0
++#define spl_has_debug		0
++#define spl_mc_tune_debug	0
++#endif
++
++#define spl_debug(fmt, args...)			\
++	do {					\
++		if (spl_has_debug)		\
++			printf(fmt, ##args);	\
++	} while (0)
++
++#define spl_puts(msg)				\
++	do {					\
++		if (spl_has_console)		\
++			puts(msg);		\
++	} while (0)
++
++#if defined(CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH) && defined(CONFIG_SYS_BOOT_SFSPL)
++#define spl_boot_spi_flash	1
++#else
++#define spl_boot_spi_flash	0
++#ifndef CONFIG_SPL_SPI_BUS
++#define CONFIG_SPL_SPI_BUS	0
++#endif
++#ifndef CONFIG_SPL_SPI_CS
++#define CONFIG_SPL_SPI_CS	0
++#endif
++#ifndef CONFIG_SPL_SPI_MAX_HZ
++#define CONFIG_SPL_SPI_MAX_HZ	0
++#endif
++#ifndef CONFIG_SPL_SPI_MODE
++#define CONFIG_SPL_SPI_MODE	0
++#endif
++#endif
++
++#if defined(CONFIG_LTQ_SUPPORT_SPL_NOR_FLASH) && defined(CONFIG_SYS_BOOT_NORSPL)
++#define spl_boot_nor_flash	1
++#else
++#define spl_boot_nor_flash	0
++#endif
++
++#if defined(CONFIG_LTQ_SPL_MC_TUNE)
++#define spl_mc_tune		1
++#else
++#define spl_mc_tune		0
++#endif
++
++struct ltq_mem_ctrl_cfg {
++	u32 crc;
++	u8 state;
++	u8 gate_echo_dll_l;
++	u8 gate_echo_dll_u;
++	u8 write_dqs_delay_l;
++	u8 write_dqs_delay_u;
++	u8 read_dqs_delay_l;
++	u8 read_dqs_delay_u;
++};
++
++int ltq_mem_tune(struct ltq_mem_ctrl_cfg *cfg);
++int ltq_mem_apply(const struct ltq_mem_ctrl_cfg *cfg);
++
++void mips_cache_reset(void);
++
++static inline unsigned long mem_ctrl_cfg_start(void)
++{
++	extern char __mem_ctrl_cfg_start[];
++	return (unsigned long) &__mem_ctrl_cfg_start;
++}
++
++static inline unsigned long mem_ctrl_cfg_end(void)
++{
++	extern char __mem_ctrl_cfg_end[];
++	return (unsigned long) &__mem_ctrl_cfg_end;
++}
++
++#endif /* __LANTIQ_SPL_H__ */
+diff --git a/board/lantiq/easy80920/ddr_settings.h b/board/lantiq/easy80920/ddr_settings.h
+index b459f9783b7a3612ddbfcda61e717844e54b372c..e39ab1be2373109fbb053de423ff1974a512cf5e 100644
+--- a/board/lantiq/easy80920/ddr_settings.h
++++ b/board/lantiq/easy80920/ddr_settings.h
+@@ -7,9 +7,9 @@
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+-#define	MC_CCR03_VALUE	0x101
++#define	MC_CCR03_VALUE	0x100
+ #define	MC_CCR04_VALUE	0x1000000
+ #define	MC_CCR05_VALUE	0x1000101
+ #define	MC_CCR06_VALUE	0x1000100
+@@ -17,7 +17,7 @@
+ #define	MC_CCR08_VALUE	0x1000101
+ #define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000300
++#define	MC_CCR11_VALUE	0x2000401
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+@@ -45,24 +45,24 @@
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x141F04
+-#define	MC_CCR40_VALUE	0x142704
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
+ #define	MC_CCR57_VALUE	0x7800301
+ #define	MC_CCR58_VALUE	0x7800301
+ #define	MC_CCR59_VALUE	0x7800301
+diff --git a/board/sphairon/isdn_sip_gw/ddr_settings.h b/board/sphairon/isdn_sip_gw/ddr_settings.h
+index 6e16774a6e8256acd526cd550955bd42fc094a63..1862f892ff7f9827442b5356dc464e2b260e1d13 100644
+--- a/board/sphairon/isdn_sip_gw/ddr_settings.h
++++ b/board/sphairon/isdn_sip_gw/ddr_settings.h
+@@ -6,7 +6,7 @@
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+ #define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+@@ -14,7 +14,7 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x1000000
++#define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+ #define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401503
++#define	MC_CCR24_VALUE	0x4401B04
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,30 +40,30 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1536b0
++#define	MC_CCR35_VALUE	0x1D445D
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x142404
+-#define	MC_CCR40_VALUE	0x142604
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7C00301
+-#define	MC_CCR58_VALUE	0x7C00301
+-#define	MC_CCR59_VALUE	0x7C00301
+-#define	MC_CCR60_VALUE	0x7C00301
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/sl2510/ddr_settings.h b/board/sphairon/sl2510/ddr_settings.h
+index 6e16774a6e8256acd526cd550955bd42fc094a63..1862f892ff7f9827442b5356dc464e2b260e1d13 100644
+--- a/board/sphairon/sl2510/ddr_settings.h
++++ b/board/sphairon/sl2510/ddr_settings.h
+@@ -6,7 +6,7 @@
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+ #define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+@@ -14,7 +14,7 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x1000000
++#define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+ #define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401503
++#define	MC_CCR24_VALUE	0x4401B04
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,30 +40,30 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1536b0
++#define	MC_CCR35_VALUE	0x1D445D
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x142404
+-#define	MC_CCR40_VALUE	0x142604
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7C00301
+-#define	MC_CCR58_VALUE	0x7C00301
+-#define	MC_CCR59_VALUE	0x7C00301
+-#define	MC_CCR60_VALUE	0x7C00301
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/sl4501/ddr_settings.h b/board/sphairon/sl4501/ddr_settings.h
+index 5fe8d6c5570ec4672618a68a42e432fdbc1aa4cd..0571d452a82548ef466c5a0a93a697da804590ac 100644
+--- a/board/sphairon/sl4501/ddr_settings.h
++++ b/board/sphairon/sl4501/ddr_settings.h
+@@ -6,7 +6,7 @@
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+ #define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+@@ -14,9 +14,9 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x1000000
++#define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000300
++#define	MC_CCR11_VALUE	0x2000301
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401503
++#define	MC_CCR24_VALUE	0x4401B04
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,30 +40,30 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1536b0
++#define	MC_CCR35_VALUE	0x1D445D
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x142404
+-#define	MC_CCR40_VALUE	0x142604
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7C00301
+-#define	MC_CCR58_VALUE	0x7C00301
+-#define	MC_CCR59_VALUE	0x7C00301
+-#define	MC_CCR60_VALUE	0x7C00301
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/sl550x/ddr_settings.h b/board/sphairon/sl550x/ddr_settings.h
+index 6e16774a6e8256acd526cd550955bd42fc094a63..0571d452a82548ef466c5a0a93a697da804590ac 100644
+--- a/board/sphairon/sl550x/ddr_settings.h
++++ b/board/sphairon/sl550x/ddr_settings.h
+@@ -2,11 +2,11 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+ #define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+@@ -14,9 +14,9 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x1000000
++#define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000300
++#define	MC_CCR11_VALUE	0x2000301
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401503
++#define	MC_CCR24_VALUE	0x4401B04
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,30 +40,30 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1536b0
++#define	MC_CCR35_VALUE	0x1D445D
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x142404
+-#define	MC_CCR40_VALUE	0x142604
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7C00301
+-#define	MC_CCR58_VALUE	0x7C00301
+-#define	MC_CCR59_VALUE	0x7C00301
+-#define	MC_CCR60_VALUE	0x7C00301
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/sl6501/ddr_settings.h b/board/sphairon/sl6501/ddr_settings.h
+index 5fe8d6c5570ec4672618a68a42e432fdbc1aa4cd..0571d452a82548ef466c5a0a93a697da804590ac 100644
+--- a/board/sphairon/sl6501/ddr_settings.h
++++ b/board/sphairon/sl6501/ddr_settings.h
+@@ -6,7 +6,7 @@
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+ #define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+@@ -14,9 +14,9 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x1000000
++#define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+-#define	MC_CCR11_VALUE	0x2000300
++#define	MC_CCR11_VALUE	0x2000301
+ #define	MC_CCR12_VALUE	0x30000
+ #define	MC_CCR13_VALUE	0x202
+ #define	MC_CCR14_VALUE	0x7080A0F
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401503
++#define	MC_CCR24_VALUE	0x4401B04
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,30 +40,30 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1536b0
++#define	MC_CCR35_VALUE	0x1D445D
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x142404
+-#define	MC_CCR40_VALUE	0x142604
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7C00301
+-#define	MC_CCR58_VALUE	0x7C00301
+-#define	MC_CCR59_VALUE	0x7C00301
+-#define	MC_CCR60_VALUE	0x7C00301
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/vrx_g1/ddr_settings.h b/board/sphairon/vrx_g1/ddr_settings.h
+index 6e16774a6e8256acd526cd550955bd42fc094a63..e15e27a968eba6ddabf9c7ef47f7898480129240 100644
+--- a/board/sphairon/vrx_g1/ddr_settings.h
++++ b/board/sphairon/vrx_g1/ddr_settings.h
+@@ -2,11 +2,11 @@
+  * This file is released under the terms of GPL v2 and any later version.
+  * See the file COPYING in the root directory of the source tree for details.
+  *
+- * Copyright (C) 2011-2013 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ * Copyright (C) 2011-2014 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
+  */
+ 
+ #define	MC_CCR00_VALUE	0x101
+-#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR01_VALUE	0x1000101
+ #define	MC_CCR02_VALUE	0x1010000
+ #define	MC_CCR03_VALUE	0x101
+ #define	MC_CCR04_VALUE	0x1000000
+@@ -14,7 +14,7 @@
+ #define	MC_CCR06_VALUE	0x1000100
+ #define	MC_CCR07_VALUE	0x1010000
+ #define	MC_CCR08_VALUE	0x1000101
+-#define	MC_CCR09_VALUE	0x1000000
++#define	MC_CCR09_VALUE	0x0
+ #define	MC_CCR10_VALUE	0x2000100
+ #define	MC_CCR11_VALUE	0x2000300
+ #define	MC_CCR12_VALUE	0x30000
+@@ -29,7 +29,7 @@
+ #define	MC_CCR21_VALUE	0x40F020A
+ #define	MC_CCR22_VALUE	0x0
+ #define	MC_CCR23_VALUE	0xC020000
+-#define	MC_CCR24_VALUE	0x4401503
++#define	MC_CCR24_VALUE	0x4401B04
+ #define	MC_CCR25_VALUE	0x0
+ #define	MC_CCR26_VALUE	0x0
+ #define	MC_CCR27_VALUE	0x6420000
+@@ -40,30 +40,30 @@
+ #define	MC_CCR32_VALUE	0x0
+ #define	MC_CCR33_VALUE	0x650000
+ #define	MC_CCR34_VALUE	0x200C8
+-#define	MC_CCR35_VALUE	0x1536b0
++#define	MC_CCR35_VALUE	0x1D445D
+ #define	MC_CCR36_VALUE	0xC8
+ #define	MC_CCR37_VALUE	0xC351
+ #define	MC_CCR38_VALUE	0x0
+-#define	MC_CCR39_VALUE	0x142404
+-#define	MC_CCR40_VALUE	0x142604
+-#define	MC_CCR41_VALUE	0x141b42
+-#define	MC_CCR42_VALUE	0x141b42
+-#define	MC_CCR43_VALUE	0x566504
+-#define	MC_CCR44_VALUE	0x566504
+-#define	MC_CCR45_VALUE	0x565F17
+-#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR39_VALUE	0x141F20
++#define	MC_CCR40_VALUE	0x141F20
++#define	MC_CCR41_VALUE	0x141F20
++#define	MC_CCR42_VALUE	0x141F20
++#define	MC_CCR43_VALUE	0x566501
++#define	MC_CCR44_VALUE	0x566501
++#define	MC_CCR45_VALUE	0x566501
++#define	MC_CCR46_VALUE	0x566501
+ #define	MC_CCR47_VALUE	0x0
+ #define	MC_CCR48_VALUE	0x0
+ #define	MC_CCR49_VALUE	0x0
+ #define	MC_CCR50_VALUE	0x0
+ #define	MC_CCR51_VALUE	0x0
+ #define	MC_CCR52_VALUE	0x133
+-#define	MC_CCR53_VALUE	0xF3014B27
+-#define	MC_CCR54_VALUE	0xF3014B27
+-#define	MC_CCR55_VALUE	0xF3014B27
+-#define	MC_CCR56_VALUE	0xF3014B27
+-#define	MC_CCR57_VALUE	0x7C00301
+-#define	MC_CCR58_VALUE	0x7C00301
+-#define	MC_CCR59_VALUE	0x7C00301
+-#define	MC_CCR60_VALUE	0x7C00301
++#define	MC_CCR53_VALUE	0xF3004B27
++#define	MC_CCR54_VALUE	0xF3004B27
++#define	MC_CCR55_VALUE	0xF3004B27
++#define	MC_CCR56_VALUE	0xF3004B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
+ #define	MC_CCR61_VALUE	0x4
+diff --git a/include/configs/easy80920.h b/include/configs/easy80920.h
+index 3800a283acc9e0aec800f44b9ab1219e15cd9b39..82d6d1162b825e765f6ab6d5b44a5ee491c359ae 100644
+--- a/include/configs/easy80920.h
++++ b/include/configs/easy80920.h
+@@ -35,8 +35,6 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_CONSOLE
+ 
+-#define CONFIG_SYS_DRAM_PROBE
+-
+ /* Environment */
+ #define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
+ #define CONFIG_ENV_SPI_CS		CONFIG_SPL_SPI_CS
+diff --git a/include/configs/sl4501.h b/include/configs/sl4501.h
+index 14f9a4abf3f00fdbb4e4c106665644006d04b936..67486ebcbcd7720daf49faf66fcd1ac967dbd81d 100644
+--- a/include/configs/sl4501.h
++++ b/include/configs/sl4501.h
+@@ -39,8 +39,6 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_CONSOLE
+ 
+-#define CONFIG_SYS_DRAM_PROBE
+-
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+index 238a1599e2eac544643f877caa0e66877099d915..fed12cfa5232f060a98df36b4b546dd7d843b533 100644
+--- a/include/configs/sl550x.h
++++ b/include/configs/sl550x.h
+@@ -39,8 +39,6 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_CONSOLE
+ 
+-#define CONFIG_SYS_DRAM_PROBE
+-
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+diff --git a/include/configs/sl6501.h b/include/configs/sl6501.h
+index fa6fb3e3582bb0986c434865e45068ff7f5a2227..718bf01b291d2821ebea06c80cc578707f07e86b 100644
+--- a/include/configs/sl6501.h
++++ b/include/configs/sl6501.h
+@@ -39,8 +39,6 @@
+ #define CONFIG_LTQ_SPL_COMP_LZO
+ #define CONFIG_LTQ_SPL_CONSOLE
+ 
+-#define CONFIG_SYS_DRAM_PROBE
+-
+ /* MTD devices */
+ #define CONFIG_MTD_DEVICE
+ #define CONFIG_MTD_PARTITIONS
+diff --git a/lib/sphairon/boot.c b/lib/sphairon/boot.c
+index 6bc48d823641b964f4e3707e76892799f671b8bd..c5f011bc73b76dfa33ef50d9d80a5a70a577d362 100644
+--- a/lib/sphairon/boot.c
++++ b/lib/sphairon/boot.c
+@@ -665,7 +665,7 @@ int sas_boot_layout_service(const struct sas_flash_partition *part,
+ 	*erase_len = *configfs_addr + configfs_size - *servicefs_addr;
+ 	*erase_len = sas_flash_roundb(part, *erase_len);
+ 
+-	if (*erase_len > part->size) {
++	if (*erase_len > (part->size - servicefs_srcaddr)) {
+ 		puts("Size of images exceeds partition size\n");
+ 		return 1;
+ 	}

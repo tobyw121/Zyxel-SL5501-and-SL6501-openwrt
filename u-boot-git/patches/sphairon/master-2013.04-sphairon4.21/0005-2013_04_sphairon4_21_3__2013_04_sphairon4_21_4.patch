@@ -1,0 +1,347 @@
+diff --git a/Makefile b/Makefile
+index ff0db7003f48647f9064fb93ea4e7c4e34b15fc4..12d05c868f3460fbc7c8359a9c7403972f7c9d24 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.21.3
++EXTRAVERSION = -sphairon4.21.4
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/arch/mips/include/asm/arch-danube/nand.h b/arch/mips/include/asm/arch-danube/nand.h
+index 3349efc0bc943c044a7ee32c9b53d1b17bb44b7f..bd571edcd62fb9dbec02311d8d945468f17ac619 100644
+--- a/arch/mips/include/asm/arch-danube/nand.h
++++ b/arch/mips/include/asm/arch-danube/nand.h
+@@ -8,7 +8,6 @@
+ #ifndef __DANUBE_NAND_H__
+ #define __DANUBE_NAND_H__
+ 
+-struct nand_chip;
+-int ltq_nand_init(struct nand_chip *nand);
++void ltq_nand_init(void);
+ 
+ #endif /* __DANUBE_NAND_H__ */
+diff --git a/arch/mips/include/asm/arch-vrx200/config.h b/arch/mips/include/asm/arch-vrx200/config.h
+index e2032bfa7c1b11803f20c259133575493236cb73..ffa730125b00417efb7acb2433354ddfa92e52dd 100644
+--- a/arch/mips/include/asm/arch-vrx200/config.h
++++ b/arch/mips/include/asm/arch-vrx200/config.h
+@@ -113,6 +113,8 @@
+ 
+ #if defined(CONFIG_LTQ_SUPPORT_NAND_FLASH)
+ #define CONFIG_NAND_LANTIQ
++#define CONFIG_SYS_NAND_ONFI_DETECTION
++#define CONFIG_SYS_NAND_SELF_INIT
+ #define CONFIG_SYS_MAX_NAND_DEVICE	1
+ #define CONFIG_SYS_NAND_BASE		0xB4000000
+ 
+diff --git a/arch/mips/include/asm/arch-vrx200/nand.h b/arch/mips/include/asm/arch-vrx200/nand.h
+index 2ffd6de34bcfdecc805ee28e922b388b2c51bb22..1d22697ddbf70bc290eb3e53efdc14dceb094018 100644
+--- a/arch/mips/include/asm/arch-vrx200/nand.h
++++ b/arch/mips/include/asm/arch-vrx200/nand.h
+@@ -8,7 +8,6 @@
+ #ifndef __VRX200_NAND_H__
+ #define __VRX200_NAND_H__
+ 
+-struct nand_chip;
+-int ltq_nand_init(struct nand_chip *nand);
++void ltq_nand_init(void);
+ 
+ #endif /* __VRX200_NAND_H__ */
+diff --git a/drivers/mtd/nand/lantiq_nand.c b/drivers/mtd/nand/lantiq_nand.c
+index 8d92d1058589d48edf1d8e05787eb01b173263fc..99a002658f21e822ffc92f26feb64b015a288aa6 100644
+--- a/drivers/mtd/nand/lantiq_nand.c
++++ b/drivers/mtd/nand/lantiq_nand.c
+@@ -8,6 +8,7 @@
+ #include <common.h>
+ #include <linux/mtd/nand.h>
+ #include <linux/compiler.h>
++#include <nand.h>
+ #include <asm/arch/soc.h>
+ #include <asm/arch/nand.h>
+ #include <asm/lantiq/io.h>
+@@ -29,9 +30,14 @@
+ #define NAND_CON_ALE_P		(1 << 2)
+ #define NAND_CON_CSMUX		(1 << 1)
+ #define NAND_CON_NANDM		(1 << 0)
++#define NAND_CON_LATCH_ALL	(NAND_CON_LATCH_PRE | NAND_CON_LATCH_WP | \
++				NAND_CON_LATCH_SE | NAND_CON_LATCH_CS)
+ 
+ #define NAND_WAIT_WR_C		(1 << 3)
++#define NAND_WAIT_RD_E		(1 << 2)
++#define NAND_WAIT_BY_E		(1 << 1)
+ #define NAND_WAIT_RDBY		(1 << 0)
++#define NAND_WAIT_READY		(NAND_WAIT_RD_E | NAND_WAIT_BY_E | NAND_WAIT_RDBY)
+ 
+ #define NAND_CMD_ALE		(1 << 2)
+ #define NAND_CMD_CLE		(1 << 3)
+@@ -40,6 +46,18 @@
+ #define NAND_CMD_WP		(1 << 6)
+ #define NAND_CMD_PRE		(1 << 7)
+ 
++#if defined(CONFIG_NAND_ECC_BCH)
++#define nand_ecc_soft_bch		1
++#else
++#define nand_ecc_soft_bch		0
++#endif
++
++#if defined(CONFIG_SYS_NAND_USE_FLASH_BBT)
++#define nand_flash_bbt			1
++#else
++#define nand_flash_bbt			0
++#endif
++
+ struct ltq_nand_regs {
+ 	__be32	con;		/* NAND controller control */
+ 	__be32	wait;		/* NAND Flash Device RD/BY State */
+@@ -48,6 +66,8 @@ struct ltq_nand_regs {
+ 	__be32	ecc_cr;		/* NAND Flash ECC Comparison */
+ };
+ 
++static struct nand_chip ltq_nand_chip;
++
+ static struct ltq_nand_regs *ltq_nand_regs =
+ 	(struct ltq_nand_regs *) CKSEG1ADDR(LTQ_EBU_NAND_BASE);
+ 
+@@ -60,37 +80,50 @@ static void ltq_nand_wait_ready(void)
+ static int ltq_nand_dev_ready(struct mtd_info *mtd)
+ {
+ 	u32 data = ltq_readl(&ltq_nand_regs->wait);
+-	return data & NAND_WAIT_RDBY;
++	return (data & NAND_WAIT_READY) == NAND_WAIT_READY;
+ }
+ 
+-static void ltq_nand_select_chip(struct mtd_info *mtd, int chip)
++static void ltq_nand_select_chip(struct mtd_info *mtd, int chipnum)
+ {
+-	if (chip == 0) {
+-		ltq_setbits(&ltq_nand_regs->con, NAND_CON_NANDM);
+-		ltq_setbits(&ltq_nand_regs->con, NAND_CON_LATCH_CS);
+-	} else {
+-		ltq_clrbits(&ltq_nand_regs->con, NAND_CON_LATCH_CS);
+-		ltq_clrbits(&ltq_nand_regs->con, NAND_CON_NANDM);
+-	}
++	if (chipnum < 0)
++		ltq_clrbits(&ltq_nand_regs->con, NAND_CON_LATCH_ALL);
++	else
++		ltq_setbits(&ltq_nand_regs->con, NAND_CON_LATCH_ALL);
+ }
+ 
+ static void ltq_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
+ {
+ 	struct nand_chip *chip = mtd->priv;
+-	unsigned long addr = (unsigned long) chip->IO_ADDR_W;
++	unsigned long addr_w = (unsigned long) chip->IO_ADDR_W;
++	unsigned long addr_r = (unsigned long) chip->IO_ADDR_R;
+ 
+ 	if (ctrl & NAND_CTRL_CHANGE) {
+-		if (ctrl & NAND_ALE)
+-			addr |= NAND_CMD_ALE;
+-		else
+-			addr &= ~NAND_CMD_ALE;
+-
+-		if (ctrl & NAND_CLE)
+-			addr |= NAND_CMD_CLE;
+-		else
+-			addr &= ~NAND_CMD_CLE;
+-
+-		chip->IO_ADDR_W = (void __iomem *) addr;
++		if (ctrl & NAND_NCE) {
++			addr_w |= NAND_CMD_CS;
++			addr_r |= NAND_CMD_CS;
++		} else {
++			addr_w &= ~NAND_CMD_CS;
++			addr_r &= ~NAND_CMD_CS;
++		}
++
++		if (ctrl & NAND_ALE) {
++			ltq_setbits(&ltq_nand_regs->con, NAND_CON_LATCH_ALE);
++			addr_w |= NAND_CMD_ALE;
++		} else {
++			ltq_clrbits(&ltq_nand_regs->con, NAND_CON_LATCH_ALE);
++			addr_w &= ~NAND_CMD_ALE;
++		}
++
++		if (ctrl & NAND_CLE) {
++			ltq_setbits(&ltq_nand_regs->con, NAND_CON_LATCH_CLE);
++			addr_w |= NAND_CMD_CLE;
++		} else {
++			ltq_clrbits(&ltq_nand_regs->con, NAND_CON_LATCH_CLE);
++			addr_w &= ~NAND_CMD_CLE;
++		}
++
++		chip->IO_ADDR_W = (void __iomem *) addr_w;
++		chip->IO_ADDR_R = (void __iomem *) addr_r;
+ 	}
+ 
+ 	if (cmd != NAND_CMD_NONE) {
+@@ -99,29 +132,76 @@ static void ltq_nand_cmd_ctrl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
+ 	}
+ }
+ 
+-int ltq_nand_init(struct nand_chip *nand)
++static void ltq_nand_ecc_soft_bch_setup(struct mtd_info *mtd)
+ {
+-	/* Enable NAND, set NAND CS to EBU CS1, enable EBU CS mux */
+-	ltq_writel(&ltq_nand_regs->con, NAND_CON_OUT_CS1 | NAND_CON_IN_CS1 |
+-		NAND_CON_PRE_P | NAND_CON_WP_P | NAND_CON_SE_P |
+-		NAND_CON_CS_P | NAND_CON_CSMUX);
++	struct nand_chip *chip = mtd->priv;
++
++	chip->ecc.mode = NAND_ECC_SOFT_BCH;
++	chip->ecc.size = chip->ecc_step_ds;
++	chip->ecc.bytes = DIV_ROUND_UP(chip->ecc_strength_ds *
++		fls(8 * chip->ecc_step_ds), 8);
++	chip->options |= NAND_USE_FLASH_BBT;
++
++	debug("using BCH ECC (chip step %u strength %u, BCH size %u bytes %u)\n",
++		chip->ecc_step_ds, chip->ecc_strength_ds,
++		chip->ecc.size, chip->ecc.bytes);
++}
++
++static void ltq_nand_ecc_soft_setup(struct mtd_info *mtd)
++{
++	struct nand_chip *chip = mtd->priv;
+ 
+-	nand->dev_ready = ltq_nand_dev_ready;
+-	nand->select_chip = ltq_nand_select_chip;
+-	nand->cmd_ctrl = ltq_nand_cmd_ctrl;
++	debug("using Hamming ECC\n");
+ 
+-	nand->chip_delay = 30;
+-	nand->options = 0;
+-	nand->ecc.mode = NAND_ECC_SOFT;
++	chip->ecc.mode = NAND_ECC_SOFT;
+ 
+-	/* Enable CS bit in address offset */
+-	nand->IO_ADDR_R = nand->IO_ADDR_R + NAND_CMD_CS;
+-	nand->IO_ADDR_W = nand->IO_ADDR_W + NAND_CMD_CS;
++	if (nand_flash_bbt)
++		chip->options |= NAND_USE_FLASH_BBT;
++}
++
++void ltq_nand_init(void)
++{
++	struct mtd_info *mtd = &nand_info[0];
++	struct nand_chip *chip = &ltq_nand_chip;
++	int err;
++
++	mtd->priv = chip;
++
++	chip->dev_ready = ltq_nand_dev_ready;
++	chip->select_chip = ltq_nand_select_chip;
++	chip->cmd_ctrl = ltq_nand_cmd_ctrl;
++
++	chip->IO_ADDR_W = (void __iomem *)CONFIG_SYS_NAND_BASE;
++	chip->IO_ADDR_R = (void __iomem *)CONFIG_SYS_NAND_BASE;
++
++	err = nand_scan_ident(mtd, 1, NULL);
++	if (err) {
++		debug("nand_scan_ident failed\n");
++		return;
++	}
+ 
+-	return 0;
++	debug("ONFI version: %u\n", chip->onfi_version);
++
++	if (nand_ecc_soft_bch && chip->ecc_strength_ds > 1)
++		ltq_nand_ecc_soft_bch_setup(mtd);
++	else
++		ltq_nand_ecc_soft_setup(mtd);
++
++	err = nand_scan_tail(mtd);
++	if (err) {
++		debug("nand_scan_tail failed\n");
++		return;
++	}
++
++	nand_register(0);
+ }
+ 
+-__weak int board_nand_init(struct nand_chip *chip)
++void board_nand_init(void)
+ {
+-	return ltq_nand_init(chip);
++	/* Enable NAND, set NAND CS to EBU CS1, enable EBU CS mux */
++	ltq_writel(&ltq_nand_regs->con, NAND_CON_OUT_CS1 | NAND_CON_IN_CS1 |
++		NAND_CON_PRE_P | NAND_CON_WP_P | NAND_CON_SE_P |
++		NAND_CON_CS_P | NAND_CON_CSMUX | NAND_CON_NANDM);
++
++	ltq_nand_init();
+ }
+diff --git a/drivers/mtd/nand/nand_base.c b/drivers/mtd/nand/nand_base.c
+index a2d06be99fcf4f3f0882671a514b36b4afecb7a3..70e0ed7d20b2ec36ac0897191eea36bb62b2d527 100644
+--- a/drivers/mtd/nand/nand_base.c
++++ b/drivers/mtd/nand/nand_base.c
+@@ -2580,6 +2580,14 @@ static int nand_flash_detect_onfi(struct mtd_info *mtd, struct nand_chip *chip,
+ 	if (le16_to_cpu(p->features) & 1)
+ 		*busw = NAND_BUSWIDTH_16;
+ 
++	if (p->ecc_bits != 0xff) {
++		chip->ecc_strength_ds = p->ecc_bits;
++		chip->ecc_step_ds = 512;
++	} else {
++		printk(KERN_INFO "%s: could not retrieve ONFI ECC requirements\n",
++			__func__);
++	}
++
+ 	chip->options |= NAND_NO_READRDY | NAND_NO_AUTOINCR;
+ 
+ 	return 1;
+@@ -2824,7 +2832,8 @@ ident_done:
+ 				(*maf_id == NAND_MFR_SAMSUNG ||
+ 				 *maf_id == NAND_MFR_HYNIX ||
+ 				 *maf_id == NAND_MFR_TOSHIBA ||
+-				 *maf_id == NAND_MFR_AMD)) ||
++				 *maf_id == NAND_MFR_AMD ||
++				 *maf_id == NAND_MFR_MACRONIX)) ||
+ 			(mtd->writesize == 2048 &&
+ 			 *maf_id == NAND_MFR_MICRON))
+ 		chip->options |= NAND_BBT_SCAN2NDPAGE;
+diff --git a/drivers/mtd/nand/nand_ids.c b/drivers/mtd/nand/nand_ids.c
+index 39535497f8dfede06d6ca0e7ee009178fc7b8569..62ce7f993170f6737b28ee4c6a5b022ff7aaf394 100644
+--- a/drivers/mtd/nand/nand_ids.c
++++ b/drivers/mtd/nand/nand_ids.c
+@@ -177,5 +177,6 @@ const struct nand_manufacturers nand_manuf_ids[] = {
+ 	{NAND_MFR_HYNIX, "Hynix"},
+ 	{NAND_MFR_MICRON, "Micron"},
+ 	{NAND_MFR_AMD, "AMD"},
++	{NAND_MFR_MACRONIX, "Macronix"},
+ 	{0x0, "Unknown"}
+ };
+diff --git a/include/configs/isdn_sip_gw.h b/include/configs/isdn_sip_gw.h
+index da19932ba25bd0addbeeaa4479a72804e59e2bf8..6a63e5548f311e5ca42ed518d9bf7e631f10ef4a 100644
+--- a/include/configs/isdn_sip_gw.h
++++ b/include/configs/isdn_sip_gw.h
+@@ -30,6 +30,8 @@
+ #define CONFIG_SPI_FLASH_4BYTE_MODE
+ 
+ #define CONFIG_LTQ_SUPPORT_NAND_FLASH
++#define CONFIG_NAND_ECC_BCH
++#define CONFIG_BCH
+ 
+ #define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
+ #define CONFIG_SPL_SPI_BUS		0
+diff --git a/include/linux/mtd/nand.h b/include/linux/mtd/nand.h
+index 98bf255bb28526f5703f55fd9615e1ab9c595144..d2b63b6a076bf147e6bac180c8bbee4c0e0495f1 100644
+--- a/include/linux/mtd/nand.h
++++ b/include/linux/mtd/nand.h
+@@ -515,6 +515,8 @@ struct nand_chip {
+ 	int pagemask;
+ 	int pagebuf;
+ 	int subpagesize;
++	uint16_t ecc_strength_ds;
++	uint16_t ecc_step_ds;
+ 	uint8_t cellinfo;
+ 	int badblockpos;
+ 	int badblockbits;
+@@ -557,6 +559,7 @@ struct nand_chip {
+ #define NAND_MFR_HYNIX		0xad
+ #define NAND_MFR_MICRON		0x2c
+ #define NAND_MFR_AMD		0x01
++#define NAND_MFR_MACRONIX	0xc2
+ 
+ /**
+  * struct nand_flash_dev - NAND Flash Device ID Structure

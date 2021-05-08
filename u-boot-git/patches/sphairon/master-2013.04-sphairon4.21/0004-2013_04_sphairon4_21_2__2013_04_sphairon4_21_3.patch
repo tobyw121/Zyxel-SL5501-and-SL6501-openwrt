@@ -1,0 +1,53 @@
+diff --git a/Makefile b/Makefile
+index 39709d120e4367587d4ad1de0c0eaf9d02c4cd4b..ff0db7003f48647f9064fb93ea4e7c4e34b15fc4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.21.2
++EXTRAVERSION = -sphairon4.21.3
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/lib/sphairon/util.c b/lib/sphairon/util.c
+index fc285e8c35438f56ed25086c8813860ffa6f4c20..9291930c133248139753908861d143779bb670a9 100644
+--- a/lib/sphairon/util.c
++++ b/lib/sphairon/util.c
+@@ -18,13 +18,30 @@
+ int sas_setenv(const char *name, const char *value, int *saveenv)
+ {
+ 	const char *s;
+-	int modified;
++	int modified = 0, value_len = 0;
+ 
+-	s = getenv(name);
++	if (value)
++		value_len = strlen(value);
+ 
+-	modified = 1;
+-	if (s && value)
+-		modified = strcmp(s, value);
++	s = getenv(name);
++	if (s) {
++		if (!value_len) {
++			/* value should be removed */
++			value = NULL;
++			modified = 1;
++		} else {
++			/* value should be updated */
++			modified = strcmp(s, value);
++		}
++	} else {
++		if (!value_len) {
++			/* value unchanged */
++			return 0;
++		} else {
++			/* value should be added */
++			modified = 1;
++		}
++	}
+ 
+ 	if (modified && saveenv)
+ 		*saveenv = 1;

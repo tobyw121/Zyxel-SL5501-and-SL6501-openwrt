@@ -1,0 +1,33 @@
+diff --git a/Makefile b/Makefile
+index 27b85ab35a29da0278dd68cb8978b56ca5445325..15cb79dcffccb6cc1545bf33e2089ec19b8abaf7 100644
+--- a/Makefile
++++ b/Makefile
+@@ -24,7 +24,7 @@
+ VERSION = 2013
+ PATCHLEVEL = 04
+ SUBLEVEL =
+-EXTRAVERSION = -sphairon4.12
++EXTRAVERSION = -sphairon4.13
+ ifneq "$(SUBLEVEL)" ""
+ U_BOOT_VERSION = $(VERSION).$(PATCHLEVEL).$(SUBLEVEL)$(EXTRAVERSION)
+ else
+diff --git a/include/sas/etl_user.h b/include/sas/etl_user.h
+index e7d8f1faf2fd07d01ef43a291fa444c6c296b3f8..de329a81f12793bd0e0f1fe1a73d61a11b4e2a8a 100644
+--- a/include/sas/etl_user.h
++++ b/include/sas/etl_user.h
+@@ -102,6 +102,7 @@ static inline int sas_etl_is_string(enum sas_etl_id idx)
+ 	case SAS_ETL_FLASH_LAYOUT:
+ 	case SAS_ETL_SERIAL_EXTRA:
+ 	case SAS_ETL_ACS_AUTH:
++	case SAS_ETL_IDENT_NO:
+ 		return 1;
+ 	default:
+ 		return 0;
+@@ -111,7 +112,6 @@ static inline int sas_etl_is_string(enum sas_etl_id idx)
+ static inline int sas_etl_is_integer(enum sas_etl_id idx)
+ {
+ 	switch (idx) {
+-	case SAS_ETL_IDENT_NO:
+ 	case SAS_ETL_BASE_PLATFORM:
+ 	case SAS_ETL_EXTRA_SPACE_SIZE:
+ 	case SAS_ETL_JFFS_IMAGES:
