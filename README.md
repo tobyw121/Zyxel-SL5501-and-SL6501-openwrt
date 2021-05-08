@@ -2,7 +2,7 @@
 
 Can you Help ?
 
-here the Link for the OSC/GPL for the Speedlin SL5501 & SL6501
+here the Link for the OSC/GPL for the Speedlink SL5501 & SL6501
 
 Link: https://mega.nz/file/fNdBQYiQ#k7CLkMZHClqiwAqPA-Gml0WLnq3h2KaOzG1_Fa6umfA
 
