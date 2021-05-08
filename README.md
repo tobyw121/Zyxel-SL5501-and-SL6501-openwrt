@@ -1,6 +1,8 @@
-# porting Zyxel SL5501 and 6501  GPL to----> Openwrt
+# porting Zyxel SL5501 and 6501  GPL to ----> Openwrt
 
 Can you Help ?
+
+here the Link for the OSC/GPL for the Speedlin SL5501 & SL6501
 
 Link: https://mega.nz/file/fNdBQYiQ#k7CLkMZHClqiwAqPA-Gml0WLnq3h2KaOzG1_Fa6umfA
 
@@ -9,6 +11,8 @@ Link: https://mega.nz/file/fNdBQYiQ#k7CLkMZHClqiwAqPA-Gml0WLnq3h2KaOzG1_Fa6umfA
 Portierung der Zyxel SL5501 und SL6501 GPL nach ----> Openwrt
 
 kannst du helfen ?
+
+hier der link zu der OSC/GPL datei für den Speedlink SL5501  & SL6501
 
 Link: https://mega.nz/file/fNdBQYiQ#k7CLkMZHClqiwAqPA-Gml0WLnq3h2KaOzG1_Fa6umfA
 ------------------------------------------------------------------------------------------------------------------
