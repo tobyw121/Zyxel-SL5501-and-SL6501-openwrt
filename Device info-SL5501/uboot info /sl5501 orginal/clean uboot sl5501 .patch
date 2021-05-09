@@ -1,0 +1,414 @@
+diff --git a/board/sphairon/sl550x/Makefile b/board/sphairon/sl550x/Makefile
+new file mode 100644
+index 0000000000000000000000000000000000000000..df1f52fb76373c2cc91b6d72777798b24122b6b4
+--- /dev/null
++++ b/board/sphairon/sl550x/Makefile
+@@ -0,0 +1,28 @@
++#
++# This file is released under the terms of GPL v2 and any later version.
++# See the file COPYING in the root directory of the source tree for details.
++#
++# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++#
++
++include $(TOPDIR)/config.mk
++
++LIB	= $(obj)lib$(BOARD).o
++
++COBJS	= $(BOARD).o
++
++SRCS	:= $(SOBJS:.o=.S) $(COBJS:.o=.c)
++OBJS	:= $(addprefix $(obj),$(COBJS))
++SOBJS	:= $(addprefix $(obj),$(SOBJS))
++
++$(LIB):	$(obj).depend $(OBJS) $(SOBJS)
++	$(call cmd_link_o_target, $(OBJS) $(SOBJS))
++
++#########################################################################
++
++# defines $(obj).depend target
++include $(SRCTREE)/rules.mk
++
++sinclude $(obj).depend
++
++#########################################################################
+diff --git a/board/sphairon/sl550x/config.mk b/board/sphairon/sl550x/config.mk
+new file mode 100644
+index 0000000000000000000000000000000000000000..2dbfa9d56c2ef7f5340db7c114174c83c0633658
+--- /dev/null
++++ b/board/sphairon/sl550x/config.mk
+@@ -0,0 +1,8 @@
++#
++# This file is released under the terms of GPL v2 and any later version.
++# See the file COPYING in the root directory of the source tree for details.
++#
++# Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++#
++
++PLATFORM_CPPFLAGS += -I$(TOPDIR)/board/$(BOARDDIR)
+diff --git a/board/sphairon/sl550x/ddr_settings.h b/board/sphairon/sl550x/ddr_settings.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..0ac3c511401f1c438e0cba4c9bb4e23e5a15c6a6
+--- /dev/null
++++ b/board/sphairon/sl550x/ddr_settings.h
+@@ -0,0 +1,69 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#define	MC_CCR00_VALUE	0x101
++#define	MC_CCR01_VALUE	0x1000100
++#define	MC_CCR02_VALUE	0x1010000
++#define	MC_CCR03_VALUE	0x101
++#define	MC_CCR04_VALUE	0x1000000
++#define	MC_CCR05_VALUE	0x1000101
++#define	MC_CCR06_VALUE	0x1000100
++#define	MC_CCR07_VALUE	0x1010000
++#define	MC_CCR08_VALUE	0x1000101
++#define	MC_CCR09_VALUE	0x0
++#define	MC_CCR10_VALUE	0x2000100
++#define	MC_CCR11_VALUE	0x2000401
++#define	MC_CCR12_VALUE	0x30000
++#define	MC_CCR13_VALUE	0x202
++#define	MC_CCR14_VALUE	0x7080A0F
++#define	MC_CCR15_VALUE	0x2040F
++#define	MC_CCR16_VALUE	0x40000
++#define	MC_CCR17_VALUE	0x70102
++#define	MC_CCR18_VALUE	0x4020002
++#define	MC_CCR19_VALUE	0x30302
++#define	MC_CCR20_VALUE	0x8000700
++#define	MC_CCR21_VALUE	0x40F020A
++#define	MC_CCR22_VALUE	0x0
++#define	MC_CCR23_VALUE	0xC020000
++#define	MC_CCR24_VALUE	0x4401B04
++#define	MC_CCR25_VALUE	0x0
++#define	MC_CCR26_VALUE	0x0
++#define	MC_CCR27_VALUE	0x6420000
++#define	MC_CCR28_VALUE	0x0
++#define	MC_CCR29_VALUE	0x0
++#define	MC_CCR30_VALUE	0x798
++#define	MC_CCR31_VALUE	0x0
++#define	MC_CCR32_VALUE	0x0
++#define	MC_CCR33_VALUE	0x650000
++#define	MC_CCR34_VALUE	0x200C8
++#define	MC_CCR35_VALUE	0x1D445D
++#define	MC_CCR36_VALUE	0xC8
++#define	MC_CCR37_VALUE	0xC351
++#define	MC_CCR38_VALUE	0x0
++#define	MC_CCR39_VALUE	0x141F04
++#define	MC_CCR40_VALUE	0x142704
++#define	MC_CCR41_VALUE	0x141b42
++#define	MC_CCR42_VALUE	0x141b42
++#define	MC_CCR43_VALUE	0x566504
++#define	MC_CCR44_VALUE	0x566504
++#define	MC_CCR45_VALUE	0x565F17
++#define	MC_CCR46_VALUE	0x565F17
++#define	MC_CCR47_VALUE	0x0
++#define	MC_CCR48_VALUE	0x0
++#define	MC_CCR49_VALUE	0x0
++#define	MC_CCR50_VALUE	0x0
++#define	MC_CCR51_VALUE	0x0
++#define	MC_CCR52_VALUE	0x133
++#define	MC_CCR53_VALUE	0xF3014B27
++#define	MC_CCR54_VALUE	0xF3014B27
++#define	MC_CCR55_VALUE	0xF3014B27
++#define	MC_CCR56_VALUE	0xF3014B27
++#define	MC_CCR57_VALUE	0x7800301
++#define	MC_CCR58_VALUE	0x7800301
++#define	MC_CCR59_VALUE	0x7800301
++#define	MC_CCR60_VALUE	0x7800301
++#define	MC_CCR61_VALUE	0x4
+diff --git a/board/sphairon/sl550x/sl550x.c b/board/sphairon/sl550x/sl550x.c
+new file mode 100644
+index 0000000000000000000000000000000000000000..877c9832922dced4dbba97a1965f269e7add9c9f
+--- /dev/null
++++ b/board/sphairon/sl550x/sl550x.c
+@@ -0,0 +1,173 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2012 Daniel Schwierzeck, daniel.schwierzeck@gmail.com
++ */
++
++#include <common.h>
++#include <spi.h>
++#include <asm/gpio.h>
++#include <asm/lantiq/eth.h>
++#include <asm/lantiq/chipid.h>
++#include <asm/arch/gphy.h>
++#include <asm/arch/cpu.h>
++
++#if defined(CONFIG_SPL_BUILD)
++#define do_gpio_init	1
++#define do_pll_init	1
++#define do_dcdc_init	0
++#elif defined(CONFIG_SYS_BOOT_RAM)
++#define do_gpio_init	1
++#define do_pll_init	0
++#define do_dcdc_init	1
++#else
++#define do_gpio_init	0
++#define do_pll_init	0
++#define do_dcdc_init	1
++#endif
++
++static inline void gpio_init(void)
++{
++	/* GPIO button WLAN enable (low-active) */
++	gpio_direction_input(45);
++	/* GPIO button WPS enable (low-active) */
++	gpio_direction_input(46);
++	/* GPIO button board reset (low-active) */
++	gpio_direction_input(47);
++
++	/* LED Power green */
++	gpio_direction_output(3, 1);
++	/* LED Power red */
++	gpio_direction_output(19, 0);
++	/* LED Info green */
++	gpio_direction_output(20, 1);
++	/* LED Info red */
++	gpio_direction_output(21, 1);
++	/* LED Internet green */
++	gpio_direction_output(27, 1);
++	/* LED Internet red */
++	gpio_direction_output(28, 1);
++	/* LED WLAN green */
++	gpio_direction_output(29, 1);
++	/* LED WPS green */
++	gpio_direction_output(30, 1);
++	/* LED USB2 green */
++	gpio_direction_output(32, 1);
++
++	/* SPI CS 0.4 to serial flash */
++	gpio_direction_output(10, 1);
++
++	/* SPI CS 1.0 to ISAC-SX */
++	gpio_direction_output(39, 1);
++
++	/* USB port0 power enable, disabled at startup */
++	gpio_direction_output(41, 0);
++	/* USB port1 power enable, disabled at startup */
++	gpio_direction_output(33, 0);
++
++	/* TODO: move to NAND driver */
++	/* EBU.FL_CS1 as output for NAND CE */
++	gpio_set_altfunc(23, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A23 as output for NAND CLE */
++	gpio_set_altfunc(24, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++	/* EBU.FL_A24 as output for NAND AL */
++	gpio_set_altfunc(13, GPIO_ALTSEL_SET, GPIO_ALTSEL_CLR, GPIO_DIR_OUT);
++
++	/* Ralink iNIC WLAN reset, low-active, asserted at startup */
++	gpio_direction_output(15, 0);
++	/* Ralink iNIC WLAN power, disabled at startup */
++	gpio_direction_output(37, 0);
++}
++
++int board_early_init_f(void)
++{
++	if (do_gpio_init)
++		gpio_init();
++
++	if (do_pll_init)
++		ltq_pll_init();
++
++	if (do_dcdc_init)
++		ltq_dcdc_init(0x7F);
++
++	return 0;
++}
++
++int checkboard(void)
++{
++	puts("Board: " CONFIG_BOARD_NAME "\n");
++	ltq_chip_print_info();
++
++	return 0;
++}
++
++static const struct ltq_eth_port_config eth_port_config[] = {
++	/* GMAC0: external Lantiq PEF7071 10/100/1000 PHY for WANoE port */
++	{ 0, 0x0, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
++	/* GMAC1: external Lantiq PEF7071 10/100/1000 PHY for LAN port 3/4 */
++	{ 1, 0x1, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_RGMII },
++	/* GMAC2: internal GPHY1 with 10/100 firmware for LAN port 1/2 */
++	{ 2, 0x11, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_MII },
++	/* GMAC3: internal GPHY0 with 10/100 firmware for LAN port 1/2 */
++	{ 3, 0x12, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_MII },
++	/* GMAC4: internal GPHY0 with 10/100/1000 firmware for LAN port 3/4 */
++	{ 4, 0x13, LTQ_ETH_PORT_PHY, PHY_INTERFACE_MODE_GMII },
++	/* GMAC5: Ralink iNIC */
++	{ 5, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
++};
++
++static const struct ltq_eth_board_config eth_board_config = {
++	.ports = eth_port_config,
++	.num_ports = ARRAY_SIZE(eth_port_config),
++};
++
++int board_eth_init(bd_t * bis)
++{
++	const enum ltq_gphy_clk clk = LTQ_GPHY_CLK_25MHZ_PLL0;
++	const ulong fw_ge_addr = 0x80FE0000;
++	const ulong fw_fe_addr = 0x80FF0000;
++
++	ltq_gphy_phy11g_a2x_load(fw_ge_addr);
++	ltq_gphy_phy22f_a2x_load(fw_fe_addr);
++
++	ltq_cgu_gphy_clk_src(clk);
++
++	ltq_rcu_gphy_boot(0, fw_fe_addr);
++	ltq_rcu_gphy_boot(1, fw_ge_addr);
++
++	return ltq_eth_initialize(&eth_board_config);
++}
++
++int spi_cs_is_valid(unsigned int bus, unsigned int cs)
++{
++	if (bus)
++		return 0;
++
++	if (cs == 4)
++		return 1;
++
++	return 0;
++}
++
++void spi_cs_activate(struct spi_slave *slave)
++{
++	switch (slave->cs) {
++	case 4:
++		gpio_set_value(10, 0);
++		break;
++	default:
++		break;
++	}
++}
++
++void spi_cs_deactivate(struct spi_slave *slave)
++{
++	switch (slave->cs) {
++	case 4:
++		gpio_set_value(10, 1);
++		break;
++	default:
++		break;
++	}
++}
+diff --git a/boards.cfg b/boards.cfg
+index 05ec462844d7e4114fbe1eef2e8126d4f8a909c2..4f20df7c27aab03b6053a64dbc56445dfcbc7118 100644
+--- a/boards.cfg
++++ b/boards.cfg
+@@ -368,6 +368,8 @@ easy80920_ram                mips        mips32      easy80920           lantiq
+ easy80920_sfspl              mips        mips32      easy80920           lantiq         vrx200      easy80920:SYS_BOOT_SFSPL
+ isdn_sip_gw_ram              mips        mips32      isdn_sip_gw         sphairon       vrx200      isdn_sip_gw:SYS_BOOT_RAM
+ isdn_sip_gw_sfspl            mips        mips32      isdn_sip_gw         sphairon       vrx200      isdn_sip_gw:SYS_BOOT_SFSPL
++sl550x_ram                   mips        mips32      sl550x              sphairon       vrx200      sl550x:SYS_BOOT_RAM
++sl550x_sfspl                 mips        mips32      sl550x              sphairon       vrx200      sl550x:SYS_BOOT_SFSPL
+ vrx_g1_ram                   mips        mips32      vrx_g1              sphairon       vrx200      vrx_g1:SYS_BOOT_RAM
+ vrx_g1_sfspl                 mips        mips32      vrx_g1              sphairon       vrx200      vrx_g1:SYS_BOOT_SFSPL
+ qi_lb60                      mips        xburst      qi_lb60             qi
+ diff --git a/include/configs/sl550x.h b/include/configs/sl550x.h
+new file mode 100644
+index 0000000000000000000000000000000000000000..125760f043124401f2cb7146d8fcf9c2874e87be
+--- /dev/null
++++ b/include/configs/sl550x.h
+@@ -0,0 +1,89 @@
++/*
++ * This file is released under the terms of GPL v2 and any later version.
++ * See the file COPYING in the root directory of the source tree for details.
++ *
++ * Copyright (C) 2011 Daniel Schwierzeck, daniel.schwierzeck@googlemail.com
++ */
++
++#ifndef __CONFIG_H
++#define __CONFIG_H
++
++#define CONFIG_MACH_TYPE	"SPHSL550X"
++#define CONFIG_IDENT_STRING	" "CONFIG_MACH_TYPE
++#define CONFIG_BOARD_NAME	"Sphairon Speedlink 4501/5501/6501 IAD"
++
++/* Configure SoC */
++#define CONFIG_LTQ_SUPPORT_UART		/* Enable ASC and UART */
++
++#define CONFIG_LTQ_SUPPORT_ETHERNET	/* Enable ethernet */
++
++#define CONFIG_LTQ_SSIO_SHIFT_REGS	1
++#define CONFIG_LTQ_SSIO_EDGE_FALLING
++#define CONFIG_LTQ_SSIO_GPHY1_MODE	0x3
++#define CONFIG_LTQ_SSIO_GPHY2_MODE	0x3
++#define CONFIG_LTQ_SSIO_INIT_VALUE	0x0
++
++#define CONFIG_LTQ_SUPPORT_SPI_FLASH
++#define CONFIG_SPI_FLASH_MACRONIX	/* Supports MX29LV620 serial flash */
++#define CONFIG_SPI_FLASH_SPANSION	/* Supports SF25FL256S serial flash */
++#define CONFIG_SPI_FLASH_EON		/* Supports EN25QH256 serial flash */
++#define CONFIG_SPI_FLASH_4BYTE_MODE
++
++#define CONFIG_LTQ_SUPPORT_NAND_FLASH
++
++#define CONFIG_LTQ_SUPPORT_SPL_SPI_FLASH	/* Build SPI flash SPL */
++#define CONFIG_SPL_SPI_BUS		0
++#define CONFIG_SPL_SPI_CS		4
++#define CONFIG_SPL_SPI_MAX_HZ		25000000
++#define CONFIG_SPL_SPI_MODE		0
++#define CONFIG_LTQ_SPL_COMP_LZO
++#define CONFIG_LTQ_SPL_CONSOLE
++
++/* MTD devices */
++#define CONFIG_MTD_DEVICE
++#define CONFIG_MTD_PARTITIONS
++#define CONFIG_SPI_FLASH_MTD
++#define CONFIG_CMD_MTD
++#define MTDIDS_DEFAULT			"nor0=spi0.4,nand0=nand-xway"
++
++/* Environment */
++#define CONFIG_ENV_SPI_BUS		CONFIG_SPL_SPI_BUS
++#define CONFIG_ENV_SPI_CS		CONFIG_SPL_SPI_CS
++#define CONFIG_ENV_SPI_MAX_HZ		CONFIG_SPL_SPI_MAX_HZ
++#define CONFIG_ENV_SPI_MODE		CONFIG_SPL_SPI_MODE
++
++#if defined(CONFIG_SYS_BOOT_SFSPL)
++#define CONFIG_ENV_IS_IN_SPI_FLASH
++#define CONFIG_ENV_OVERWRITE
++#define CONFIG_ENV_OFFSET		(512 * 1024)
++#define CONFIG_ENV_SECT_SIZE		(256 * 1024)
++
++#define MTDPARTS_DEFAULT		\
++	"mtdparts=spi0.4:512k(uboot_fix),256k(uboot_cfg)"
++#else
++#define CONFIG_ENV_IS_NOWHERE
++
++#define MTDPARTS_DEFAULT		"mtdparts="
++#endif
++
++#define CONFIG_ENV_SIZE			(8 * 1024)
++
++#define CONFIG_LOADADDR			CONFIG_SYS_LOAD_ADDR
++
++/* Console */
++#define CONFIG_LTQ_ADVANCED_CONSOLE
++#define CONFIG_BAUDRATE			115200
++#define CONFIG_CONSOLE_ASC		1
++#define CONFIG_CONSOLE_DEV		"ttyLTQ1"
++
++/* Commands */
++#define CONFIG_CMD_PING
++
++/* Pull in default board configs for Lantiq XWAY VRX200 */
++#include <asm/lantiq/config.h>
++#include <asm/arch/config.h>
++
++#define CONFIG_ENV_UPDATE_UBOOT_SF					\
++	"update-uboot-sf=run load-uboot-sfspl-lzo write-uboot-sf\0"
++
++#define CONFIG_EXTRA_ENV_SETTINGS	\
++	CONFIG_ENV_LANTIQ_DEFAULTS	\
++	CONFIG_ENV_UPDATE_UBOOT_SF	\
++
++#endif /* __CONFIG_H */
