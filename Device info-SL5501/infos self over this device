@@ -1,0 +1,23 @@
+
+    (5501 have WANoE port ... but 6501 have incoming ISDN line port)
+    4 LAN ports
+    S0-out phone ports
+    ISDN-out
+    2 USB
+    2 wifi Antenne
+    VDSL2
+------------------------------------------------------------------------
+hardware : Lantiq XWAY / VR9 / MIPS 34Kc (info got from dmesg)
+RT5392 (chip onboard) / in dmesg driver say RT3662 /
+Flash: 64M /chip FL512SA/
+RAM : 128Mb:
+
+SOC : Lantiq VRX288 v1.2
+
+
+#
+uBoot
+variables that show current layout :
+mtdids=nor0=spi0.4
+mtdparts=mtdparts=spi0.4:512k(uboot_fix),256k(uboot_cfg),10m(data),27136k(images1),27136k(images2)
+partition=nor0,0
