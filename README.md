@@ -26,3 +26,5 @@ my test Devicetree = my attempts to port,to openwrt
 Device info-SL5501 = all the information i have from the device 
 
 openwrt = this folder is to copy it directly into the Openwrt Bulid system to build the SL5501 without much effort.
+
+Nicht wichtig = this folder is not important
