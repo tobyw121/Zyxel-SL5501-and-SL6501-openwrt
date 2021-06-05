@@ -1,0 +1,45 @@
+&pci {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&pci_pins>;
+
+	pci_pins: pci {
+		pci {
+			ralink,group = "pci";
+			ralink,function = "pci-fnc";
+		};
+	};
+
+	host-bridge {
+		pci-bridge@1 {
+			status = "okay";
+
+			wifi@1814,3091 {
+				compatible = "pci1814,3091";
+				reg = <0x10000 0 0 0 0>;
+				ralink,mtd-eeprom = <&factory 0x8000>;
+			};
+		};
+	};
+};
+pci: pci@10140000 {
+		compatible = "ralink,rt3883-pci";
+		reg = <0x10140000 0x20000>;
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges; /* direct mapping */
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&pci_pins>;
+
+		status = "disabled";
+
+		pciintc: interrupt-controller {
+			interrupt-controller;
+			#address-cells = <0>;
+			#interrupt-cells = <1>;
+
+			interrupt-parent = <&cpuintc>;
+			interrupts = <4>;
+};
+
