@@ -17,6 +17,22 @@ static const struct ltq_eth_port_config eth_port_sl5501[] = {
 	
 	{ 5, 0x0, LTQ_ETH_PORT_NONE, PHY_INTERFACE_MODE_NONE },
 };
+--------------------------------------------------------------------------------------------------- 
+[    0.422000] vr9_switch vr9_switch: firmware: using built-in firmware lantiq/vr9_phy22f_a2x.bin
+[    0.430000] vr9_switch vr9_switch: booting GPHY0 firmware lantiq/vr9_phy22f_a2x.bin at a7ac0000
+[    0.438000] vr9_switch vr9_switch: firmware: using built-in firmware lantiq/vr9_phy11g_a2x.bin
+[    0.447000] vr9_switch vr9_switch: booting GPHY1 firmware lantiq/vr9_phy11g_a2x.bin at a7ae0000
+[    0.557000] sl550x_phy_fixup: phydev->addr 0
+[    0.560000] sl550x_phy_fixup: phydev->addr 1
+[    0.565000] sl550x_phy_fixup: phydev->addr 11
+[    0.569000] sl550x_phy_fixup: phydev->addr 12
+[    0.573000] sl550x_phy_fixup: phydev->addr 13
+[    0.578000] vr9_switch_mii: probed
+[    0.581000] sl550x_phy_fixup: phydev->addr 0
+[    0.586000] sl550x_phy_fixup: phydev->addr 1
+[    0.591000] sl550x_phy_fixup: phydev->addr 11
+[    0.595000] sl550x_phy_fixup: phydev->addr 12
+[    0.599000] sl550x_phy_fixup: phydev->addr 13
 
 ---------------------------------------------------------------------------------------
 
