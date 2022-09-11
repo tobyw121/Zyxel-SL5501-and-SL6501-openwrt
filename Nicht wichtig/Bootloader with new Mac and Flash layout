@@ -1,0 +1,9 @@
+mtdparts add "Storage" 256k uboot
+mtdparts add "Storage" 128k uboot-env
+mtdparts add "Storage" 3m kernel
+mtdparts add "Storage" - ubi
+setenv ethaddr XX:XX:XX:XX:XX:XX
+setenv nboot '"Storage" read 0x80800000 0x60000 0x300000; bootm 0x80800000'
+setenv bootcmd 'run nboot'
+saveenv
+
